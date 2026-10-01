@@ -83,7 +83,7 @@ Item {
         }
     }
 
-    // 1. 工作区切换
+    // 1. 工作区切换（圆点支持点击跳桌面）
     Row {
         id: wsLayoutRow
         anchors.centerIn: parent
@@ -142,16 +142,29 @@ Item {
             Repeater {
                 model: Math.min(10, Math.max(1, compactRoot.wsTotal))
                 Rectangle {
-                    readonly property bool isCurrent: (index + 1) === compactRoot.wsCurrent
-                    width: isCurrent ? 15 : 4.5
+                    readonly property int dotIndex: index + 1
+                    readonly property bool isCurrent: dotIndex === compactRoot.wsCurrent
+                    width: isCurrent ? 15 : (dotMouse.containsMouse ? 7 : 4.5)
                     height: 4.5
                     radius: 2.25
-                    color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.24)
-                    scale: isCurrent ? 1.0 : 0.85
+                    color: isCurrent ? "#ffffff" : (dotMouse.containsMouse ? "#a855f7" : Qt.rgba(1, 1, 1, 0.24))
+                    scale: isCurrent ? 1.0 : (dotMouse.containsMouse ? 1.2 : 0.85)
 
-                    Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.3 } }
-                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutQuad } }
-                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
+                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 140 } }
+                    Behavior on scale { NumberAnimation { duration: 160 } }
+
+                    MouseArea {
+                        id: dotMouse
+                        anchors.fill: parent
+                        anchors.margins: -4
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: (mouse) => {
+                            mouse.accepted = true
+                            if (typeof Bridge !== "undefined") Bridge.switchWorkspace(dotIndex)
+                        }
+                    }
                 }
             }
         }

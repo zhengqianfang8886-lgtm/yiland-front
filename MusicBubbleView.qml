@@ -11,16 +11,33 @@ Rectangle {
     radius: height / 2
     clip: true
 
+    // 核心物理锚点：锁定在右侧边缘，消失时宛如水滴自然被吸入胶囊左侧
+    transformOrigin: Item.Right
+
     color: Qt.rgba(0.08, 0.08, 0.1, 0.96)
     border.color: bubbleHover.hovered ? Qt.rgba(34, 197, 94, 0.6) : Qt.rgba(1, 1, 1, 0.15)
     border.width: 1
 
     opacity: active ? 1.0 : 0.0
-    scale: active ? 1.0 : 0.2
+    // 消失时完全收敛到 0.0，绝不留 20% 残影
+    scale: active ? 1.0 : 0.0
     visible: opacity > 0.01
 
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.18 } }
+    Behavior on opacity {
+        NumberAnimation {
+            duration: musicBubbleRoot.active ? 180 : 140
+            easing.type: Easing.OutQuad
+        }
+    }
+
+    // 弹出时使用 OutBack 弹性萌动；收缩时使用 InQuad 迅速吸入（彻底消除终点反弹切片）
+    Behavior on scale {
+        NumberAnimation {
+            duration: musicBubbleRoot.active ? 240 : 160
+            easing.type: musicBubbleRoot.active ? Easing.OutBack : Easing.InQuad
+            easing.overshoot: musicBubbleRoot.active ? 1.18 : 1.0
+        }
+    }
 
     Rectangle {
         anchors.centerIn: parent

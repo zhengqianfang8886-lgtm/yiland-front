@@ -28,38 +28,27 @@ DEFAULT_SAVED_CLOCKS = [
 ]
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
-    if not raw_avatar_url:
-        return ""
+    if not raw_avatar_url: return ""
     try:
         parsed = urllib.parse.urlparse(raw_avatar_url)
         clean_path = parsed.path if parsed.scheme in ("file", "") else raw_avatar_url
-        if parsed.scheme == "file" and not clean_path.startswith("/"):
-            clean_path = "/" + clean_path
-
-        if parsed.scheme in ("http", "https"):
-            return raw_avatar_url
-
-        if not os.path.exists(clean_path):
-            return ""
-
+        if parsed.scheme == "file" and not clean_path.startswith("/"): clean_path = "/" + clean_path
+        if parsed.scheme in ("http", "https"): return raw_avatar_url
+        if not os.path.exists(clean_path): return ""
         os.makedirs(AVATAR_CACHE_DIR, exist_ok=True)
         mtime = os.path.getmtime(clean_path)
         file_hash = hashlib.md5(f"{clean_path}_{mtime}".encode("utf-8")).hexdigest()[:12]
         ext = os.path.splitext(clean_path)[1] or ".png"
         cached_filename = f"avatar_{file_hash}{ext}"
         cached_path = os.path.join(AVATAR_CACHE_DIR, cached_filename)
-
-        if not os.path.exists(cached_path):
-            shutil.copy2(clean_path, cached_path)
-
+        if not os.path.exists(cached_path): shutil.copy2(clean_path, cached_path)
         return f"file://{cached_path}"
     except Exception as e:
         app_logger.warning(f"处理头像缓存失败: {e}")
         return ""
 
 def to_compact_speed(speed_str: str) -> str:
-    if not speed_str:
-        return "0K"
+    if not speed_str: return "0K"
     parts = speed_str.strip().split()
     if len(parts) >= 2:
         val, unit = parts[0], parts[1].upper()
@@ -71,8 +60,7 @@ def to_compact_speed(speed_str: str) -> str:
                 f = float(val)
                 return f"{int(f)}K" if f >= 10 else f"{f:.1f}K"
             except ValueError: return f"{val}K"
-        elif "B" in unit:
-            return "0K"
+        elif "B" in unit: return "0K"
     return "0K"
 
 def get_local_ip() -> str:
@@ -82,8 +70,7 @@ def get_local_ip() -> str:
         ip = s.getsockname()[0]
         s.close()
         return ip
-    except Exception:
-        return "127.0.0.1"
+    except Exception: return "127.0.0.1"
 
 class ConfigManager(QObject):
     timeFormatChanged = Signal(str)
@@ -99,6 +86,7 @@ class ConfigManager(QObject):
     showNetSpeedChanged = Signal(bool)
     showMediaTabChanged = Signal(bool)
     showCalendarTabChanged = Signal(bool)
+    showWorkspaceTabChanged = Signal(bool)
     showNetworkTabChanged = Signal(bool)
     showClockTabChanged = Signal(bool)
     showBluetoothTabChanged = Signal(bool)
@@ -119,6 +107,7 @@ class ConfigManager(QObject):
         self._showNetSpeed = True
         self._showMediaTab = True
         self._showCalendarTab = True
+        self._showWorkspaceTab = True
         self._showNetworkTab = True
         self._showClockTab = True
         self._showBluetoothTab = True
@@ -133,30 +122,23 @@ class ConfigManager(QObject):
             base_dir = os.path.dirname(os.path.abspath(__file__))
             json_path = os.path.join(base_dir, "world_cities.json")
             if os.path.exists(json_path):
-                with open(json_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception as e:
-            app_logger.error(f"[Config] 加载城市数据库失败: {e}")
+                with open(json_path, "r", encoding="utf-8") as f: return json.load(f)
+        except Exception: pass
         return []
 
     def _load_system_fonts(self):
         try:
             families = sorted(list(set(QFontDatabase.families())))
             return ["系统默认 (Default)"] + families
-        except Exception as e:
-            app_logger.warning(f"获取系统字体失败: {e}")
-            return ["系统默认 (Default)"]
+        except Exception: return ["系统默认 (Default)"]
 
     def _migrate_clock_items(self, clock_list):
-        if not clock_list or not isinstance(clock_list, list):
-            return list(DEFAULT_SAVED_CLOCKS)
+        if not clock_list or not isinstance(clock_list, list): return list(DEFAULT_SAVED_CLOCKS)
         city_lookup = {c.get("name"): c for c in self._world_cities} if self._world_cities else {}
         migrated = []
         for item in clock_list:
             if not isinstance(item, dict): continue
-            if not item.get("tz") and item.get("name") in city_lookup:
-                matched = city_lookup[item["name"]]
-                item = dict(matched)
+            if not item.get("tz") and item.get("name") in city_lookup: item = dict(city_lookup[item["name"]])
             migrated.append(item)
         return migrated if migrated else list(DEFAULT_SAVED_CLOCKS)
 
@@ -174,44 +156,30 @@ class ConfigManager(QObject):
                     self._fontFamily = data.get("fontFamily", "系统默认 (Default)")
                     self._multiIslandExpandDirection = data.get("multiIslandExpandDirection", "right")
                     self._splitGap = data.get("splitGap", 8)
-
                     self._showNetSpeed = data.get("showNetSpeed", True)
                     self._showMediaTab = data.get("showMediaTab", True)
                     self._showCalendarTab = data.get("showCalendarTab", True)
+                    self._showWorkspaceTab = data.get("showWorkspaceTab", True)
                     self._showNetworkTab = data.get("showNetworkTab", True)
                     self._showClockTab = data.get("showClockTab", True)
                     self._showBluetoothTab = data.get("showBluetoothTab", True)
-
-                    raw_clocks = data.get("savedClocks", DEFAULT_SAVED_CLOCKS)
-                    self._savedClocks = self._migrate_clock_items(raw_clocks)
-            except Exception as e:
-                app_logger.error(f"[Config] 加载配置失败: {e}")
+                    self._savedClocks = self._migrate_clock_items(data.get("savedClocks", DEFAULT_SAVED_CLOCKS))
+            except Exception: pass
 
     def save(self):
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump({
-                    "timeFormat": self._timeFormat,
-                    "showSeconds": self._showSeconds,
-                    "showDate": self._showDate,
-                    "topMargin": self._topMargin,
-                    "offsetX": self._offsetX,
-                    "anchorMode": self._anchorMode,
-                    "fontFamily": self._fontFamily,
-                    "multiIslandExpandDirection": self._multiIslandExpandDirection,
-                    "splitGap": self._splitGap,
-                    "showNetSpeed": self._showNetSpeed,
-                    "showMediaTab": self._showMediaTab,
-                    "showCalendarTab": self._showCalendarTab,
-                    "showNetworkTab": self._showNetworkTab,
-                    "showClockTab": self._showClockTab,
-                    "showBluetoothTab": self._showBluetoothTab,
-                    "savedClocks": self._savedClocks
+                    "timeFormat": self._timeFormat, "showSeconds": self._showSeconds, "showDate": self._showDate,
+                    "topMargin": self._topMargin, "offsetX": self._offsetX, "anchorMode": self._anchorMode,
+                    "fontFamily": self._fontFamily, "multiIslandExpandDirection": self._multiIslandExpandDirection,
+                    "splitGap": self._splitGap, "showNetSpeed": self._showNetSpeed, "showMediaTab": self._showMediaTab,
+                    "showCalendarTab": self._showCalendarTab, "showWorkspaceTab": self._showWorkspaceTab,
+                    "showNetworkTab": self._showNetworkTab, "showClockTab": self._showClockTab,
+                    "showBluetoothTab": self._showBluetoothTab, "savedClocks": self._savedClocks
                 }, f, indent=2, ensure_ascii=False)
-            app_logger.info("[Config] 配置已保存")
-        except Exception as e:
-            app_logger.error(f"[Config] 保存配置失败: {e}")
+        except Exception: pass
 
     @Property(str, notify=timeFormatChanged)
     def timeFormat(self): return self._timeFormat
@@ -249,6 +217,12 @@ class ConfigManager(QObject):
     def showCalendarTab(self, val):
         if self._showCalendarTab != val: self._showCalendarTab = val; self.save(); self.showCalendarTabChanged.emit(val)
 
+    @Property(bool, notify=showWorkspaceTabChanged)
+    def showWorkspaceTab(self): return self._showWorkspaceTab
+    @showWorkspaceTab.setter
+    def showWorkspaceTab(self, val):
+        if self._showWorkspaceTab != val: self._showWorkspaceTab = val; self.save(); self.showWorkspaceTabChanged.emit(val)
+
     @Property(bool, notify=showNetworkTabChanged)
     def showNetworkTab(self): return self._showNetworkTab
     @showNetworkTab.setter
@@ -272,10 +246,7 @@ class ConfigManager(QObject):
     @splitGap.setter
     def splitGap(self, val):
         val = max(2, min(24, int(val)))
-        if self._splitGap != val:
-            self._splitGap = val
-            self.save()
-            self.splitGapChanged.emit(val)
+        if self._splitGap != val: self._splitGap = val; self.save(); self.splitGapChanged.emit(val)
 
     @Property(int, notify=topMarginChanged)
     def topMargin(self): return self._topMargin
@@ -317,10 +288,8 @@ class ConfigManager(QObject):
 
     @Property(list, constant=True)
     def systemFonts(self): return self._system_fonts
-
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
-
     @Property(str, notify=fontFamilyChanged)
     def fontFamily(self): return self._fontFamily
     @fontFamily.setter
@@ -338,13 +307,14 @@ def _sanitize_media_time(val):
         if f > 10000000: return f / 1000000.0
         if f > 100000: return f / 1000.0
         return f
-    except (ValueError, TypeError): return 0.0
+    except Exception: return 0.0
 
 class IslandBridge(QObject):
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     osdTriggered = Signal(str, str, int)
     workspaceTriggered = Signal(int, int, str)
+    workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
     callEndedTriggered = Signal()
     syncDataUpdated = Signal("QVariantMap")
@@ -352,7 +322,6 @@ class IslandBridge(QObject):
 
     bluetoothUpdated = Signal("QVariantList")
     bluetoothStateChanged = Signal(bool)
-
     notificationHistoryUpdated = Signal("QVariantList")
     unreadCountChanged = Signal(int)
 
@@ -405,66 +374,43 @@ class IslandBridge(QObject):
         self._sig_force_raise.emit()
 
     def add_notification(self, icon, title, content, avatar=""):
-        if not title and not content:
-            return
-
+        if not title and not content: return
         now_str = time.strftime("%H:%M")
         safe_avatar = process_notification_avatar(avatar) if avatar else ""
         item_id = int(time.time() * 1000)
-
-        item = {
-            "id": item_id,
-            "icon": icon or "💬",
-            "title": title or "新通知",
-            "content": content or "",
-            "avatar": safe_avatar,
-            "time": now_str,
-            "read": False
-        }
-
+        item = {"id": item_id, "icon": icon or "💬", "title": title or "新通知", "content": content or "", "avatar": safe_avatar, "time": now_str, "read": False}
         with self._notif_lock:
             if self._notification_history:
                 top = self._notification_history[0]
                 if top.get("title") == title and top.get("content") == content:
-                    if (item_id - top.get("id", 0)) < 3000:
-                        return
-
+                    if (item_id - top.get("id", 0)) < 3000: return
             self._notification_history.insert(0, item)
-            if len(self._notification_history) > 15:
-                self._notification_history.pop()
+            if len(self._notification_history) > 15: self._notification_history.pop()
             self._unread_count += 1
-            if safe_avatar:
-                self._latest_notif_avatar = safe_avatar
-
+            if safe_avatar: self._latest_notif_avatar = safe_avatar
             history_copy = [dict(n) for n in self._notification_history]
             current_unread = self._unread_count
-
         self.unreadCountChanged.emit(current_unread)
         self.notificationHistoryUpdated.emit(history_copy)
 
     @Slot(result=list)
     def getNotificationHistory(self):
-        with self._notif_lock:
-            return [dict(n) for n in self._notification_history]
+        with self._notif_lock: return [dict(n) for n in self._notification_history]
 
     @Slot(result=int)
     def getUnreadNotificationCount(self):
-        with self._notif_lock:
-            return self._unread_count
+        with self._notif_lock: return self._unread_count
 
     @Slot(result=str)
     def getLatestNotificationAvatar(self):
-        with self._notif_lock:
-            return self._latest_notif_avatar
+        with self._notif_lock: return self._latest_notif_avatar
 
     @Slot()
     def markAllNotificationsRead(self):
         with self._notif_lock:
             self._unread_count = 0
-            for n in self._notification_history:
-                n["read"] = True
+            for n in self._notification_history: n["read"] = True
             history_copy = [dict(n) for n in self._notification_history]
-
         self.unreadCountChanged.emit(0)
         self.notificationHistoryUpdated.emit(history_copy)
 
@@ -474,7 +420,6 @@ class IslandBridge(QObject):
             self._notification_history = []
             self._unread_count = 0
             self._latest_notif_avatar = ""
-
         self.unreadCountChanged.emit(0)
         self.notificationHistoryUpdated.emit([])
 
@@ -483,32 +428,23 @@ class IslandBridge(QObject):
         self._curr_status = status
         self._curr_dur = dur
         self._curr_pos = pos
-
         if status == "Playing":
-            if not self._local_media_timer.isActive():
-                self._local_media_timer.start()
-        else:
-            self._local_media_timer.stop()
-
+            if not self._local_media_timer.isActive(): self._local_media_timer.start()
+        else: self._local_media_timer.stop()
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
 
     @Slot(float, float, float)
     def _do_update_progress_state(self, pos, dur, prog):
         if self._curr_status == "Playing" and self._curr_dur > 0:
-            if pos >= self._curr_dur and (self._curr_dur - self._curr_pos > 5):
-                return
+            if pos >= self._curr_dur and (self._curr_dur - self._curr_pos > 5): return
         if dur > 0: self._curr_dur = dur
         if pos > 0: self._curr_pos = pos
         self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
 
     @Slot()
-    def forceRaise(self):
-        self.view.raise_()
-
+    def forceRaise(self): self.view.raise_()
     @Slot()
-    def requestWindowFocus(self):
-        self.view.requestActivate()
-        self.view.raise_()
+    def requestWindowFocus(self): self.view.requestActivate(); self.view.raise_()
 
     @Slot(int, int, int, int)
     def updateMask(self, x, y, width, height):
@@ -527,122 +463,85 @@ class IslandBridge(QObject):
             asyncio.run_coroutine_threadsafe(cmd_queue.put(payload), loop_holder)
 
     @Slot(str)
-    def sendMediaCmd(self, action: str):
-        self.sendIpcCmd(action)
+    def sendMediaCmd(self, action: str): self.sendIpcCmd(action)
+
+    # ================= 虚拟桌面切换核心槽函数（全域循环） =================
+    @Slot(int)
+    @Slot(str)
+    def switchWorkspace(self, target):
+        self.sendIpcCmd("WORKSPACE_SWITCH", target=target)
+
+    # 🚀 环形循环切上一个桌面
+    @Slot()
+    def switchWorkspacePrev(self):
+        self.sendIpcCmd("WORKSPACE_PREV")
+
+    # 🚀 环形循环切下一个桌面
+    @Slot()
+    def switchWorkspaceNext(self):
+        self.sendIpcCmd("WORKSPACE_NEXT")
 
     @Slot()
-    def answerTeamsCall(self):
-        self.sendIpcCmd("TEAMS_ANSWER")
-
+    def answerTeamsCall(self): self.sendIpcCmd("TEAMS_ANSWER")
     @Slot()
-    def rejectTeamsCall(self):
-        self.sendIpcCmd("TEAMS_REJECT")
-
+    def rejectTeamsCall(self): self.sendIpcCmd("TEAMS_REJECT")
     @Slot()
-    def focusTeamsWindow(self):
-        self.sendIpcCmd("TEAMS_FOCUS")
+    def focusTeamsWindow(self): self.sendIpcCmd("TEAMS_FOCUS")
 
     @Slot(str, bool, result=dict)
     def getWorldTime(self, tz_name, is_24h=True):
         try:
-            if not tz_name:
-                tz = QTimeZone.systemTimeZone()
-            else:
-                tz = QTimeZone(QByteArray(tz_name.encode("utf-8")))
-                if not tz.isValid():
-                    tz = QTimeZone.systemTimeZone()
-
+            tz = QTimeZone(QByteArray(tz_name.encode("utf-8"))) if tz_name else QTimeZone.systemTimeZone()
+            if not tz.isValid(): tz = QTimeZone.systemTimeZone()
             now_utc = QDateTime.currentDateTimeUtc()
             target_dt = now_utc.toTimeZone(tz)
             local_dt = QDateTime.currentDateTime()
             local_tz = QTimeZone.systemTimeZone()
-
-            h = target_dt.time().hour()
-            m = target_dt.time().minute()
-
-            if is_24h:
-                time_str = f"{h:02d}:{m:02d}"
-            else:
-                period = " PM" if h >= 12 else " AM"
-                h12 = h % 12 or 12
-                time_str = f"{h12:02d}:{m:02d}{period}"
-
-            target_offset_sec = tz.offsetFromUtc(now_utc)
-            local_offset_sec = local_tz.offsetFromUtc(now_utc)
-            diff_hours = round((target_offset_sec - local_offset_sec) / 3600.0, 1)
-
+            h = target_dt.time().hour(); m = target_dt.time().minute()
+            time_str = f"{h:02d}:{m:02d}" if is_24h else f"{h%12 or 12:02d}:{m:02d}{' PM' if h>=12 else ' AM'}"
+            diff_hours = round((tz.offsetFromUtc(now_utc) - local_tz.offsetFromUtc(now_utc)) / 3600.0, 1)
             day_diff = local_dt.date().daysTo(target_dt.date())
             day_str = "今天" if day_diff == 0 else ("明天" if day_diff > 0 else "昨天")
-
-            if diff_hours == 0:
-                diff_str = "与本地同时"
-            elif diff_hours > 0:
-                diff_str = f"快 {diff_hours:g}h · {day_str}"
-            else:
-                diff_str = f"慢 {abs(diff_hours):g}h · {day_str}"
-
-            is_day = 6 <= h < 18
-            is_working = 9 <= h < 18
-
-            return {
-                "time": time_str,
-                "diff": diff_str,
-                "isDay": is_day,
-                "isWorking": is_working
-            }
-        except Exception as e:
-            app_logger.error(f"[WorldTime] 错误: {e}")
-            return {"time": "--:--", "diff": "", "isDay": True, "isWorking": False}
+            diff_str = "与本地同时" if diff_hours == 0 else (f"快 {diff_hours:g}h · {day_str}" if diff_hours > 0 else f"慢 {abs(diff_hours):g}h · {day_str}")
+            return {"time": time_str, "diff": diff_str, "isDay": 6 <= h < 18, "isWorking": 9 <= h < 18}
+        except Exception: return {"time": "--:--", "diff": "", "isDay": True, "isWorking": False}
 
     @Slot(str, result=str)
     def getTzOffsetStr(self, tz_name):
         try:
-            tz = QTimeZone(QByteArray(tz_name.encode("utf-8")))
-            if not tz.isValid(): return "UTC"
-            now_utc = QDateTime.currentDateTimeUtc()
-            off_sec = tz.offsetFromUtc(now_utc)
-            off_h = off_sec // 3600
-            off_m = abs((off_sec % 3600) // 60)
+            tz = QTimeZone(QByteArray(tz_name.encode("utf-8"))) if tz_name else None
+            if not tz or not tz.isValid(): return "UTC"
+            off_sec = tz.offsetFromUtc(QDateTime.currentDateTimeUtc())
+            off_h = off_sec // 3600; off_m = abs((off_sec % 3600) // 60)
             sign = "+" if off_sec >= 0 else ""
-            if off_m == 0:
-                return f"UTC{sign}{off_h}"
-            return f"UTC{sign}{off_h}:{off_m:02d}"
-        except Exception:
-            return "UTC"
+            return f"UTC{sign}{off_h}" if off_m == 0 else f"UTC{sign}{off_h}:{off_m:02d}"
+        except Exception: return "UTC"
 
     @Slot(result=list)
     def getBluetoothDevices(self):
-        with self._bt_lock:
-            return [dict(d) for d in self._cached_bluetooth_devices]
+        with self._bt_lock: return [dict(d) for d in self._cached_bluetooth_devices]
 
     @Slot(result=bool)
     def isBluetoothPowered(self):
-        with self._bt_lock:
-            return self._bluetooth_powered
+        with self._bt_lock: return self._bluetooth_powered
 
     @Slot(str)
     def connectBluetooth(self, mac):
         def _con():
-            if shutil.which("bluetoothctl"):
-                subprocess.run(["bluetoothctl", "connect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if shutil.which("bluetoothctl"): subprocess.run(["bluetoothctl", "connect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         threading.Thread(target=_con, daemon=True).start()
 
     @Slot(str)
     def disconnectBluetooth(self, mac):
         def _dis():
-            if shutil.which("bluetoothctl"):
-                subprocess.run(["bluetoothctl", "disconnect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if shutil.which("bluetoothctl"): subprocess.run(["bluetoothctl", "disconnect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         threading.Thread(target=_dis, daemon=True).start()
 
     @Slot()
     def openBluetoothSettings(self):
         def _open():
-            candidates = ["blueman-manager", "gnome-control-center bluetooth", "plasma-open-settings kcm_bluetooth", "kcmshell6 kcm_bluetooth", "blueberry", "overskride"]
-            for cmd in candidates:
-                exe = cmd.split()[0]
-                if shutil.which(exe):
-                    subprocess.Popen(cmd, shell=True)
-                    return
+            for cmd in ["blueman-manager", "gnome-control-center bluetooth", "plasma-open-settings kcm_bluetooth", "kcmshell6 kcm_bluetooth", "blueberry", "overskride"]:
+                if shutil.which(cmd.split()[0]): subprocess.Popen(cmd, shell=True); return
         threading.Thread(target=_open, daemon=True).start()
 
     @Slot(str, str)
@@ -653,10 +552,8 @@ class IslandBridge(QObject):
                 clean_title = title.split(" - ")[0].split("—")[0].strip()
                 if len(clean_title) >= 2: search_terms.append(clean_title)
             if artist and artist != "未知歌手": search_terms.append(artist.strip())
-
             players = ["Spotify", "netease-cloud-music", "yesplaymusic", "qqmusic", "QQMusic", "music", "VLC", "Chrome", "Chromium", "Firefox"]
             candidates = search_terms + players
-
             if shutil.which("wmctrl"):
                 for kw in candidates:
                     if kw and subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: return
@@ -669,7 +566,6 @@ class IslandBridge(QObject):
             if shutil.which("swaymsg"):
                 for kw in candidates[:4]:
                     if kw and subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0: return
-
         threading.Thread(target=_focus, daemon=True).start()
 
 def ws_worker(bridge: IslandBridge):
@@ -686,7 +582,6 @@ def ws_worker(bridge: IslandBridge):
             try:
                 async with websockets.connect(uri) as ws:
                     app_logger.info(f"[WS] 成功直连灵动岛后端 D-Bus 守护服务: {uri}")
-
                     async def sender():
                         while True:
                             msg = await cmd_queue.get()
@@ -706,22 +601,21 @@ def ws_worker(bridge: IslandBridge):
                                     dur = _sanitize_media_time(m.get("duration"))
                                     raw_prog = m.get("progress")
                                     prog = float(raw_prog) if raw_prog is not None else (pos / dur if dur > 0 else 0.0)
-                                    prog = min(1.0, max(0.0, prog))
-                                    bridge.update_progress_state(pos, dur, prog)
+                                    bridge.update_progress_state(pos, dur, min(1.0, max(0.0, prog)))
 
                                 elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
                                     m = data["media"]
                                     art = m.get("art_url", "")
-                                    if art and art.startswith("/") and not art.startswith("file://"):
-                                        art = "file://" + art
+                                    if art and art.startswith("/") and not art.startswith("file://"): art = "file://" + art
                                     pos = _sanitize_media_time(m.get("position", 0.0))
                                     dur = _sanitize_media_time(m.get("duration", 0.0))
-                                    status = m.get("status", "Paused")
-                                    bridge.update_media_state(m.get("title", "等待播放..."), m.get("artist", "未知歌手"), status, art, pos, dur)
+                                    bridge.update_media_state(m.get("title", "等待播放..."), m.get("artist", "未知歌手"), m.get("status", "Paused"), art, pos, dur)
 
                                 if m_type in ("WORKSPACE_CHANGED", "FULL_SYNC") and "workspace" in data:
                                     ws_info = data["workspace"]
                                     bridge.workspaceTriggered.emit(int(ws_info.get("current_index", 1)), int(ws_info.get("total", 4)), str(ws_info.get("current_name", "")))
+                                    if "list" in ws_info:
+                                        bridge.workspaceListUpdated.emit(ws_info.get("list", []))
 
                                 if m_type == "VOLUME_UPDATE" and "system" in data:
                                     sys_info = data["system"]
@@ -733,66 +627,40 @@ def ws_worker(bridge: IslandBridge):
                                     b_info = data["bluetooth"]
                                     devices = b_info.get("connected_devices", [])
                                     powered = b_info.get("powered", True)
-
                                     alerts_to_emit = []
                                     with bridge._bt_lock:
                                         bridge._bluetooth_powered = powered
                                         bridge._cached_bluetooth_devices = devices
-
                                         if not bridge._first_poll and m_type in ("BLUETOOTH_CONNECT", "BLUETOOTH_DISCONNECT", "BLUETOOTH_BATTERY"):
                                             for dev in devices:
-                                                mac = dev.get("mac")
-                                                conn = dev.get("connected", False)
-                                                bat = dev.get("battery")
-                                                name = dev.get("name", "蓝牙设备")
+                                                mac = dev.get("mac"); conn = dev.get("connected", False); bat = dev.get("battery"); name = dev.get("name", "蓝牙设备")
                                                 prev_conn, _ = bridge._known_devices_state.get(mac, (None, None))
-
                                                 if prev_conn is not None and prev_conn != conn:
                                                     emoji = "🎧" if any(w in name.lower() for w in ["buds", "pods", "wh-", "head", "audio"]) else "蓝牙"
-                                                    if conn:
-                                                        bat_str = f" · 🔋 电量 {bat}%" if bat is not None else ""
-                                                        alerts_to_emit.append((emoji, name, f"已连接{bat_str}", 2500, ""))
-                                                    else:
-                                                        alerts_to_emit.append((emoji, name, "已断开连接", 2000, ""))
-
+                                                    alerts_to_emit.append((emoji, name, f"已连接 · 🔋 电量 {bat}%" if (conn and bat is not None) else ("已连接" if conn else "已断开连接"), 2500, ""))
                                                 bridge._known_devices_state[mac] = (conn, bat)
                                         else:
-                                            for dev in devices:
-                                                bridge._known_devices_state[dev.get("mac")] = (dev.get("connected", False), dev.get("battery"))
-
+                                            for dev in devices: bridge._known_devices_state[dev.get("mac")] = (dev.get("connected", False), dev.get("battery"))
                                         bridge._first_poll = False
                                         devices_copy = [dict(d) for d in devices]
-
                                     bridge.bluetoothStateChanged.emit(powered)
                                     bridge.bluetoothUpdated.emit(devices_copy)
-                                    for alert in alerts_to_emit:
-                                        bridge.alertTriggered.emit(*alert)
+                                    for alert in alerts_to_emit: bridge.alertTriggered.emit(*alert)
 
                                 if "network" in data:
                                     net_info = data["network"]
-                                    rx_str = net_info.get("rx_speed", "0 B/s")
-                                    tx_str = net_info.get("tx_speed", "0 B/s")
-                                    rx_comp = to_compact_speed(rx_str)
-                                    tx_comp = to_compact_speed(tx_str)
-
-                                    bridge.netSpeedUpdated.emit(rx_str, tx_str, rx_comp, tx_comp, bridge._cached_ip)
-
-                                    if m_type == "VPN_CONNECTED":
-                                        bridge.alertTriggered.emit("🛡️", "VPN 安全网络已接入", net_info.get("vpn_name", "VPN Active"), 2000, "")
-                                    elif m_type == "VPN_DISCONNECTED":
-                                        bridge.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
+                                    rx_str = net_info.get("rx_speed", "0 B/s"); tx_str = net_info.get("tx_speed", "0 B/s")
+                                    bridge.netSpeedUpdated.emit(rx_str, tx_str, to_compact_speed(rx_str), to_compact_speed(tx_str), bridge._cached_ip)
+                                    if m_type == "VPN_CONNECTED": bridge.alertTriggered.emit("🛡️", "VPN 安全网络已接入", net_info.get("vpn_name", "VPN Active"), 2000, "")
+                                    elif m_type == "VPN_DISCONNECTED": bridge.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
                                 if m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "TEAMS_CALL_INCOMING"):
                                     if "notification" in data:
                                         noti = data["notification"]
-                                        t_title = noti.get("title", "").strip()
-                                        t_sub = noti.get("content", "").strip()
-                                        raw_avatar = noti.get("avatar", "")
-
+                                        t_title = noti.get("title", "").strip(); t_sub = noti.get("content", "").strip()
+                                        safe_avatar = process_notification_avatar(noti.get("avatar", ""))
                                         if t_title or t_sub:
-                                            safe_avatar = process_notification_avatar(raw_avatar)
                                             bridge.add_notification(noti.get("icon", "💬"), t_title, t_sub, safe_avatar)
-
                                             if m_type == "TEAMS_CALL_INCOMING":
                                                 bridge.alertTriggered.emit(noti.get("icon", "📞"), t_title, t_sub or "正在呼叫...", 0, safe_avatar)
                                                 bridge.safe_force_raise()
@@ -807,42 +675,31 @@ def ws_worker(bridge: IslandBridge):
 
                                 bridge.syncDataUpdated.emit(data)
                             except Exception as err:
-                                app_logger.error(f"[WS] 消息解析与分发异常: {err}")
+                                app_logger.error(f"[WS] 消息解析异常: {err}")
 
                     await asyncio.gather(sender(), receiver())
             except Exception:
                 await asyncio.sleep(2)
-
     loop.run_until_complete(run())
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     install_qt_log_bridge()
     app_logger.info("Alcove Island 前端渲染引擎启动中...")
-
     app = QApplication(sys.argv)
     config = ConfigManager()
 
-    sigint_timer = QTimer()
-    sigint_timer.start(300)
-    sigint_timer.timeout.connect(lambda: None)
-
+    sigint_timer = QTimer(); sigint_timer.start(300); sigint_timer.timeout.connect(lambda: None)
     view = QQuickView()
     view.setColor("transparent")
     view.setFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-
     bridge = IslandBridge(view)
     window_width, window_height = 720, 270
 
     def update_view_position():
         screen = app.primaryScreen()
         base_rect = screen.geometry() if config.anchorMode == "screen" else screen.availableGeometry()
-        view.setGeometry(
-            base_rect.x() + (base_rect.width() - window_width) // 2 + config.offsetX,
-            base_rect.y() + config.topMargin,
-            window_width,
-            window_height
-        )
+        view.setGeometry(base_rect.x() + (base_rect.width() - window_width) // 2 + config.offsetX, base_rect.y() + config.topMargin, window_width, window_height)
 
     update_view_position()
     config.topMarginChanged.connect(lambda _: update_view_position())
@@ -858,7 +715,6 @@ def main():
     view.show()
 
     threading.Thread(target=ws_worker, args=(bridge,), daemon=True).start()
-
     sys.exit(app.exec())
 
 if __name__ == "__main__":
