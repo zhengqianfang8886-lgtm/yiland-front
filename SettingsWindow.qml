@@ -1,165 +1,301 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 
 Window {
     id: settingsWin
     title: "Alcove Island 偏好设置"
-    width: 420
-    height: 520
-    flags: Qt.Window | Qt.WindowStaysOnTopHint
-    minimumWidth: 420
-    minimumHeight: 500
-    maximumWidth: 420
-    maximumHeight: 560
-    color: "#121215"
-    visible: false
+    width: 380
+    height: 690
+    minimumWidth: 380
+    minimumHeight: 690
+    maximumWidth: 380
+    maximumHeight: 690
+    color: "#18181b"
+    flags: Qt.Dialog | Qt.WindowCloseButtonHint
 
-    ScrollView {
+    Column {
         anchors.fill: parent
-        anchors.margins: 22
-        clip: true
+        anchors.margins: 20
+        spacing: 12
 
-        ColumnLayout {
+        Text {
+            text: "⚙️ 灵动岛模块与偏好设置"
+            color: "white"
+            font.pixelSize: 16
+            font.bold: true
+        }
+
+        // 分组 1：多岛排布方向与副岛间距控制
+        Rectangle {
             width: parent.width
-            spacing: 16
+            height: 136
+            radius: 12
+            color: Qt.rgba(1, 1, 1, 0.05)
+            border.color: Qt.rgba(129, 140, 248, 0.3)
 
-            RowLayout {
+            Column {
+                anchors.fill: parent
+                anchors.margins: 12
                 spacing: 8
-                Text { text: "⏰"; font.pixelSize: 16 }
-                Text { text: "日期与时间偏好"; color: "white"; font.pixelSize: 15; font.bold: true }
-            }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                // 1. 扩展方向标题栏
+                Item {
+                    width: parent.width
+                    height: 16
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "时间制式"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                ComboBox {
-                    model: ["12小时制 (04:53 pm)", "24小时制 (16:53)"]
-                    currentIndex: Config.timeFormat === "12h" ? 0 : 1
-                    onActivated: Config.timeFormat = (index === 0 ? "12h" : "24h")
-                }
-            }
+                    Text {
+                        text: "多副岛扩展方向"
+                        color: "#818cf8"
+                        font.pixelSize: 12
+                        font.bold: true
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "显示走字秒数 (:00)"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                Switch { checked: Config.showSeconds; onToggled: Config.showSeconds = checked }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "显示日期 (周/月/日)"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                Switch { checked: Config.showDate; onToggled: Config.showDate = checked }
-            }
-
-            Item { height: 6 }
-
-            RowLayout {
-                spacing: 8
-                Text { text: "🎨"; font.pixelSize: 16 }
-                Text { text: "界面字体与视觉样式"; color: "white"; font.pixelSize: 15; font.bold: true }
-            }
-
-            Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 6
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text { text: "系统字体 (输入过滤或下拉选择)"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
+                    Text {
+                        text: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "当前：向左延伸" : "当前：向右延伸"
+                        color: Qt.rgba(1, 1, 1, 0.45)
+                        font.pixelSize: 10
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
 
-                ComboBox {
-                    id: fontSelector
-                    Layout.fillWidth: true
-                    editable: true
-                    model: Config.systemFonts
-                    currentIndex: {
-                        var idx = Config.systemFonts.indexOf(Config.fontFamily)
-                        return (idx >= 0) ? idx : 0
-                    }
+                // 分段选择胶囊
+                Rectangle {
+                    width: parent.width
+                    height: 26
+                    radius: 13
+                    color: Qt.rgba(1, 1, 1, 0.08)
 
-                    onActivated: (index) => {
-                        Config.fontFamily = Config.systemFonts[index]
-                    }
-                    onAccepted: {
-                        Config.fontFamily = editText
-                    }
+                    Row {
+                        anchors.fill: parent
+                        Rectangle {
+                            width: parent.width / 2; height: parent.height; radius: 13
+                            color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? Qt.rgba(129, 140, 248, 0.25) : "transparent"
+                            border.color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "#818cf8" : "transparent"
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 150 } }
 
-                    delegate: ItemDelegate {
-                        width: fontSelector.width
-                        contentItem: Text {
-                            text: modelData
-                            color: "white"
-                            font.pixelSize: 13
-                            font.family: (modelData.indexOf("系统默认") !== -1) ? "" : modelData
-                            elide: Text.ElideRight
+                            Text {
+                                anchors.centerIn: parent
+                                text: "⬅️ 优先向左扩展"
+                                color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                font.pixelSize: 10; font.weight: Font.Bold
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: if (typeof Config !== "undefined") Config.multiIslandExpandDirection = "left"
+                            }
                         }
-                        highlighted: fontSelector.highlightedIndex === index
+
+                        Rectangle {
+                            width: parent.width / 2; height: parent.height; radius: 13
+                            color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? Qt.rgba(129, 140, 248, 0.25) : "transparent"
+                            border.color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? "#818cf8" : "transparent"
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "➡️ 优先向右扩展"
+                                color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                font.pixelSize: 10; font.weight: Font.Bold
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: if (typeof Config !== "undefined") Config.multiIslandExpandDirection = "right"
+                            }
+                        }
                     }
                 }
 
-                Text {
-                    text: "字体样式预览: 09/30 周三 19:55:28 • Doom Doc"
-                    color: "#a1a1aa"
-                    font.pixelSize: 11
-                    font.family: (Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) ? Config.fontFamily : ""
-                    Layout.fillWidth: true
-                    elide: Text.ElideRight
-                    topPadding: 2
+                // 2. 岛与岛之间的间距调节 (splitGap)
+                Item {
+                    width: parent.width
+                    height: 16
+
+                    Text {
+                        text: "主副岛呼吸间距"
+                        color: "#818cf8"
+                        font.pixelSize: 12
+                        font.bold: true
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Text {
+                        text: ((typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8) + " px"
+                        color: "#38bdf8"
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                        font.family: "Monospace"
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+
+                // 自定义沉浸式深色滑块
+                Slider {
+                    id: gapSlider
+                    width: parent.width
+                    height: 22
+                    from: 2
+                    to: 24
+                    stepSize: 1
+                    value: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
+                    onMoved: if (typeof Config !== "undefined") Config.splitGap = Math.round(value)
+
+                    background: Rectangle {
+                        x: gapSlider.leftPadding
+                        y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
+                        width: gapSlider.availableWidth
+                        height: 4
+                        radius: 2
+                        color: Qt.rgba(1, 1, 1, 0.12)
+
+                        Rectangle {
+                            width: gapSlider.visualPosition * parent.width
+                            height: parent.height
+                            radius: 2
+                            color: "#818cf8"
+                        }
+                    }
+
+                    handle: Rectangle {
+                        x: gapSlider.leftPadding + gapSlider.visualPosition * (gapSlider.availableWidth - width)
+                        y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
+                        width: 16
+                        height: 16
+                        radius: 8
+                        color: gapSlider.pressed ? "#a5b4fc" : "#818cf8"
+                        border.color: "#ffffff"
+                        border.width: 1.5
+                    }
                 }
             }
+        }
 
-            Item { height: 6 }
+        // 分组 2：常态胶囊显示项
+        Rectangle {
+            width: parent.width
+            height: 140
+            radius: 12
+            color: Qt.rgba(1, 1, 1, 0.05)
+            border.color: Qt.rgba(1, 1, 1, 0.1)
 
-            RowLayout {
-                spacing: 8
-                Text { text: "📍"; font.pixelSize: 16 }
-                Text { text: "物理屏幕定位基准"; color: "white"; font.pixelSize: 15; font.bold: true }
-            }
+            Column {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 2
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+                Text { text: "胶囊常态显示项"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "顶部吸附基准"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                ComboBox {
-                    model: ["物理屏幕最顶部 (绝对像素Y=0)", "可用工作区顶部 (避让顶栏)"]
-                    currentIndex: Config.anchorMode === "screen" ? 0 : 1
-                    onActivated: Config.anchorMode = (index === 0 ? "screen" : "workarea")
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "显示实时网速 (↓↑)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showNetSpeed !== undefined) ? Config.showNetSpeed : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showNetSpeed !== undefined) Config.showNetSpeed = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "显示当前日期"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showDate !== undefined) ? Config.showDate : false
+                        onToggled: if (typeof Config !== "undefined" && Config.showDate !== undefined) Config.showDate = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "显示时间秒数"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showSeconds !== undefined) ? Config.showSeconds : false
+                        onToggled: if (typeof Config !== "undefined" && Config.showSeconds !== undefined) Config.showSeconds = checked
+                    }
                 }
             }
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "垂直顶距 (Top Margin)"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                SpinBox {
-                    from: 0; to: 50; value: Config.topMargin; editable: true
-                    onValueModified: Config.topMargin = value
+        // 分组 3：展开大卡片模块
+        Rectangle {
+            width: parent.width
+            height: 240
+            radius: 12
+            color: Qt.rgba(1, 1, 1, 0.05)
+            border.color: Qt.rgba(1, 1, 1, 0.1)
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 2
+
+                Text { text: "展开卡片模块 (Tab 栏)"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "🎵 媒体卡片 (播放/播控)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showMediaTab !== undefined) ? Config.showMediaTab : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showMediaTab !== undefined) Config.showMediaTab = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "📅 日历卡片 (Bento 风格)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showCalendarTab !== undefined) ? Config.showCalendarTab : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showCalendarTab !== undefined) Config.showCalendarTab = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "🎧 蓝牙卡片 (设备/电量/连接)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showBluetoothTab !== undefined) ? Config.showBluetoothTab : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showBluetoothTab !== undefined) Config.showBluetoothTab = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "📶 实时网络详情面板"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showNetworkTab !== undefined) ? Config.showNetworkTab : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showNetworkTab !== undefined) Config.showNetworkTab = checked
+                    }
+                }
+
+                Item {
+                    width: parent.width; height: 32
+                    Text { text: "🌍 世界时钟面板"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                    Switch {
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        checked: (typeof Config !== "undefined" && Config.showClockTab !== undefined) ? Config.showClockTab : true
+                        onToggled: if (typeof Config !== "undefined" && Config.showClockTab !== undefined) Config.showClockTab = checked
+                    }
                 }
             }
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text { text: "水平微调 (Offset X)"; color: "#e4e4e7"; font.pixelSize: 13; Layout.fillWidth: true }
-                SpinBox {
-                    from: -200; to: 200; value: Config.offsetX; editable: true
-                    onValueModified: Config.offsetX = value
-                }
-            }
-
-            Item { height: 10 }
-
-            Text {
-                text: "💡 提示：更改字体即刻全局生效并自动保存本地。"
-                color: "#71717a"
-                font.pixelSize: 11
-                Layout.alignment: Qt.AlignHCenter
-            }
+        Text {
+            text: "💡 提示：间距拖动实时生效，设置自动写入本地配置。"
+            color: Qt.rgba(1, 1, 1, 0.45)
+            font.pixelSize: 11
+            anchors.horizontalCenter: parent.horizontalCenter
         }
     }
 }
