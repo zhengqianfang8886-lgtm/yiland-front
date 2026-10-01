@@ -159,6 +159,24 @@ class ConfigManager(QObject):
 cmd_queue = None
 loop_holder = None
 
+def _sanitize_media_time(val):
+    """自适应媒体时间单位清洗器：微秒(us) -> 毫秒(ms) -> 秒(s)"""
+    if val is None:
+        return 0.0
+    try:
+        f = float(val)
+        if f <= 0:
+            return 0.0
+        # 大于 1000 万：必为微秒 (MPRIS 原生规范，如 240,000,000us -> 240s)
+        if f > 10000000:
+            return f / 1000000.0
+        # 大于 10 万且小于 1000 万：大概率为毫秒
+        if f > 100000:
+            return f / 1000.0
+        return f
+    except (ValueError, TypeError):
+        return 0.0
+
 class IslandBridge(QObject):
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
@@ -172,15 +190,68 @@ class IslandBridge(QObject):
         super().__init__()
         self.view = view
 
+        # 核心：本地平滑递增心跳机制 (Local Interpolation)
+        self._curr_pos = 0.0
+        self._curr_dur = 0.0
+        self._curr_status = "Paused"
+
+        self._local_media_timer = QTimer(self)
+        self._local_media_timer.setInterval(1000)
+        self._local_media_timer.timeout.connect(self._on_local_media_tick)
+
+    def _on_local_media_tick(self):
+        """当处于播放状态时，即使后台没有上报游标，本地自动每秒前进 1 秒"""
+        if self._curr_status == "Playing" and self._curr_dur > 0:
+            if self._curr_pos < self._curr_dur:
+                self._curr_pos += 1.0
+                prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur))
+                self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
+
+    def update_media_state(self, title, artist, status, art, pos, dur):
+        self._curr_status = status
+        self._curr_dur = dur
+        self._curr_pos = pos
+
+        if status == "Playing":
+            if not self._local_media_timer.isActive():
+                self._local_media_timer.start()
+        else:
+            self._local_media_timer.stop()
+
+        self.mediaUpdated.emit(title, artist, status, art, pos, dur)
+
+    def update_progress_state(self, pos, dur, prog):
+        # 防溢出防火墙：如果正在播放，而收到 pos >= dur，直接忽略这次假的满格
+        if self._curr_status == "Playing" and self._curr_dur > 0:
+            if pos >= self._curr_dur and (self._curr_dur - self._curr_pos > 5):
+                return
+
+        if dur > 0:
+            self._curr_dur = dur
+        if pos > 0:
+            self._curr_pos = pos
+
+        self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
+
     @Slot()
     def forceRaise(self):
+        self.view.raise_()
+
+    @Slot()
+    def requestWindowFocus(self):
+        self.view.requestActivate()
         self.view.raise_()
 
     @Slot(int, int, int, int)
     def updateMask(self, x, y, width, height):
         if width > 0 and height > 0:
-            region = QRegion(QRect(x, y, width, height))
-            self.view.setMask(region)
+            safe_x = max(0, int(x))
+            safe_y = max(0, int(y))
+            safe_w = min(self.view.width() - safe_x, int(width))
+            safe_h = min(self.view.height() - safe_y, int(height))
+            if safe_w > 0 and safe_h > 0:
+                region = QRegion(QRect(safe_x, safe_y, safe_w, safe_h))
+                self.view.setMask(region)
 
     @Slot(str)
     def sendMediaCmd(self, action):
@@ -189,33 +260,62 @@ class IslandBridge(QObject):
             payload = json.dumps({"action": action})
             asyncio.run_coroutine_threadsafe(cmd_queue.put(payload), loop_holder)
 
-    @Slot()
-    def focusTeamsWindow(self):
-        """Teams 穿梭门：跨虚拟桌面定位并激活 Teams / Chrome 通话窗口"""
+    @Slot(str, str)
+    def focusMediaWindow(self, title="", artist=""):
         def _focus():
             import subprocess, shutil
-            app_logger.info("[Portal] 穿梭门触发：正在跨桌面搜寻并聚焦 Teams 窗口...")
-            # 1. 优先尝试 wmctrl (X11/XWayland 标准工具：-a 参数自动跨桌面切换并激活窗口)
+            search_terms = []
+            if title and title != "等待播放...":
+                clean_title = title.split(" - ")[0].split("—")[0].strip()
+                if len(clean_title) >= 2:
+                    search_terms.append(clean_title)
+            if artist and artist != "未知歌手":
+                search_terms.append(artist.strip())
+
+            players = ["Spotify", "netease-cloud-music", "yesplaymusic", "qqmusic", "QQMusic", "music", "VLC", "Chrome", "Chromium", "Firefox"]
+            candidates = search_terms + players
+
+            if shutil.which("wmctrl"):
+                for kw in candidates:
+                    if not kw: continue
+                    if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                        return
+            if shutil.which("xdotool"):
+                for kw in candidates[:4]:
+                    if not kw: continue
+                    cmd = f"xdotool search --onlyvisible --name '{kw}' windowactivate"
+                    if subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                        return
+            if shutil.which("hyprctl"):
+                for kw in candidates[:4]:
+                    if not kw: continue
+                    if subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                        return
+            if shutil.which("swaymsg"):
+                for kw in candidates[:4]:
+                    if not kw: continue
+                    if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                        return
+
+        threading.Thread(target=_focus, daemon=True).start()
+
+    @Slot()
+    def focusTeamsWindow(self):
+        def _focus():
+            import subprocess, shutil
             if shutil.which("wmctrl"):
                 for kw in ["Teams", "Microsoft Teams"]:
                     if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                        app_logger.info(f"[Portal] 成功通过 wmctrl 唤起窗口: {kw}")
                         return
-            # 2. 尝试 xdotool
             if shutil.which("xdotool"):
                 if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "Teams", "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                    app_logger.info("[Portal] 成功通过 xdotool 唤起 Teams")
                     return
-            # 3. 兼容 Wayland 原生合流器 (Hyprland / Sway)
             if shutil.which("hyprctl"):
                 if subprocess.run(["hyprctl", "dispatch", "focuswindow", "title:(.*Teams.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                    app_logger.info("[Portal] 成功通过 hyprctl 聚焦 Teams")
                     return
             if shutil.which("swaymsg"):
                 if subprocess.run(["swaymsg", '[title="(?i).*teams.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                    app_logger.info("[Portal] 成功通过 swaymsg 聚焦 Teams")
                     return
-            app_logger.warning("[Portal] 未搜寻到处于运行状态的 Teams / Chrome 窗口")
 
         threading.Thread(target=_focus, daemon=True).start()
 
@@ -231,7 +331,6 @@ def ws_worker(bridge):
         uri = "ws://127.0.0.1:8765"
         while True:
             try:
-                app_logger.debug(f"[WS] 正在尝试连接 WebSocket: {uri} ...")
                 async with websockets.connect(uri) as ws:
                     app_logger.info(f"[WS] 连接成功: {uri}")
                     async def sender():
@@ -247,24 +346,48 @@ def ws_worker(bridge):
                                 m_type = msg.get("type", "")
                                 data = msg.get("data", {})
 
+                                # 核心：强制标准输出打印，确保终端 100% 可见
+                                # if "media" in data or "MEDIA" in m_type:
+                                    # print(f"\033[1;36m[WS-RECV] type={m_type} | media={data.get('media')}\033[0m", flush=True)
+
                                 if m_type == "MEDIA_PROGRESS" and "media" in data:
                                     m = data["media"]
-                                    pos = float(m.get("position", 0.0) or 0.0)
-                                    dur = float(m.get("duration", 0.0) or 0.0)
-                                    prog = float(m.get("progress", 0.0) or (pos / dur if dur > 0 else 0.0))
-                                    bridge.progressUpdated.emit(pos, dur, prog)
+                                    raw_pos = m.get("position")
+                                    raw_dur = m.get("duration")
+
+                                    pos = _sanitize_media_time(raw_pos)
+                                    dur = _sanitize_media_time(raw_dur)
+
+                                    raw_prog = m.get("progress")
+                                    prog = float(raw_prog) if raw_prog is not None else (pos / dur if dur > 0 else 0.0)
+                                    prog = min(1.0, max(0.0, prog))
+
+                                    # 如果后端广播了进度百分比（如 0.74），通过百分比精确还原真实的秒数
+                                    if dur > 0 and pos >= dur and 0.0 < prog < 0.999:
+                                        pos = dur * prog
+
+                                    bridge.update_progress_state(pos, dur, prog)
 
                                 elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
                                     m = data["media"]
                                     art = m.get("art_url", "")
                                     if art and art.startswith("/") and not art.startswith("file://"):
                                         art = "file://" + art
-                                    pos = float(m.get("position", 0.0) or 0.0)
-                                    dur = float(m.get("duration", 0.0) or 0.0)
-                                    bridge.mediaUpdated.emit(
+
+                                    pos = _sanitize_media_time(m.get("position", 0.0))
+                                    dur = _sanitize_media_time(m.get("duration", 0.0))
+                                    status = m.get("status", "Paused")
+
+                                    raw_prog = m.get("progress")
+                                    if raw_prog is not None and dur > 0 and pos >= dur:
+                                        p_val = float(raw_prog)
+                                        if 0.0 < p_val < 0.999:
+                                            pos = dur * p_val
+
+                                    bridge.update_media_state(
                                         m.get("title", "等待播放..."),
                                         m.get("artist", "未知歌手"),
-                                        m.get("status", "Paused"),
+                                        status,
                                         art, pos, dur
                                     )
 
@@ -273,7 +396,6 @@ def ws_worker(bridge):
                                     c_idx = int(ws_info.get("current_index", 1))
                                     t_tot = int(ws_info.get("total", 4))
                                     c_name = str(ws_info.get("current_name", ""))
-                                    app_logger.info(f"\033[1;33m[DIAG-WS] 收到切屏事件 -> Index:{c_idx}, Total:{t_tot}, Name:'{c_name}'\033[0m")
                                     bridge.workspaceTriggered.emit(c_idx, t_tot, c_name)
 
                                 if m_type == "VOLUME_UPDATE" and "system" in data:
@@ -323,7 +445,6 @@ def ws_worker(bridge):
 
                     await asyncio.gather(sender(), receiver())
             except Exception as e:
-                app_logger.warning(f"[WS] 连接异常断开: {e}，2秒后尝试重连...")
                 await asyncio.sleep(2)
 
     loop.run_until_complete(run())
@@ -341,16 +462,16 @@ def main():
 
     view = QQuickView()
     view.setColor("transparent")
+
+    # 移除禁止焦点属性
     view.setFlags(
         Qt.FramelessWindowHint 
         | Qt.WindowStaysOnTopHint 
         | Qt.Tool
-        | Qt.BypassWindowManagerHint
-        | Qt.WindowDoesNotAcceptFocus
     )
 
     bridge = IslandBridge(view)
-    window_width, window_height = 420, 240
+    window_width, window_height = 460, 270
 
     def update_view_position():
         screen = app.primaryScreen()
@@ -358,7 +479,6 @@ def main():
         target_x = base_rect.x() + (base_rect.width() - window_width) // 2 + config.offsetX
         target_y = base_rect.y() + config.topMargin
         view.setGeometry(target_x, target_y, window_width, window_height)
-        app_logger.info(f"[Window] 物理窗口已定位 -> X:{target_x}, Y:{target_y} (基准: {config.anchorMode}, 顶距: {config.topMargin})")
 
     update_view_position()
     config.topMarginChanged.connect(lambda _: update_view_position())
