@@ -1,27 +1,22 @@
-import QtQuick 2.15
+import QtQuick
 
 Item {
     id: timerRoot
 
     property string chosenFont: ""
-
-    // 模式切换："countdown" (倒计时) 或 "stopwatch" (正向计时/秒表)
     property string timerType: "countdown"
     readonly property bool isCountUp: timerType === "stopwatch"
 
     property bool isRunning: false
     property bool isPaused: false
 
-    // 倒计时数据
     property int remainingSeconds: 1500
     property int totalSeconds: 1500
     property string currentMode: "focus"
 
-    // 正向计时数据与打点记录
     property int elapsedSeconds: 0
     property var laps: []
 
-    // 格式化数据计算
     readonly property int displaySec: isCountUp ? elapsedSeconds : remainingSeconds
     readonly property int hoursPart: Math.floor(displaySec / 3600)
     readonly property int minutesPart: Math.floor((displaySec % 3600) / 60)
@@ -29,7 +24,6 @@ Item {
     readonly property bool hasHours: displaySec >= 3600
 
     readonly property string formattedTime: formatTime(displaySec)
-    // 进度：正向计时模式下以 60 秒为一周循环扫掠，倒计时为剩余比例
     readonly property real progress: isCountUp ? ((elapsedSeconds % 60) / 60.0) : (totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 0)
     readonly property color accentColor: isCountUp ? "#38bdf8" : (currentMode === "break" ? "#10b981" : "#f97316")
 
@@ -55,7 +49,6 @@ Item {
         timerType = type
     }
 
-    // 倒计时调整
     function adjustTime(deltaSec) {
         if (isRunning || isCountUp) return
         var target = Math.max(0, remainingSeconds + deltaSec)
@@ -79,7 +72,7 @@ Item {
         if (!isRunning || !isCountUp) return
         var list = laps.slice()
         list.unshift({ id: list.length + 1, time: formatTime(elapsedSeconds) })
-        if (list.length > 3) list.pop() // 保留最近 3 次打点
+        if (list.length > 3) list.pop()
         laps = list
     }
 
@@ -117,10 +110,8 @@ Item {
         running: timerRoot.isRunning
         onTriggered: {
             if (timerRoot.isCountUp) {
-                // 正向计时递增
                 timerRoot.elapsedSeconds += 1
             } else {
-                // 倒计时递减
                 if (timerRoot.remainingSeconds > 1) {
                     timerRoot.remainingSeconds -= 1
                 } else {
@@ -156,7 +147,6 @@ Item {
                 anchors.centerIn: parent
                 spacing: 6
 
-                // 顶部状态指示灯
                 Row {
                     spacing: 6
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -183,7 +173,6 @@ Item {
                     }
                 }
 
-                // 时、分、秒数字
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 2
@@ -262,7 +251,6 @@ Item {
                     }
                 }
 
-                // 进度底条
                 Rectangle {
                     width: 140
                     height: 4.5
@@ -287,7 +275,6 @@ Item {
             height: parent.height
             spacing: 8
 
-            // 模式切换胶囊
             Rectangle {
                 width: parent.width
                 height: 26
@@ -394,7 +381,6 @@ Item {
                 height: 80
                 visible: timerRoot.isCountUp
 
-                // 无打点提示
                 Column {
                     anchors.centerIn: parent
                     spacing: 4
@@ -417,7 +403,6 @@ Item {
                     }
                 }
 
-                // 打点列表（修复点：使用纯 Item + anchors 两端对齐，彻底消除外部组件依赖）
                 Column {
                     anchors.fill: parent
                     spacing: 4
@@ -464,7 +449,6 @@ Item {
                 width: parent.width
                 spacing: 6
 
-                // 主开始/暂停按钮
                 Rectangle {
                     width: (timerRoot.isRunning || timerRoot.isPaused) ? (timerRoot.isCountUp && timerRoot.isRunning ? parent.width - 86 : parent.width - 44) : parent.width
                     height: 36
@@ -489,7 +473,6 @@ Item {
                     }
                 }
 
-                // 正向计时专享：打点计次按钮
                 Rectangle {
                     width: 38; height: 36; radius: 18
                     visible: timerRoot.isCountUp && timerRoot.isRunning
@@ -501,7 +484,6 @@ Item {
                     MouseArea { id: lapArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.recordLap() }
                 }
 
-                // 重置按钮
                 Rectangle {
                     width: 38; height: 36; radius: 18
                     visible: timerRoot.isRunning || timerRoot.isPaused

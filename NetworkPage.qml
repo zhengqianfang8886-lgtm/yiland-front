@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Item {
     id: netRoot
@@ -13,7 +13,7 @@ Item {
         anchors.fill: parent
         spacing: 14
 
-        // 1. 左侧下行速率大卡片 (下载)
+        // 1. 左侧下行速率大卡片
         Rectangle {
             width: (parent.width - 14) / 2
             height: parent.height
@@ -53,7 +53,7 @@ Item {
             }
         }
 
-        // 2. 右侧上行速率与网络状态大卡片 (上传)
+        // 2. 右侧上行速率大卡片
         Rectangle {
             width: (parent.width - 14) / 2
             height: parent.height

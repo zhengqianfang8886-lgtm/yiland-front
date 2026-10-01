@@ -1,6 +1,7 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
-import QtQuick.Window 2.15
+// File: Island.qml
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Window
 
 Item {
     id: root
@@ -14,12 +15,21 @@ Item {
 
     readonly property bool isMouseOverCapsule: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse)
 
-    function handleCapsuleHoverEnter() {
+    // 🚀 通用副岛与各入口直达核心调度器
+    function expandToTab(tabName) {
         root.cancelCollapse()
-        if (!root.isExpanded && !root.isCollapsing) hoverDwellTimer.restart()
-    }
-    function handleCapsuleHoverLeave() {
-        hoverDwellTimer.stop(); root.requestCollapse()
+        hoverDwellTimer.stop()
+        leaveGraceTimer.stop()
+        
+        // 如果是从非 Alert 入口进入，且当前处于 Alert 瞬态，重置瞬态
+        if (tabName !== "notification" && root.activeTransient === "ALERT") {
+            transientTimer.stop()
+            root.activeTransient = ""
+        }
+
+        root.expandedTab = tabName
+        root.isExpanded = true
+        root.safeCommitMask()
     }
 
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
@@ -61,7 +71,6 @@ Item {
 
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    // 多岛激活状态
     readonly property bool hasMusicIsland: (root.status === "Playing") && (root.activeTransient === "")
     readonly property bool hasTimerIsland: expandedCardView.timerPageRef.isRunning && (root.activeTransient === "")
     readonly property bool hasNotifIsland: (root.unreadNotificationCount > 0) && (root.activeTransient === "")
@@ -75,7 +84,6 @@ Item {
     onTargetHeightChanged: safeCommitMask()
     onSplitGapChanged: safeCommitMask()
 
-    // 气泡消失缓冲保护定时器
     Timer {
         id: maskRetractTimer
         interval: 260
@@ -99,7 +107,6 @@ Item {
         if (!root.isCollapsing && !root.isExpanded) safeCommitMask()
     }
 
-    // 穿透遮罩计算
     function safeCommitMask() {
         if (!root.animationReady) return
 
@@ -115,7 +122,7 @@ Item {
 
         var leftBubbleActive = root.hasMusicIsland || maskRetractTimer.running
         var leftExtra = (leftBubbleActive ? (48 + root.splitGap) : 0) + ((root.notifExpandsToLeft && (root.hasNotifIsland || maskRetractTimer.running)) ? (48 + root.splitGap) : 0)
-        
+
         var rightBubbleActive = root.hasTimerIsland || maskRetractTimer.running
         var rightExtra = (rightBubbleActive ? (rightTimerBubble ? rightTimerBubble.width : 84) + root.splitGap : 0) + ((!root.notifExpandsToLeft && (root.hasNotifIsland || maskRetractTimer.running)) ? (48 + root.splitGap) : 0)
 
@@ -129,11 +136,12 @@ Item {
     property string displayPeriod: "pm"
     property string displaySeconds: ""
 
+    // 默认排布：将“桌面”作为第一或优先 Tab
     readonly property var enabledTabs: {
         var list = []
+        if (typeof Config !== "undefined" && Config.showWorkspaceTab) list.push({ key: "workspace", name: "桌面", color: "#a855f7", activeColor: Qt.rgba(168, 85, 247, 0.22) })
         if (Config.showMediaTab) list.push({ key: "media", name: "媒体", color: "#ffffff", activeColor: Qt.rgba(1, 1, 1, 0.18) })
         if (Config.showCalendarTab) list.push({ key: "calendar", name: "日历", color: "#38bdf8", activeColor: Qt.rgba(56, 189, 248, 0.22) })
-        if (typeof Config !== "undefined" && Config.showWorkspaceTab) list.push({ key: "workspace", name: "桌面", color: "#a855f7", activeColor: Qt.rgba(168, 85, 247, 0.22) })
         list.push({ key: "timer", name: "计时", color: "#f97316", activeColor: Qt.rgba(249, 115, 22, 0.22) })
         list.push({ key: "notification", name: "消息", color: "#818cf8", activeColor: Qt.rgba(129, 140, 248, 0.22) })
         if (typeof Config !== "undefined" && Config.showBluetoothTab) list.push({ key: "bluetooth", name: "蓝牙", color: "#60a5fa", activeColor: Qt.rgba(96, 165, 250, 0.22) })
@@ -142,7 +150,8 @@ Item {
         return list
     }
 
-    property string expandedTab: "calendar"
+    // 🚀 默认界面变更为桌面工作区
+    property string expandedTab: "workspace"
     SettingsWindow { id: settingsDialog }
 
     Timer { id: raiseTimer; interval: 160; onTriggered: Bridge.forceRaise() }
@@ -173,18 +182,15 @@ Item {
     }
 
     onIsExpandedChanged: {
-        if (isExpanded && activeTransient === "ALERT") transientTimer.stop()
         safeCommitMask()
     }
 
     Connections {
         target: Bridge
         function onMediaUpdated(t, a, s, u, pos, dur) {
-            var wasPlaying = (root.status === "Playing")
             root.title = t; root.artist = a; root.status = s; root.artUrl = u
             root.duration = (dur !== undefined && !isNaN(dur)) ? Number(dur) : 0
             root.position = (pos !== undefined && !isNaN(pos)) ? Number(pos) : 0
-            if (!wasPlaying && s === "Playing" && Config.showMediaTab) root.expandedTab = "media"
         }
         function onProgressUpdated(pos, dur) {
             var d = (dur !== undefined && !isNaN(dur)) ? Number(dur) : root.duration
@@ -224,7 +230,21 @@ Item {
         }
     }
 
-    Timer { id: hoverDwellTimer; interval: 180; onTriggered: { if (!root.isCollapsing && root.isMouseOverCapsule && !root.isExpanded) root.isExpanded = true } }
+    // 🚀 悬停计时器：悬停进入，默认进入桌面工作区
+    Timer {
+        id: hoverDwellTimer
+        interval: 180
+        onTriggered: {
+            if (!root.isCollapsing && root.isMouseOverCapsule && !root.isExpanded) {
+                if (root.activeTransient === "ALERT") {
+                    root.expandToTab("notification")
+                } else {
+                    root.expandToTab("workspace") // 悬停默认进入桌面
+                }
+            }
+        }
+    }
+
     Timer { id: leaveGraceTimer; interval: 280; onTriggered: { if (!root.isCalling && !root.isMouseOverCapsule) root.startCollapse() } }
     Timer {
         id: cooldownTimer; interval: 140
@@ -266,9 +286,7 @@ Item {
         return root.isCalling ? 38 : 36
     }
 
-    // ========================================================
-    // 胶囊主舞台
-    // ========================================================
+    // 主胶囊容器
     Rectangle {
         id: capsule
         z: 2
@@ -299,12 +317,25 @@ Item {
         }
         Behavior on radius { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
-        HoverHandler { id: capsuleHover; onHoveredChanged: hovered ? root.cancelCollapse() : root.requestCollapse() }
+        HoverHandler {
+            id: capsuleHover
+            onHoveredChanged: {
+                if (hovered) {
+                    root.cancelCollapse()
+                    if (!root.isExpanded && !root.isCollapsing) hoverDwellTimer.restart()
+                } else {
+                    hoverDwellTimer.stop()
+                    root.requestCollapse()
+                }
+            }
+        }
 
         MouseArea {
-            id: capsuleMouseArea; anchors.fill: parent; hoverEnabled: true
+            id: capsuleMouseArea
+            anchors.fill: parent; hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
-            cursorShape: (root.isCalling || root.activeTransient === "ALERT") ? Qt.PointingHandCursor : Qt.ArrowCursor
+            cursorShape: Qt.PointingHandCursor // 全态支持手型指引，表示支持点击直达
+
             onEntered: { root.cancelCollapse(); if (!root.isExpanded && !root.isCollapsing) hoverDwellTimer.restart() }
             onExited: { hoverDwellTimer.stop(); root.requestCollapse() }
             onWheel: (wheel) => {
@@ -315,20 +346,31 @@ Item {
                     }
                 }
             }
+            // 🚀 核心改动：点击主岛，默认直达桌面工作区
             onClicked: (mouse) => {
-                hoverDwellTimer.stop(); leaveGraceTimer.stop()
+                hoverDwellTimer.stop()
+                leaveGraceTimer.stop()
+
                 if (mouse.button === Qt.RightButton) {
                     settingsDialog.show(); settingsDialog.raise(); settingsDialog.requestActivate()
-                } else {
-                    if (root.isCalling || (root.activeTransient === "ALERT" && !root.isExpanded)) {
-                        Bridge.focusTeamsWindow(); if (root.activeTransient === "ALERT") root.activeTransient = ""; return
-                    }
-                    if (!root.isExpanded) root.isExpanded = true
+                    return
                 }
+
+                if (root.isCalling) {
+                    Bridge.focusTeamsWindow()
+                    return
+                }
+
+                if (root.activeTransient === "ALERT") {
+                    root.expandToTab("notification")
+                    return
+                }
+
+                // 默认点击进入：直达桌面工作区
+                root.expandToTab("workspace")
             }
         }
 
-        // 常态紧凑视图
         CompactCapsuleView {
             id: compactCapsuleView
             anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
@@ -344,13 +386,17 @@ Item {
             Behavior on opacity { NumberAnimation { duration: root.isExpanded ? 100 : 180; easing.type: Easing.OutQuad } }
         }
 
-        // 展开态大卡片视图
         ExpandedCardView {
             id: expandedCardView
             width: 398; height: 208
             anchors.top: parent.top; anchors.topMargin: 16; anchors.horizontalCenter: parent.horizontalCenter
             opacity: root.isExpanded ? 1 : 0; scale: root.isExpanded ? 1.0 : 0.96; visible: opacity > 0.01
-            chosenFont: root.chosenFont; expandedTab: root.expandedTab; enabledTabs: root.enabledTabs
+            chosenFont: root.chosenFont
+            
+            // 🚀 单向声明式绑定维持有效
+            expandedTab: root.expandedTab
+            enabledTabs: root.enabledTabs
+            
             isCalling: root.isCalling; callTitle: root.callTitle; callSubtitle: root.callSubtitle; callAvatar: root.callAvatar
             title: root.title; artist: root.artist; status: root.status; artUrl: root.artUrl; position: root.position; duration: root.duration
             wsCurrent: root.wsCurrent; wsTotal: root.wsTotal; wsName: root.wsName; wsList: root.wsList
@@ -363,7 +409,7 @@ Item {
                 root.alertIcon = "⏰"; root.alertTitle = t; root.alertSubtitle = msg; root.triggerTransient("ALERT", 6000); Bridge.forceRaise()
             }
             
-            // 🚀 核心修复：使用 Qt 6 标准信号挂钩，消除属性不存在报错
+            // 🚀 响应子组件传递上来的 Tab 切换信号，统一在顶层修改 SSOT 源头
             onTabSelected: (key) => {
                 root.expandedTab = key
             }
@@ -373,16 +419,19 @@ Item {
         }
     }
 
-    // ========================================================
-    // 相对锚定多副岛
-    // ========================================================
+    // ==========================================
+    // 相对锚定多副岛 (各入口绑定直达调度)
+    // ==========================================
+
+    // 1. 音乐副岛：点击直达媒体卡片
     MusicBubbleView {
         id: leftMusicBubble; z: 1
         anchors.right: capsule.left; anchors.rightMargin: root.splitGap; anchors.verticalCenter: capsule.verticalCenter
         active: !root.isExpanded && !root.isCollapsing && !root.isMorphing && root.hasMusicIsland
-        onClicked: { root.isExpanded = true; root.expandedTab = "media" }
+        onClicked: root.expandToTab("media")
     }
 
+    // 2. 计时器副岛：点击直达计时器卡片
     TimerBubbleView {
         id: rightTimerBubble; z: 1
         anchors.left: capsule.right; anchors.leftMargin: root.splitGap; anchors.verticalCenter: capsule.verticalCenter
@@ -394,9 +443,10 @@ Item {
         progress: expandedCardView.timerPageRef.progress
         remainingSeconds: expandedCardView.timerPageRef.remainingSeconds
         totalSeconds: expandedCardView.timerPageRef.totalSeconds
-        onClicked: { root.isExpanded = true; root.expandedTab = "timer" }
+        onClicked: root.expandToTab("timer")
     }
 
+    // 3. 消息副岛：点击直达消息中心
     NotificationBubbleView {
         id: notifBubble; z: 1
         anchors.verticalCenter: capsule.verticalCenter
@@ -406,13 +456,14 @@ Item {
         anchors.leftMargin: !root.notifExpandsToLeft ? root.splitGap : 0
         active: !root.isExpanded && !root.isCollapsing && !root.isMorphing && root.hasNotifIsland
         unreadCount: root.unreadNotificationCount; avatarUrl: root.latestNotifAvatar; chosenFont: root.chosenFont
-        onClicked: { Bridge.focusTeamsWindow(); Bridge.markAllNotificationsRead() }
-        onRightClicked: { root.isExpanded = true; root.expandedTab = "notification" }
+
+        onClicked: root.expandToTab("notification")
+        onRightClicked: root.expandToTab("notification")
     }
 
     Component.onCompleted: {
         root.animationReady = true; root.updateDateTime(); root.safeCommitMask()
-        if (root.status === "Playing" || root.isCalling) root.expandedTab = "media"
-        else root.expandedTab = "calendar"
+        if (root.isCalling) root.expandedTab = "media"
+        else root.expandedTab = "workspace" // 默认优先进入桌面
     }
 }

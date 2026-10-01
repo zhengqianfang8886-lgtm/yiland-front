@@ -1,4 +1,5 @@
-import QtQuick 2.15
+import QtQuick
+import QtQuick.Shapes
 
 Rectangle {
     id: timerBubbleRoot
@@ -24,7 +25,6 @@ Rectangle {
         return "#f97316"
     }
 
-    // 宽度适度舒展（84px / 104px），完美容纳放大后的数字
     width: hasHours ? 104 : 84
     height: 36
     radius: height / 2
@@ -47,49 +47,46 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 5.5
 
-        // 等比放大的微型环形进度刻度（14x14）
-        Canvas {
-            id: ringCanvas
+        // 🚀 核心优化：采用 QtQuick.Shapes GPU 顶点硬件加速管线，取代 Canvas CPU 软绘
+        Shape {
+            id: ringShape
             width: 14
             height: 14
             anchors.verticalCenter: parent.verticalCenter
-            renderTarget: Canvas.Image
+            layer.enabled: true
+            layer.samples: 4 // 开启硬件 MSAA 多重采样抗锯齿
 
-            onPaint: {
-                var ctx = getContext("2d")
-                ctx.reset()
-                var centerX = width / 2
-                var centerY = height / 2
-                var radius = width / 2 - 1.2
+            // 底层导轨
+            ShapePath {
+                strokeColor: Qt.rgba(1, 1, 1, 0.18)
+                strokeWidth: 1.8
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
 
-                // 底层刻度导轨
-                ctx.beginPath()
-                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false)
-                ctx.lineWidth = 1.8
-                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.18)
-                ctx.stroke()
-
-                // 表层进度弧线
-                if (timerBubbleRoot.progress > 0) {
-                    ctx.beginPath()
-                    var startAngle = -Math.PI / 2
-                    var endAngle = startAngle + (2 * Math.PI * timerBubbleRoot.progress)
-                    ctx.arc(centerX, centerY, radius, startAngle, endAngle, false)
-                    ctx.lineWidth = 1.8
-                    ctx.lineCap = "round"
-                    ctx.strokeStyle = timerBubbleRoot.urgencyColor
-                    ctx.stroke()
+                PathAngleArc {
+                    centerX: 7; centerY: 7
+                    radiusX: 5.8; radiusY: 5.8
+                    startAngle: 0
+                    sweepAngle: 360
                 }
             }
 
-            Connections {
-                target: timerBubbleRoot
-                function onProgressChanged() { ringCanvas.requestPaint() }
-                function onUrgencyColorChanged() { ringCanvas.requestPaint() }
+            // 表层动态进度弧
+            ShapePath {
+                strokeColor: timerBubbleRoot.urgencyColor
+                strokeWidth: 1.8
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+
+                PathAngleArc {
+                    centerX: 7; centerY: 7
+                    radiusX: 5.8; radiusY: 5.8
+                    startAngle: -90
+                    sweepAngle: Math.max(0.1, 360.0 * Math.min(1.0, Math.max(0.0, timerBubbleRoot.progress)))
+                }
             }
         }
 
-        // 大字饱满的时间展示（16px / 14.5px）
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: timerBubbleRoot.timerText

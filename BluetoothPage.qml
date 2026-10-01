@@ -1,5 +1,6 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Shapes
 
 Item {
     id: btRoot
@@ -112,35 +113,31 @@ Item {
                     }
                 }
 
-                // 大徽章：有专属外设展示外设 Emoji，无外设展示大号矢量蓝牙 Logo
+                // 徽章：GPU 硬件加速绘制蓝牙矢量符号
                 Item {
                     width: 38; height: 38
                     anchors.horizontalCenter: parent.horizontalCenter
 
-                    Canvas {
+                    Shape {
                         anchors.centerIn: parent
-                        width: 22; height: 26
+                        width: 20; height: 24
                         visible: !btRoot.primaryActiveDevice || btRoot.getDeviceIcon(btRoot.primaryActiveDevice.name, btRoot.primaryActiveDevice.icon) === "bluetooth"
-                        onPaint: {
-                            var ctx = getContext("2d")
-                            ctx.reset()
-                            var w = width, h = height
-                            ctx.lineWidth = 2.4
-                            ctx.lineCap = "round"
-                            ctx.lineJoin = "round"
-                            ctx.strokeStyle = "#60a5fa"
+                        layer.enabled: true
+                        layer.samples: 4
 
-                            var sx = function(x) { return (x / 24.0) * w }
-                            var sy = function(y) { return (y / 24.0) * h }
+                        ShapePath {
+                            strokeColor: "#60a5fa"
+                            strokeWidth: 2.2
+                            fillColor: "transparent"
+                            capStyle: ShapePath.RoundCap
+                            joinStyle: ShapePath.RoundJoin
 
-                            ctx.beginPath()
-                            ctx.moveTo(sx(6.5), sy(6.5))
-                            ctx.lineTo(sx(17.5), sy(17.5))
-                            ctx.lineTo(sx(12), sy(22.5))
-                            ctx.lineTo(sx(12), sy(1.5))
-                            ctx.lineTo(sx(17.5), sy(6.5))
-                            ctx.lineTo(sx(6.5), sy(17.5))
-                            ctx.stroke()
+                            startX: 5.5; startY: 6.5
+                            PathLine { x: 14.5; y: 17.5 }
+                            PathLine { x: 10.0; y: 22.5 }
+                            PathLine { x: 10.0; y: 1.5 }
+                            PathLine { x: 14.5; y: 6.5 }
+                            PathLine { x: 5.5; y: 17.5 }
                         }
                     }
 
@@ -326,35 +323,31 @@ Item {
                         anchors.leftMargin: 8; anchors.rightMargin: 8
                         spacing: 8
 
-                        // 列表项左侧图标
+                        // 列表项左侧硬件加速矢量图标
                         Item {
                             width: 18; height: 18
                             anchors.verticalCenter: parent.verticalCenter
 
-                            Canvas {
+                            Shape {
                                 anchors.centerIn: parent
                                 width: 12; height: 14
                                 visible: btRoot.getDeviceIcon(modelData.name, modelData.icon) === "bluetooth"
-                                onPaint: {
-                                    var ctx = getContext("2d")
-                                    ctx.reset()
-                                    var w = width, h = height
-                                    ctx.lineWidth = 1.6
-                                    ctx.lineCap = "round"
-                                    ctx.lineJoin = "round"
-                                    ctx.strokeStyle = modelData.connected ? "#60a5fa" : Qt.rgba(1, 1, 1, 0.5)
+                                layer.enabled: true
+                                layer.samples: 4
 
-                                    var sx = function(x) { return (x / 24.0) * w }
-                                    var sy = function(y) { return (y / 24.0) * h }
+                                ShapePath {
+                                    strokeColor: modelData.connected ? "#60a5fa" : Qt.rgba(1, 1, 1, 0.5)
+                                    strokeWidth: 1.6
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
 
-                                    ctx.beginPath()
-                                    ctx.moveTo(sx(6.5), sy(6.5))
-                                    ctx.lineTo(sx(17.5), sy(17.5))
-                                    ctx.lineTo(sx(12), sy(22.5))
-                                    ctx.lineTo(sx(12), sy(1.5))
-                                    ctx.lineTo(sx(17.5), sy(6.5))
-                                    ctx.lineTo(sx(6.5), sy(17.5))
-                                    ctx.stroke()
+                                    startX: 3.2; startY: 3.8
+                                    PathLine { x: 8.8; y: 10.2 }
+                                    PathLine { x: 6.0; y: 13.0 }
+                                    PathLine { x: 6.0; y: 1.0 }
+                                    PathLine { x: 8.8; y: 3.8 }
+                                    PathLine { x: 3.2; y: 10.2 }
                                 }
                             }
 

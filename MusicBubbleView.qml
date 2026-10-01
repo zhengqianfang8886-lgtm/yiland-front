@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Rectangle {
     id: musicBubbleRoot
@@ -11,7 +11,6 @@ Rectangle {
     radius: height / 2
     clip: true
 
-    // 核心物理锚点：锁定在右侧边缘，消失时宛如水滴自然被吸入胶囊左侧
     transformOrigin: Item.Right
 
     color: Qt.rgba(0.08, 0.08, 0.1, 0.96)
@@ -19,7 +18,6 @@ Rectangle {
     border.width: 1
 
     opacity: active ? 1.0 : 0.0
-    // 消失时完全收敛到 0.0，绝不留 20% 残影
     scale: active ? 1.0 : 0.0
     visible: opacity > 0.01
 
@@ -30,7 +28,6 @@ Rectangle {
         }
     }
 
-    // 弹出时使用 OutBack 弹性萌动；收缩时使用 InQuad 迅速吸入（彻底消除终点反弹切片）
     Behavior on scale {
         NumberAnimation {
             duration: musicBubbleRoot.active ? 240 : 160

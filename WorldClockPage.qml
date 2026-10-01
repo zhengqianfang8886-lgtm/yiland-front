@@ -1,5 +1,5 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 
 Item {
     id: worldClockRoot
@@ -11,12 +11,10 @@ Item {
     property bool dropdownOpen: false
     property string filterKeyword: ""
 
-    // 统一数据源：读取 Python 注入的全球城市总库
     readonly property var cityDb: (typeof WorldCities !== "undefined" && WorldCities && WorldCities.length > 0)
         ? WorldCities
         : ((typeof Config !== "undefined" && Config.worldCities) ? Config.worldCities : [])
 
-    // 每秒驱动走字跳动刷新
     Timer {
         interval: 1000
         running: worldClockRoot.visible
@@ -24,7 +22,6 @@ Item {
         onTriggered: worldClockRoot.timeTick = !worldClockRoot.timeTick
     }
 
-    // 动态可添加城市过滤（过滤已关注的城市以及关键词匹配）
     property var availableCities: {
         var activeMap = {}
         var currentClocks = (typeof Config !== "undefined" && Config.savedClocks) ? Config.savedClocks : []
@@ -45,7 +42,6 @@ Item {
         })
     }
 
-    // 添加时区城市：直接由 Python ConfigManager 接管并持久化
     function addClock(item) {
         if (typeof Config === "undefined") return
         var list = (Config.savedClocks || []).slice()
@@ -55,7 +51,6 @@ Item {
         filterKeyword = ""
     }
 
-    // 移除时区城市：直接由 Python ConfigManager 接管并持久化
     function removeClock(idx) {
         if (typeof Config === "undefined") return
         var list = (Config.savedClocks || []).slice()
@@ -64,7 +59,6 @@ Item {
         Config.savedClocks = list
     }
 
-    // 格式化下拉菜单时区偏移文本 (如 UTC+8, UTC-4)
     function formatTzOffset(tz) {
         if (!tz) return ""
         if (typeof Bridge !== "undefined" && Bridge.getTzOffsetStr) {
@@ -73,7 +67,6 @@ Item {
         return tz
     }
 
-    // 核心转换：交由 Python 核心 QTimeZone 处理
     function getTimeInfo(item, tick) {
         if (!item) return { time: "--:--", diff: "", isDay: true, isWorking: false }
 
@@ -86,7 +79,6 @@ Item {
         return { time: "--:--", diff: "", isDay: true, isWorking: false }
     }
 
-    // 点击空白处收起下拉菜单 (z: 85)
     MouseArea {
         anchors.fill: parent
         visible: worldClockRoot.dropdownOpen
@@ -97,9 +89,7 @@ Item {
         }
     }
 
-    // ==========================================
     // 1. 顶部触发按钮
-    // ==========================================
     Rectangle {
         id: dropdownBtn
         anchors.top: parent.top
@@ -142,9 +132,7 @@ Item {
         }
     }
 
-    // ==========================================
-    // 2. 下拉选择弹层 (根级 z: 95)
-    // ==========================================
+    // 2. 下拉选择弹层
     Rectangle {
         id: dropdownMenu
         anchors.top: dropdownBtn.bottom
@@ -164,7 +152,6 @@ Item {
             anchors.margins: 4
             spacing: 4
 
-            // 搜索过滤栏
             Rectangle {
                 width: parent.width
                 height: 24
@@ -254,9 +241,7 @@ Item {
         }
     }
 
-    // ==========================================
-    // 3. 条带时钟列表（单向数据源驱动）
-    // ==========================================
+    // 3. 条带时钟列表
     ListView {
         id: clockListView
         anchors.top: dropdownBtn.bottom
@@ -294,7 +279,6 @@ Item {
 
             property var info: worldClockRoot.getTimeInfo(modelData, worldClockRoot.timeTick)
 
-            // 左侧信息
             Row {
                 anchors.left: parent.left
                 anchors.leftMargin: 10
@@ -345,7 +329,6 @@ Item {
                 }
             }
 
-            // 右侧时间与删除操作
             Row {
                 anchors.right: parent.right
                 anchors.rightMargin: 8

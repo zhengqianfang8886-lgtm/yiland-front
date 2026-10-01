@@ -1,5 +1,5 @@
-import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick
+import QtQuick.Controls
 
 Item {
     id: wsPageRoot
@@ -10,10 +10,8 @@ Item {
     property string currentWsName: "Desktop 1"
     property var wsList: []
 
-    // 智能获取真实桌面总数
     readonly property int effectiveTotal: Math.max(1, (wsList && wsList.length > 0) ? wsList.length : totalWs)
 
-    // 智能计算自然数当前序号（1..N）
     readonly property int displayCurrentNumber: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
@@ -23,14 +21,25 @@ Item {
         return Math.max(1, currentWs)
     }
 
-    // 面板内部支持直接滚动滚轮切换桌面
+    property real wsWheelAccum: 0
+    Timer { id: wsWheelReset; interval: 260; onTriggered: wsPageRoot.wsWheelAccum = 0 }
+
+    function stepWorkspace(delta) {
+        if (typeof Bridge === "undefined") return
+        if (delta > 0) Bridge.switchWorkspacePrev()
+        else Bridge.switchWorkspaceNext()
+    }
+
     MouseArea {
         anchors.fill: parent
         z: -1
         onWheel: (wheel) => {
-            if (typeof Bridge !== "undefined") {
-                if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
-                else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
+            wheel.accepted = true
+            wsWheelReset.restart()
+            wsPageRoot.wsWheelAccum += wheel.angleDelta.y
+            if (Math.abs(wsPageRoot.wsWheelAccum) >= 80) {
+                wsPageRoot.stepWorkspace(wsPageRoot.wsWheelAccum)
+                wsPageRoot.wsWheelAccum = 0
             }
         }
     }
@@ -125,7 +134,7 @@ Item {
             }
         }
 
-        // 2. 右侧工作区矩阵自适应容器（支持动态无限拓展）
+        // 2. 右侧工作区矩阵自适应容器
         Column {
             width: parent.width - 156
             height: parent.height
@@ -133,6 +142,7 @@ Item {
 
             Item {
                 width: parent.width; height: 22
+
                 Text {
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                     text: "点击快速直达"
@@ -142,16 +152,26 @@ Item {
                     font.family: wsPageRoot.chosenFont
                 }
 
-                Text {
+                Rectangle {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                    text: wsGridFlickable.contentHeight > wsGridFlickable.height ? "可上下滑动查看 ↕" : ""
-                    color: Qt.rgba(168, 85, 247, 0.6)
-                    font.pixelSize: 9
-                    font.family: wsPageRoot.chosenFont
+                    height: 18; radius: 4
+                    width: scrollHintText.implicitWidth + 8
+                    color: Qt.rgba(168, 85, 247, 0.15)
+                    border.color: Qt.rgba(168, 85, 247, 0.35)
+                    border.width: 1
+
+                    Text {
+                        id: scrollHintText
+                        anchors.centerIn: parent
+                        text: "🖱️ 滚轮切桌面 ↕"
+                        color: "#a855f7"
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                        font.family: wsPageRoot.chosenFont
+                    }
                 }
             }
 
-            // 🚀 核心自适应滚动视口
             Flickable {
                 id: wsGridFlickable
                 width: parent.width
@@ -164,10 +184,7 @@ Item {
                 ScrollBar.vertical: ScrollBar {
                     width: 3
                     policy: wsGridFlickable.contentHeight > wsGridFlickable.height ? ScrollBar.AlwaysOn : ScrollBar.AsNeeded
-                    contentItem: Rectangle {
-                        radius: 1.5
-                        color: Qt.rgba(168, 85, 247, 0.45)
-                    }
+                    contentItem: Rectangle { radius: 1.5; color: Qt.rgba(168, 85, 247, 0.45) }
                 }
 
                 Grid {
@@ -249,9 +266,12 @@ Item {
                                     if (typeof Bridge !== "undefined") Bridge.switchWorkspace(targetParam)
                                 }
                                 onWheel: (wheel) => {
-                                    if (typeof Bridge !== "undefined") {
-                                        if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
-                                        else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
+                                    wheel.accepted = true
+                                    wsWheelReset.restart()
+                                    wsPageRoot.wsWheelAccum += wheel.angleDelta.y
+                                    if (Math.abs(wsPageRoot.wsWheelAccum) >= 80) {
+                                        wsPageRoot.stepWorkspace(wsPageRoot.wsWheelAccum)
+                                        wsPageRoot.wsWheelAccum = 0
                                     }
                                 }
                             }

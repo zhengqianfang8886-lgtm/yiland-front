@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Item {
     id: compactRoot
@@ -83,7 +83,7 @@ Item {
         }
     }
 
-    // 1. 工作区切换（圆点支持点击跳桌面）
+    // 1. 工作区切换
     Row {
         id: wsLayoutRow
         anchors.centerIn: parent
@@ -91,7 +91,7 @@ Item {
         opacity: compactRoot.activeTransient === "WORKSPACE" ? 1.0 : 0.0
         visible: opacity > 0.01
         scale: compactRoot.activeTransient === "WORKSPACE" ? 1.0 : 0.90
-        
+
         Behavior on opacity { NumberAnimation { duration: compactRoot.activeTransient === "WORKSPACE" ? 150 : 85; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: compactRoot.activeTransient === "WORKSPACE" ? 220 : 95; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
 
@@ -195,7 +195,7 @@ Item {
         }
     }
 
-    // 3. 消息提醒（锚点绝对自适应，解决文字切断挤压）
+    // 3. 消息提醒
     Item {
         id: alertContainer
         anchors.fill: parent
@@ -446,7 +446,7 @@ Item {
         Text {
             text: compactRoot.displayDate; color: Qt.rgba(1, 1, 1, 0.82)
             font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Bold
-            visible: Config.showDate && compactRoot.displayDate !== ""
+            visible: (typeof Config !== "undefined" && Config.showDate) && compactRoot.displayDate !== ""
             anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -464,7 +464,7 @@ Item {
                 text: compactRoot.displaySeconds; color: "#34d399"
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
                 font.pixelSize: 14; font.weight: Font.ExtraBold
-                visible: Config.showSeconds && compactRoot.displaySeconds !== ""
+                visible: (typeof Config !== "undefined" && Config.showSeconds) && compactRoot.displaySeconds !== ""
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 1
             }
@@ -472,7 +472,7 @@ Item {
                 text: compactRoot.displayPeriod; color: Qt.rgba(1, 1, 1, 0.65)
                 font.family: compactRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Black
                 font.capitalization: Font.AllUppercase
-                visible: Config.timeFormat === "12h" && compactRoot.displayPeriod !== ""
+                visible: (typeof Config !== "undefined" && Config.timeFormat === "12h") && compactRoot.displayPeriod !== ""
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 2
             }

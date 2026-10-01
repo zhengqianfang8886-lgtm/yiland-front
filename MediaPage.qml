@@ -1,4 +1,4 @@
-import QtQuick 2.15
+import QtQuick
 
 Item {
     id: mediaRoot
@@ -31,7 +31,6 @@ Item {
         return m + ":" + (s < 10 ? "0" : "") + s
     }
 
-    // 垂直完美居中，彻底消除底部空旷
     Column {
         width: parent.width
         anchors.verticalCenter: parent.verticalCenter
