@@ -37,8 +37,40 @@ Item {
     signal startCollapse()
     signal timerCompleted(string title, string message)
 
-    property real tabWheelAccum: 0
-    Timer { id: tabWheelReset; interval: 260; onTriggered: cardRoot.tabWheelAccum = 0 }
+    // =========================================================================
+    // 🚀 核心状态机：初次展开防被动重叠机制 (Intent Unlock by Movement)
+    // =========================================================================
+    property bool hoverIntentUnlocked: false
+    property real lastGlobalX: -1
+    property real lastGlobalY: -1
+
+    // 每次卡片可见或展开重置锁定（刚展开时保持静默）
+    onVisibleChanged: {
+        if (!visible) {
+            hoverIntentUnlocked = false
+            lastGlobalX = -1
+            lastGlobalY = -1
+            tabDwellTimer.stop()
+            if (tabSliderContainer) tabSliderContainer.isBrowsingTabs = false
+        }
+    }
+
+    function checkAndUnlockMovement(currentX, currentY) {
+        if (hoverIntentUnlocked) return true
+        if (lastGlobalX < 0) {
+            lastGlobalX = currentX
+            lastGlobalY = currentY
+            return false
+        }
+        var dx = currentX - lastGlobalX
+        var dy = currentY - lastGlobalY
+        // 物理位移达到 6px 以上，确认是用户的主动操控！
+        if ((dx * dx + dy * dy) >= 36) {
+            hoverIntentUnlocked = true
+            return true
+        }
+        return false
+    }
 
     readonly property int activeTabIndex: {
         if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return 0
@@ -56,9 +88,6 @@ Item {
         cardRoot.tabSelected(targetKey)
     }
 
-    function switchTabNext() { selectTabByIndex(cardRoot.activeTabIndex + 1) }
-    function switchTabPrev() { selectTabByIndex(cardRoot.activeTabIndex - 1) }
-
     Column {
         anchors.fill: parent
         spacing: 12
@@ -71,6 +100,7 @@ Item {
 
             readonly property int dynamicTabWidth: (cardRoot.enabledTabs && cardRoot.enabledTabs.length > 5) ? 42 : 48
 
+            // Header 空白区滚轮统一直接切桌面
             MouseArea {
                 anchors.left: parent.left
                 anchors.right: tabSliderContainer.left
@@ -79,12 +109,9 @@ Item {
                 hoverEnabled: true
                 onWheel: (wheel) => {
                     wheel.accepted = true
-                    tabWheelReset.restart()
-                    cardRoot.tabWheelAccum += wheel.angleDelta.y
-                    if (Math.abs(cardRoot.tabWheelAccum) >= 80) {
-                        if (cardRoot.tabWheelAccum > 0) cardRoot.switchTabPrev()
-                        else cardRoot.switchTabNext()
-                        cardRoot.tabWheelAccum = 0
+                    if (cardRoot.expandedTab === "workspace" && typeof Bridge !== "undefined") {
+                        if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
+                        else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
                     }
                 }
             }
@@ -100,22 +127,35 @@ Item {
                 visible: !cardRoot.isCalling && cardRoot.enabledTabs && cardRoot.enabledTabs.length > 1
                 z: 5
 
-                MouseArea {
-                    anchors.fill: parent
-                    z: 0
-                    acceptedButtons: Qt.NoButton
-                    onWheel: (wheel) => {
-                        wheel.accepted = true
-                        tabWheelReset.restart()
-                        cardRoot.tabWheelAccum += wheel.angleDelta.y
-                        if (Math.abs(cardRoot.tabWheelAccum) >= 80) {
-                            if (cardRoot.tabWheelAccum > 0) cardRoot.switchTabPrev()
-                            else cardRoot.switchTabNext()
-                            cardRoot.tabWheelAccum = 0
+                property bool isBrowsingTabs: false
+
+                HoverHandler {
+                    id: barHoverHandler
+                    onHoveredChanged: {
+                        if (!hovered) {
+                            tabSliderContainer.isBrowsingTabs = false
+                            tabDwellTimer.stop()
+                            cardRoot.hoverIntentUnlocked = false
+                            cardRoot.lastGlobalX = -1
+                            cardRoot.lastGlobalY = -1
                         }
                     }
                 }
 
+                // 悬停驻留识别计时器
+                Timer {
+                    id: tabDwellTimer
+                    property int pendingIndex: -1
+                    interval: tabSliderContainer.isBrowsingTabs ? 80 : 180
+                    onTriggered: {
+                        if (cardRoot.hoverIntentUnlocked && pendingIndex >= 0 && pendingIndex !== cardRoot.activeTabIndex) {
+                            cardRoot.selectTabByIndex(pendingIndex)
+                            tabSliderContainer.isBrowsingTabs = true
+                        }
+                    }
+                }
+
+                // 动态滑动指示胶囊
                 Rectangle {
                     z: 1; y: 2
                     x: cardRoot.activeTabIndex * headerArea.dynamicTabWidth + 2
@@ -169,6 +209,7 @@ Item {
                                 Behavior on color { ColorAnimation { duration: Theme.animFast } }
                             }
 
+                            // 🚀 核心优化：仅在物理位移后解锁悬停识别，初次展开静止绝不误触
                             MouseArea {
                                 id: tabMouseArea
                                 anchors.fill: parent
@@ -176,11 +217,40 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 acceptedButtons: Qt.LeftButton
 
-                                onEntered: cardRoot.cancelCollapse()
+                                onEntered: {
+                                    cardRoot.cancelCollapse()
+                                    // 若已经解锁了主动意图，直接走防抖
+                                    if (cardRoot.hoverIntentUnlocked && !isCurrent) {
+                                        tabDwellTimer.pendingIndex = index
+                                        tabDwellTimer.interval = tabSliderContainer.isBrowsingTabs ? 80 : 180
+                                        tabDwellTimer.restart()
+                                    }
+                                }
+
+                                onPositionChanged: (mouse) => {
+                                    // 持续检测是否有真实物理位移
+                                    var pos = mapToItem(cardRoot, mouse.x, mouse.y)
+                                    var unlocked = cardRoot.checkAndUnlockMovement(pos.x, pos.y)
+                                    if (unlocked && !isCurrent && !tabDwellTimer.running) {
+                                        tabDwellTimer.pendingIndex = index
+                                        tabDwellTimer.interval = tabSliderContainer.isBrowsingTabs ? 80 : 180
+                                        tabDwellTimer.restart()
+                                    }
+                                }
+
+                                onExited: {
+                                    if (tabDwellTimer.pendingIndex === index) {
+                                        tabDwellTimer.stop()
+                                    }
+                                }
+
                                 onClicked: (mouse) => {
                                     mouse.accepted = true
+                                    tabDwellTimer.stop()
                                     cardRoot.cancelCollapse()
                                     cardRoot.selectTabByIndex(index)
+                                    cardRoot.hoverIntentUnlocked = true
+                                    tabSliderContainer.isBrowsingTabs = true
                                 }
                             }
                         }
