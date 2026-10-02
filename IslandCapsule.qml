@@ -255,6 +255,14 @@ Rectangle {
     }
 
     function handleWheelAction(deltaY) {
+        // 🔒 核心防御：已展开时，只有当前处于桌面 Tab ("workspace") 才允许滚轮切桌面
+        // 在媒体、日历、计时、通知、蓝牙、网络、世界时钟等页面，或来电状态下，一律拦截退出
+        if (capsuleRoot.isCalling) return
+        if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") {
+            return
+        }
+
+        // 胶囊常态下锁定临时态并唤起桌面 OSD 瞬态条
         if (!capsuleRoot.isExpanded) {
             hoverDwellTimer.stop()
             capsuleRoot.scrollSessionLocked = true
@@ -290,7 +298,10 @@ Rectangle {
         }
         onWheel: (wheel) => {
             wheel.accepted = true
-            capsuleRoot.handleWheelAction(wheel.angleDelta.y)
+            // 仅在「未展开的胶囊常态」或者「展开后位于桌面工作区」时才分发滚轮
+            if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") {
+                capsuleRoot.handleWheelAction(wheel.angleDelta.y)
+            }
         }
         onClicked: (mouse) => {
             hoverDwellTimer.stop()
