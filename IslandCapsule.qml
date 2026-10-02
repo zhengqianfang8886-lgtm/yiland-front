@@ -11,6 +11,9 @@ Rectangle {
     property string expandedTab: "workspace"
     property var enabledTabs: []
 
+    // 🚀 双向直通二级下钻状态属性
+    property alias drillDownPage: expandedCardView.drillDownPage
+
     // 业务数据属性
     property string activeTransient: ""
     property string status: "Paused"
@@ -56,7 +59,6 @@ Rectangle {
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
     property bool anySubBubbleHovered: false
-
     readonly property bool isMouseOver: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse) || anySubBubbleHovered
 
     signal requestExpand(string tabName)
@@ -151,9 +153,7 @@ Rectangle {
 
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
 
-    // ========================================================
-    // 🚀 时序状态机：展开 130ms 后淡入内容；收缩第 0ms 瞬间灭灯
-    // ========================================================
+    // 时序状态机
     property bool contentReady: false
     property bool clockReady: true
 
@@ -206,7 +206,6 @@ Rectangle {
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
-                // 🚀 来电时优先锁定通话大卡片，不被通知页夺焦
                 if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
                 else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
                 else capsuleRoot.requestExpand("workspace")
@@ -254,15 +253,13 @@ Rectangle {
         capsuleRoot.maskCommitRequested()
     }
 
+    // 🔒 滚轮切换逻辑：只有在胶囊状态或展开在桌面界面时才允许切换
     function handleWheelAction(deltaY) {
-        // 🔒 核心防御：已展开时，只有当前处于桌面 Tab ("workspace") 才允许滚轮切桌面
-        // 在媒体、日历、计时、通知、蓝牙、网络、世界时钟等页面，或来电状态下，一律拦截退出
         if (capsuleRoot.isCalling) return
         if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") {
             return
         }
 
-        // 胶囊常态下锁定临时态并唤起桌面 OSD 瞬态条
         if (!capsuleRoot.isExpanded) {
             hoverDwellTimer.stop()
             capsuleRoot.scrollSessionLocked = true
@@ -298,7 +295,6 @@ Rectangle {
         }
         onWheel: (wheel) => {
             wheel.accepted = true
-            // 仅在「未展开的胶囊常态」或者「展开后位于桌面工作区」时才分发滚轮
             if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") {
                 capsuleRoot.handleWheelAction(wheel.angleDelta.y)
             }
@@ -338,7 +334,7 @@ Rectangle {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开大卡片（安全容器物理裁剪，内容绝不越界漏头）
+    // 2. 展开大卡片
     Item {
         anchors.fill: parent
         clip: true
@@ -367,6 +363,7 @@ Rectangle {
             onCancelCollapse: capsuleRoot.cancelCollapse()
             onRequestCollapse: capsuleRoot.requestCollapse()
             onStartCollapse: capsuleRoot.startCollapse()
+            // 🚀 这里绑定的 onTimerCompleted 与 ExpandedCardView 中的 signal 完美对应
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
             onTabSelected: (key) => capsuleRoot.expandedTab = key
 

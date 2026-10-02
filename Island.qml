@@ -14,16 +14,22 @@ Item {
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
     readonly property bool notifExpandsToLeft: (Config.multiIslandExpandDirection === "left")
 
+    // =========================================================================
+    // 🚀 核心重构：收敛为 3 个高频流 Tab + 1 个 Bento 控制台入口 (⊞)
+    // 整体宽度稳定在 176px 左右，彻底解决标签过载截断与碰撞问题
+    // =========================================================================
     readonly property var enabledTabs: {
         var list = []
-        if (Config.showWorkspaceTab) list.push({ key: "workspace", name: "桌面", color: Theme.workspace, activeColor: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22) })
-        if (Config.showMediaTab) list.push({ key: "media", name: "媒体", color: Theme.textPrimary, activeColor: Qt.rgba(1, 1, 1, 0.18) })
-        if (Config.showCalendarTab) list.push({ key: "calendar", name: "日历", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
-        list.push({ key: "timer", name: "计时", color: Theme.timer, activeColor: Qt.rgba(Theme.timer.r, Theme.timer.g, Theme.timer.b, 0.22) })
-        list.push({ key: "notification", name: "消息", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) })
-        if (Config.showBluetoothTab) list.push({ key: "bluetooth", name: "蓝牙", color: Theme.bluetooth, activeColor: Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.22) })
-        if (Config.showNetworkTab) list.push({ key: "network", name: "网络", color: Theme.network, activeColor: Qt.rgba(Theme.network.r, Theme.network.g, Theme.network.b, 0.22) })
-        if (Config.showClockTab) list.push({ key: "clock", name: "时钟", color: Theme.clock, activeColor: Qt.rgba(Theme.clock.r, Theme.clock.g, Theme.clock.b, 0.22) })
+        if (typeof Config === "undefined" || Config.showWorkspaceTab !== false) {
+            list.push({ key: "workspace", name: "桌面", color: Theme.workspace, activeColor: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22) })
+        }
+        if (typeof Config === "undefined" || Config.showMediaTab !== false) {
+            list.push({ key: "media", name: "媒体", color: Theme.textPrimary, activeColor: Qt.rgba(1, 1, 1, 0.18) })
+        }
+        if (typeof Config === "undefined" || Config.showCalendarTab !== false) {
+            list.push({ key: "calendar", name: "日历", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
+        }
+        list.push({ key: "control", name: "⋮", color: Theme.clock, activeColor: Qt.rgba(Theme.clock.r, Theme.clock.g, Theme.clock.b, 0.22) })
         return list
     }
 
@@ -67,15 +73,33 @@ Item {
     onHasTimerIslandChanged: maskController.commit()
     onHasNotifIslandChanged: maskController.commit()
 
+    // =========================================================================
+    // 🚀 核心展开路由调度：将下沉的二级功能平滑下钻映射到控制台内部
+    // =========================================================================
     function expandToTab(tabName) {
         capsule.cancelCollapse()
-        if (tabName !== "notification" && capsule.activeTransient === "ALERT") { transientTimer.stop(); capsule.activeTransient = "" }
-        capsule.expandedTab = tabName; capsule.isExpanded = true; maskController.commit()
+        if (tabName !== "notification" && capsule.activeTransient === "ALERT") {
+            transientTimer.stop()
+            capsule.activeTransient = ""
+        }
+
+        // 外部点击（如计时副岛、通知副岛、时钟）映射进入控制台详情下钻模式
+        if (["timer", "notification", "clock", "network", "bluetooth"].indexOf(tabName) !== -1) {
+            capsule.expandedTab = "control"
+            capsule.drillDownPage = tabName
+        } else {
+            capsule.expandedTab = tabName
+            capsule.drillDownPage = ""
+        }
+
+        capsule.isExpanded = true
+        maskController.commit()
     }
 
     IslandCapsule {
         id: capsule
-        chosenFont: root.chosenFont; enabledTabs: root.enabledTabs
+        chosenFont: root.chosenFont
+        enabledTabs: root.enabledTabs
         anySubBubbleHovered: leftMusicBubble.isHovered || rightTimerBubble.isHovered || notifBubble.isHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration

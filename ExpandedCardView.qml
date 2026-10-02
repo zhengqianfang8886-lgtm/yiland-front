@@ -8,6 +8,9 @@ Item {
     property string expandedTab: "workspace"
     property var enabledTabs: []
 
+    // 🚀 二级下钻状态："" 表示主面板，非空（如 "power", "clock", "timer" 等）表示进入全量详情页
+    property string drillDownPage: ""
+
     property bool isCalling: false
     property string callTitle: ""
     property string callSubtitle: ""
@@ -49,6 +52,7 @@ Item {
         if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length === 0) return
         var safeIdx = (idx + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
         var targetKey = cardRoot.enabledTabs[safeIdx].key
+        cardRoot.drillDownPage = "" // 切换顶层 Tab 时自动退出下钻模式
         cardRoot.cancelCollapse()
         cardRoot.tabSelected(targetKey)
     }
@@ -57,17 +61,20 @@ Item {
         anchors.fill: parent
         spacing: 12
 
-        // 1. 顶部 Header
+        // =====================================================================
+        // 1. 顶部 Header 交互栏
+        // =====================================================================
         Item {
             id: headerArea
             width: parent.width
             height: 26
 
-            readonly property int dynamicTabWidth: (cardRoot.enabledTabs && cardRoot.enabledTabs.length > 5) ? 42 : 48
+            readonly property int dynamicTabWidth: 44
 
+            // 桌面滚轮支持（仅在处于桌面 Tab 且未通话时生效）
             MouseArea {
                 anchors.left: parent.left
-                anchors.right: tabSliderContainer.left
+                anchors.right: powerQuickBtn.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
                 hoverEnabled: true
@@ -80,6 +87,117 @@ Item {
                 }
             }
 
+            // 左侧状态指示 / 下钻【‹ 返回控制台】按钮
+            Item {
+                anchors.left: parent.left
+                anchors.right: powerQuickBtn.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                height: 24
+
+                // 下钻返回按键
+                Rectangle {
+                    visible: cardRoot.drillDownPage !== "" && !cardRoot.isCalling
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: backRow.implicitWidth + 14
+                    height: 22
+                    radius: 11
+                    color: backTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (backHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
+                    border.color: Theme.borderSubtle
+                    border.width: 1
+
+                    Row {
+                        id: backRow
+                        anchors.centerIn: parent
+                        spacing: 4
+                        Text { text: "‹"; color: Theme.clock; font.pixelSize: 13; font.weight: Font.Black }
+                        Text {
+                            text: {
+                                if (cardRoot.drillDownPage === "power") return "返回 · 电源会话"
+                                if (cardRoot.drillDownPage === "clock") return "返回 · 日历时钟"
+                                if (cardRoot.drillDownPage === "timer") return "返回 · 专注计时"
+                                if (cardRoot.drillDownPage === "network") return "返回 · 网络监控"
+                                if (cardRoot.drillDownPage === "bluetooth") return "返回 · 蓝牙外设"
+                                if (cardRoot.drillDownPage === "notification") return "返回 · 消息中心"
+                                return "返回控制台"
+                            }
+                            color: "white"
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.family: cardRoot.chosenFont
+                        }
+                    }
+
+                    HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: backTap
+                        onTapped: {
+                            cardRoot.drillDownPage = ""
+                            cardRoot.expandedTab = "control"
+                        }
+                    }
+                }
+
+                // 常规状态标签
+                Text {
+                    visible: cardRoot.drillDownPage === "" || cardRoot.isCalling
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+
+                    text: cardRoot.isCalling ? "● INCOMING CALL · TEAMS" :
+                          (cardRoot.expandedTab === "workspace" ? ("● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))) :
+                          (cardRoot.expandedTab === "media" ? (cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED") :
+                          (cardRoot.expandedTab === "calendar" ? "● CALENDAR" : "● CONTROL CENTER · 控制中心")))
+
+                    color: cardRoot.isCalling ? Theme.media :
+                           (cardRoot.expandedTab === "workspace" ? Theme.workspace :
+                           (cardRoot.expandedTab === "media" ? (cardRoot.status === "Playing" ? Theme.media : Theme.textMuted) :
+                           (cardRoot.expandedTab === "calendar" ? Theme.calendar : Theme.clock)))
+                    font.family: cardRoot.chosenFont
+                    font.pixelSize: 10
+                    font.weight: Font.Black
+                    font.letterSpacing: 0.8
+                }
+            }
+
+            // 🚀 独立电源中心快捷按钮（高质感呼吸红微光）
+            Rectangle {
+                id: powerQuickBtn
+                anchors.right: tabSliderContainer.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                width: 24
+                height: 24
+                radius: 12
+                color: powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.25) : Qt.rgba(1, 1, 1, 0.08)
+                border.color: powerBtnHover.hovered ? "#ef4444" : Theme.borderSubtle
+                border.width: 1
+                scale: powerBtnTap.pressed ? 0.92 : (powerBtnHover.hovered ? 1.05 : 1.0)
+                Behavior on scale { NumberAnimation { duration: 100 } }
+                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "⏻"
+                    font.pixelSize: 11
+                    font.weight: Font.Black
+                    color: powerBtnHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.75)
+                }
+
+                HoverHandler { id: powerBtnHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    id: powerBtnTap
+                    onTapped: {
+                        cardRoot.expandedTab = "control"
+                        cardRoot.drillDownPage = "power"
+                    }
+                }
+            }
+
+            // 右侧紧凑 Tab 滑块容器（3个核心 Tab + 1个纵向三点 ⋮）
             Rectangle {
                 id: tabSliderContainer
                 anchors.right: parent.right
@@ -126,78 +244,43 @@ Item {
                             readonly property bool isCurrent: cardRoot.expandedTab === modelData.key
 
                             Rectangle {
-                                anchors.fill: parent
-                                anchors.margins: 2
-                                radius: 10
+                                anchors.fill: parent; anchors.margins: 2; radius: 10
                                 color: tabMouseArea.containsMouse && !isCurrent ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
                                 Behavior on color { ColorAnimation { duration: Theme.animFast } }
                             }
 
+                            // 🚀 针对纵向三点 ⋮ 进行专用字号与居中微调
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.name || ""
                                 color: isCurrent ? (modelData.key === "media" ? Theme.textPrimary : modelData.color) :
                                        (tabMouseArea.containsMouse ? Theme.textPrimary : Theme.textMuted)
-                                font.pixelSize: 11
+                                font.pixelSize: modelData.name === "⋮" ? 15 : 11
                                 font.family: cardRoot.chosenFont
-                                font.weight: isCurrent ? Font.Black : Font.Bold
-                                Behavior on color { ColorAnimation { duration: Theme.animFast } }
+                                font.weight: Font.Black
+                                anchors.verticalCenterOffset: modelData.name === "⋮" ? -1 : 0
                             }
 
                             MouseArea {
-                                id: tabMouseArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                acceptedButtons: Qt.LeftButton
+                                id: tabMouseArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                 onClicked: cardRoot.selectTabByIndex(index)
                             }
                         }
                     }
                 }
             }
-
-            Text {
-                anchors.left: parent.left
-                anchors.right: tabSliderContainer.visible ? tabSliderContainer.left : parent.right
-                anchors.rightMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                elide: Text.ElideRight
-
-                text: cardRoot.isCalling ? "● INCOMING CALL · TEAMS" :
-                      (cardRoot.expandedTab === "notification" ? "● NOTIFICATION" :
-                      (cardRoot.expandedTab === "calendar" ? "● CALENDAR" :
-                      (cardRoot.expandedTab === "workspace" ? ("● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))) :
-                      (cardRoot.expandedTab === "timer" ? (persistentTimerPage.isCountUp ? "● STOPWATCH" : "● TIMER") :
-                      (cardRoot.expandedTab === "bluetooth" ? "● BLUETOOTH" :
-                      (cardRoot.expandedTab === "network" ? "● NETWORK" :
-                      (cardRoot.expandedTab === "clock" ? "● WORLD CLOCK" :
-                      (cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"))))))))
-
-                color: cardRoot.isCalling ? Theme.media :
-                       (cardRoot.expandedTab === "notification" ? Theme.notification :
-                       (cardRoot.expandedTab === "calendar" ? Theme.calendar :
-                       (cardRoot.expandedTab === "workspace" ? Theme.workspace :
-                       (cardRoot.expandedTab === "timer" ? persistentTimerPage.accentColor :
-                       (cardRoot.expandedTab === "bluetooth" ? Theme.bluetooth :
-                       (cardRoot.expandedTab === "network" ? Theme.network :
-                       (cardRoot.expandedTab === "clock" ? Theme.clock :
-                       (cardRoot.status === "Playing" ? Theme.media : Theme.textMuted))))))))
-                font.family: cardRoot.chosenFont
-                font.pixelSize: 10
-                font.weight: Font.Black
-                font.letterSpacing: 0.8
-            }
         }
 
-        // 2. 页面容器
+        // =====================================================================
+        // 2. 页面容器（核心页面 + Bento 控制中心 + 全量下钻页面）
+        // =====================================================================
         Item {
             width: parent.width
             height: parent.height - 38
 
-            // =================================================================
-            // 🚀 专属于呼叫的接听大面板（正圆形头像 + 一键直接接听）
-            // =================================================================
+            // -------------------------------------------------------------
+            // 通话全屏呼叫面板
+            // -------------------------------------------------------------
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -208,7 +291,6 @@ Item {
                     width: parent.width
                     spacing: 14
 
-                    // 头像与呼叫信息
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 16
@@ -217,7 +299,6 @@ Item {
                             width: 60; height: 60
                             anchors.verticalCenter: parent.verticalCenter
 
-                            // 绿色声波脉冲光环
                             Rectangle {
                                 id: cardPulse
                                 anchors.centerIn: parent
@@ -236,7 +317,6 @@ Item {
                                 }
                             }
 
-                            // 🚀 正圆形头像容器
                             Rectangle {
                                 anchors.fill: parent
                                 radius: 30
@@ -302,12 +382,10 @@ Item {
                         }
                     }
 
-                    // 呼叫操作双按钮区
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 12
 
-                        // 拒接按钮（调用 rejectTeamsCall）
                         Rectangle {
                             width: 110; height: 40; radius: 20
                             color: rejectArea.pressed ? Qt.rgba(239, 68, 68, 0.45) : (rejectArea.containsMouse ? Qt.rgba(239, 68, 68, 0.3) : Qt.rgba(239, 68, 68, 0.16))
@@ -331,7 +409,6 @@ Item {
                             }
                         }
 
-                        // 🚀 直接接听按钮（调用 answerTeamsCall 自动唤起 + 快捷键接通）
                         Rectangle {
                             width: 240; height: 40; radius: 20
                             color: answerArea.pressed ? "#15803d" : (answerArea.containsMouse ? "#16a34a" : Theme.media)
@@ -364,62 +441,64 @@ Item {
                 }
             }
 
-            // 常规模块
+            // -------------------------------------------------------------
+            // 常规核心页面
+            // -------------------------------------------------------------
+            WorkspacePage {
+                anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "workspace")
+            }
+
             MediaPage {
-                id: mediaPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                isCalling: false
+                anchors.fill: parent; chosenFont: cardRoot.chosenFont; isCalling: false
                 title: cardRoot.title; artist: cardRoot.artist; status: cardRoot.status; artUrl: cardRoot.artUrl
                 position: cardRoot.position; duration: cardRoot.duration
                 onCancelCollapse: cardRoot.cancelCollapse(); onRequestCollapse: cardRoot.requestCollapse(); onStartCollapse: cardRoot.startCollapse()
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "media")
             }
 
-            WorkspacePage {
-                id: workspacePage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
-                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "workspace")
+            CalendarPage {
+                anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "calendar")
             }
 
+            // -------------------------------------------------------------
+            // 控制中心 Bento 主页面
+            // -------------------------------------------------------------
+            ControlCenterPage {
+                id: controlCenterView
+                anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                timerPageRef: persistentTimerPage
+                downSpeedStr: cardRoot.downSpeedStr; upSpeedStr: cardRoot.upSpeedStr; localIp: cardRoot.localIp
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "control") && (cardRoot.drillDownPage === "")
+                onOpenDetail: (key) => cardRoot.drillDownPage = key
+            }
+
+            // -------------------------------------------------------------
+            // 全量下钻页面集合
+            // -------------------------------------------------------------
             TimerPage {
                 id: persistentTimerPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "timer")
-                onTimerCompleted: (t, msg) => cardRoot.timerAlert(t, msg)
+                visible: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "timer") || cardRoot.expandedTab === "timer")
+                onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
             }
 
             Loader {
-                id: notifLoader
-                anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "notification")
+                id: clockLoader; anchors.fill: parent
+                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "clock") || cardRoot.expandedTab === "clock")
                 visible: active
                 sourceComponent: Component {
-                    NotificationPage { chosenFont: cardRoot.chosenFont }
+                    WorldClockPage {
+                        chosenFont: cardRoot.chosenFont
+                        is24h: (typeof Config !== "undefined") ? (Config.timeFormat === "24h") : true
+                    }
                 }
             }
 
             Loader {
-                id: calendarLoader
-                anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "calendar")
-                visible: active
-                sourceComponent: Component {
-                    CalendarPage { chosenFont: cardRoot.chosenFont }
-                }
-            }
-
-            Loader {
-                id: bluetoothLoader
-                anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "bluetooth")
-                visible: active
-                sourceComponent: Component {
-                    BluetoothPage { chosenFont: cardRoot.chosenFont }
-                }
-            }
-
-            Loader {
-                id: networkLoader
-                anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "network")
+                id: networkLoader; anchors.fill: parent
+                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "network") || cardRoot.expandedTab === "network")
                 visible: active
                 sourceComponent: Component {
                     NetworkPage {
@@ -430,15 +509,30 @@ Item {
             }
 
             Loader {
-                id: clockLoader
-                anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "clock")
+                id: bluetoothLoader; anchors.fill: parent
+                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "bluetooth") || cardRoot.expandedTab === "bluetooth")
                 visible: active
                 sourceComponent: Component {
-                    WorldClockPage {
-                        chosenFont: cardRoot.chosenFont
-                        is24h: (typeof Config !== "undefined") ? (Config.timeFormat === "24h") : true
-                    }
+                    BluetoothPage { chosenFont: cardRoot.chosenFont }
+                }
+            }
+
+            Loader {
+                id: notifLoader; anchors.fill: parent
+                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "notification") || cardRoot.expandedTab === "notification")
+                visible: active
+                sourceComponent: Component {
+                    NotificationPage { chosenFont: cardRoot.chosenFont }
+                }
+            }
+
+            // 🚀 全新系统电源与会话管理下钻界面
+            Loader {
+                id: powerLoader; anchors.fill: parent
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "power")
+                visible: active
+                sourceComponent: Component {
+                    PowerPage { chosenFont: cardRoot.chosenFont }
                 }
             }
         }

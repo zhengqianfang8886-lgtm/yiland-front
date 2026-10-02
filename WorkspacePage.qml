@@ -276,8 +276,10 @@ Item {
                 width: parent.width
                 height: parent.height - 24
                 contentWidth: width
-                contentHeight: wsGrid.height
-                clip: true
+                // 🚀 1. 上下留出 6px 的外扩空间，防止首行与末行放大贴顶贴底切边
+                contentHeight: wsGrid.height + 6
+                // 🚀 2. 动态智能裁切：桌面数量少无需滚动时不裁切，彻底杜绝静态边缘被吞
+                clip: wsFlickable.contentHeight > wsFlickable.height
                 boundsBehavior: Flickable.StopAtBounds
 
                 ScrollBar.vertical: ScrollBar {
@@ -288,7 +290,10 @@ Item {
 
                 Grid {
                     id: wsGrid
-                    width: parent.width - (wsFlickable.contentHeight > wsFlickable.height ? 6 : 0)
+                    // 🚀 3. 核心修复：左右各预留 3px 的安全呼吸内边距，卡片放大无论多大都在缓冲区内，绝不撞墙切边
+                    x: 3
+                    y: 3
+                    width: parent.width - 6 - (wsFlickable.contentHeight > wsFlickable.height ? 6 : 0)
                     columns: 2
                     spacing: 6
 
@@ -322,7 +327,8 @@ Item {
                                           (itemHover.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06))
                             border.width: isActive ? 1.2 : 1
 
-                            scale: itemArea.pressed ? 0.96 : (itemHover.hovered ? 1.015 : 1.0)
+                            // 放大比例更自然，配合安全边距不再产生任何毛刺
+                            scale: itemArea.pressed ? 0.96 : (itemHover.hovered ? 1.018 : 1.0)
                             Behavior on scale { NumberAnimation { duration: 100 } }
                             Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on border.color { ColorAnimation { duration: 120 } }
