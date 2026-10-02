@@ -1,4 +1,5 @@
 import os
+import gc
 import time
 import socket
 import shutil
@@ -90,14 +91,14 @@ class IslandBridge(QObject):
     def __init__(self, view):
         super().__init__()
         self.view = view
+        self._curr_title = ""
+        self._curr_artist = ""
         self._curr_pos = 0.0
         self._curr_dur = 0.0
         self._curr_status = "Paused"
 
         self._bt_lock = threading.Lock()
         self._notif_lock = threading.Lock()
-
-        # 核心改进：引入统一的受控后台工作线程池，杜绝无节制裸线程
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="IslandWorker")
 
         self._cached_bluetooth_devices = []
@@ -110,7 +111,7 @@ class IslandBridge(QObject):
         self._latest_notif_avatar = ""
         self._cached_ip = get_local_ip()
 
-        self._ipc_sender = None  # 由 ws_client 注入
+        self._ipc_sender = None
 
         self._local_media_timer = QTimer(self)
         self._local_media_timer.setInterval(1000)
@@ -121,6 +122,7 @@ class IslandBridge(QObject):
         self._sig_force_raise.connect(self.forceRaise)
 
     def set_ipc_sender(self, sender_func):
+        """挂接 WS 反向指令通道"""
         self._ipc_sender = sender_func
 
     def _on_local_media_tick(self):
@@ -128,6 +130,7 @@ class IslandBridge(QObject):
             if self._curr_pos < self._curr_dur:
                 self._curr_pos += 1.0
                 prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur))
+                app_logger.debug(f"[Media 本地步进] pos={self._curr_pos:.1f}s / {self._curr_dur:.1f}s")
                 self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
 
     def update_media_state(self, title, artist, status, art, pos, dur):
@@ -202,26 +205,62 @@ class IslandBridge(QObject):
 
     @Slot(str, str, str, str, float, float)
     def _do_update_media_state(self, title, artist, status, art, pos, dur):
+        is_track_changed = (title != self._curr_title) or (artist != self._curr_artist)
+        prev_status = self._curr_status
         self._curr_status = status
-        self._curr_dur = dur
-        self._curr_pos = pos
+
+        if is_track_changed:
+            self._curr_title = title
+            self._curr_artist = artist
+            self._curr_dur = dur if dur > 0 else 0.0
+            # 若新歌曲传入有效位置（>=0），采用之；若没传（-1），设为 0.0
+            self._curr_pos = pos if pos >= 0 else 0.0
+            app_logger.info(
+                f"[Media 切歌] 《{title}》- {artist} | 初始位置: {self._curr_pos:.2f}s | 总时长: {self._curr_dur:.2f}s | 状态: {status}"
+            )
+        else:
+            if dur > 0:
+                self._curr_dur = dur
+
+            # 只有收到明确的大于 0 的进度才推进
+            if pos > 0:
+                self._curr_pos = pos
+                app_logger.info(
+                    f"[Media 位置更新] 《{title}》| 收到新进度: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s | 状态: {status}"
+                )
+            elif status == "Paused" and prev_status == "Playing":
+                app_logger.info(
+                    f"[Media 暂停锁定] 播放已暂停，锁定进度在: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s (忽略传入无效 pos={pos})"
+                )
+            else:
+                app_logger.info(
+                    f"[Media 状态同步] 当前进度保持: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s | 状态: {status}"
+                )
+
         if status == "Playing":
             if not self._local_media_timer.isActive():
+                app_logger.info("[Media 本地时钟] 状态变为 Playing，启动本地秒级推进定时器")
                 self._local_media_timer.start()
         else:
-            self._local_media_timer.stop()
-        self.mediaUpdated.emit(title, artist, status, art, pos, dur)
+            if self._local_media_timer.isActive():
+                app_logger.info(f"[Media 本地时钟] 状态为 {status}，停止本地推进定时器")
+                self._local_media_timer.stop()
+
+        self.mediaUpdated.emit(title, artist, status, art, self._curr_pos, self._curr_dur)
 
     @Slot(float, float, float)
     def _do_update_progress_state(self, pos, dur, prog):
-        if self._curr_status == "Playing" and self._curr_dur > 0:
-            if pos >= self._curr_dur and (self._curr_dur - self._curr_pos > 5):
-                return
         if dur > 0:
             self._curr_dur = dur
-        if pos > 0:
+        if pos >= 0:
             self._curr_pos = pos
-        self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
+
+        actual_prog = prog
+        if actual_prog < 0:
+            actual_prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur)) if self._curr_dur > 0 else 0.0
+
+        app_logger.info(f"[Media 实时进度] 当前: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s ({actual_prog*100:.1f}%) | 状态: {self._curr_status}")
+        self.progressUpdated.emit(self._curr_pos, self._curr_dur, actual_prog)
 
     @Slot()
     def forceRaise(self):
@@ -235,12 +274,39 @@ class IslandBridge(QObject):
     @Slot(int, int, int, int)
     def updateMask(self, x, y, width, height):
         if width > 0 and height > 0:
-            safe_x = max(0, int(x))
-            safe_y = max(0, int(y))
-            safe_w = min(self.view.width() - safe_x, int(width))
-            safe_h = min(self.view.height() - safe_y, int(height))
+            dpr = self.view.devicePixelRatio() if hasattr(self.view, "devicePixelRatio") else 1.0
+            safe_x = max(0, int(round(x * dpr)))
+            safe_y = max(0, int(round(y * dpr)))
+            vw = int(round(self.view.width() * dpr))
+            vh = int(round(self.view.height() * dpr))
+            safe_w = min(vw - safe_x, int(round(width * dpr)))
+            safe_h = min(vh - safe_y, int(round(height * dpr)))
             if safe_w > 0 and safe_h > 0:
                 self.view.setMask(QRegion(QRect(safe_x, safe_y, safe_w, safe_h)))
+
+    @Slot("QVariantList")
+    def updateCompositeMask(self, rects):
+        if not rects:
+            return
+        dpr = self.view.devicePixelRatio() if hasattr(self.view, "devicePixelRatio") else 1.0
+        composite = QRegion()
+        vw = int(round(self.view.width() * dpr))
+        vh = int(round(self.view.height() * dpr))
+        for r in rects:
+            rx = max(0, int(round(r.get("x", 0) * dpr)))
+            ry = max(0, int(round(r.get("y", 0) * dpr)))
+            rw = min(vw - rx, int(round(r.get("w", 0) * dpr)))
+            rh = min(vh - ry, int(round(r.get("h", 0) * dpr)))
+            if rw > 0 and rh > 0:
+                composite = composite.united(QRect(rx, ry, rw, rh))
+        if not composite.isEmpty():
+            self.view.setMask(composite)
+
+    @Slot()
+    def onIslandCollapsed(self):
+        gc.collect(generation=1)
+        if hasattr(self.view, "engine") and hasattr(self.view.engine(), "trimComponentCache"):
+            self.view.engine().trimComponentCache()
 
     def sendIpcCmd(self, action: str, **kwargs):
         if self._ipc_sender:
@@ -349,7 +415,6 @@ class IslandBridge(QObject):
                     return
         self._pool.submit(_open)
 
-    # 🚀 安全重构：彻底消除 shell=True 命令注入漏洞
     @Slot(str, str)
     def focusMediaWindow(self, title="", artist=""):
         def _focus():

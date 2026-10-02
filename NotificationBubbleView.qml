@@ -16,8 +16,9 @@ Rectangle {
     radius: height / 2
     clip: false
 
-    color: Qt.rgba(0.08, 0.08, 0.1, 0.96)
-    border.color: bubbleHover.hovered ? Qt.rgba(129, 140, 248, 0.8) : Qt.rgba(129, 140, 248, 0.35)
+    color: Theme.bgCapsule
+    border.color: bubbleHover.hovered ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.8) :
+                  Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
     border.width: 1
 
     readonly property bool shouldShow: active && (unreadCount > 0)
@@ -25,23 +26,24 @@ Rectangle {
     scale: shouldShow ? 1.0 : 0.2
     visible: opacity > 0.01
 
-    Behavior on border.color { ColorAnimation { duration: 180 } }
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.18 } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.springEasing; easing.overshoot: Theme.springOvershoot } }
 
     Rectangle {
         anchors.centerIn: parent
         width: 30; height: 22; radius: 11
-        color: Qt.rgba(129, 140, 248, 0.18)
+        color: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.18)
+        
+        // 🚀 幽灵渲染消除：折叠时关闭呼吸灯
         SequentialAnimation on opacity {
-            running: notifBubbleRoot.shouldShow
+            running: notifBubbleRoot.shouldShow && notifBubbleRoot.opacity > 0.05
             loops: Animation.Infinite
             NumberAnimation { to: 0.3; duration: 1200; easing.type: Easing.InOutSine }
             NumberAnimation { to: 0.9; duration: 1200; easing.type: Easing.InOutSine }
         }
     }
 
-    // 🚀 头像裁切优化：内嵌圆形双层裁切，彻底消除头像图片是矩形时的尖角溢出
     Item {
         id: avatarWrapper
         anchors.centerIn: parent
@@ -59,8 +61,13 @@ Rectangle {
                 anchors.fill: parent
                 source: (notifBubbleRoot.avatarUrl && notifBubbleRoot.avatarUrl.length > 5) ? notifBubbleRoot.avatarUrl : ""
                 fillMode: Image.PreserveAspectCrop
+                
+                // 🚀 头像显存约束
+                sourceSize.width: 44
+                sourceSize.height: 44
+                asynchronous: true
+                cache: true
                 visible: status === Image.Ready
-                cache: false
                 onStatusChanged: if (status === Image.Error) source = ""
             }
 
@@ -72,12 +79,11 @@ Rectangle {
             }
         }
 
-        // 边缘圆弧修饰环，遮盖硬质锯齿
         Rectangle {
             anchors.fill: parent
             radius: 11
             color: "transparent"
-            border.color: Qt.rgba(1, 1, 1, 0.18)
+            border.color: Theme.borderSubtle
             border.width: 1
         }
     }

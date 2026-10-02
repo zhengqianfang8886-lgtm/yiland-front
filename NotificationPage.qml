@@ -71,7 +71,7 @@ Item {
                 Rectangle {
                     width: 58; height: 20; radius: 10
                     color: readAllArea.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.06)
-                    Text { anchors.centerIn: parent; text: "全部已读"; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
+                    Text { anchors.centerIn: parent; text: "全部已读"; color: Theme.textSecondary; font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
                     MouseArea {
                         id: readAllArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                         onClicked: if (typeof Bridge !== "undefined") Bridge.markAllNotificationsRead()
@@ -80,8 +80,8 @@ Item {
 
                 Rectangle {
                     width: 44; height: 20; radius: 10
-                    color: clearArea.containsMouse ? Qt.rgba(239, 68, 68, 0.25) : Qt.rgba(1, 1, 1, 0.06)
-                    Text { anchors.centerIn: parent; text: "清空"; color: clearArea.containsMouse ? "#ef4444" : Qt.rgba(1, 1, 1, 0.6); font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
+                    color: clearArea.containsMouse ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.25) : Qt.rgba(1, 1, 1, 0.06)
+                    Text { anchors.centerIn: parent; text: "清空"; color: clearArea.containsMouse ? Theme.danger : Theme.textMuted; font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
                     MouseArea {
                         id: clearArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                         onClicked: if (typeof Bridge !== "undefined") Bridge.clearNotificationHistory()
@@ -100,7 +100,7 @@ Item {
 
             ScrollBar.vertical: ScrollBar {
                 width: 4; policy: ScrollBar.AsNeeded
-                contentItem: Rectangle { radius: 2; color: Qt.rgba(1, 1, 1, 0.3) }
+                contentItem: Rectangle { radius: 2; color: Theme.borderSubtle }
             }
 
             Item {
@@ -111,7 +111,7 @@ Item {
                     anchors.centerIn: parent
                     spacing: 6
                     Text { text: "🎉 暂无未读消息"; color: "white"; font.pixelSize: 13; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
-                    Text { text: "收到的 Teams 与系统通知将自动在灵动岛归档保存"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 11; font.family: notifPageRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                    Text { text: "收到的 Teams 与系统通知将自动在灵动岛归档保存"; color: Theme.textMuted; font.pixelSize: 11; font.family: notifPageRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
                 }
             }
 
@@ -120,10 +120,10 @@ Item {
                 width: notifListView.width - 6
                 height: 52
                 radius: 10
-                color: notifHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : (modelData.read ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(99, 102, 241, 0.08))
-                border.color: modelData.read ? Qt.rgba(1, 1, 1, 0.06) : Qt.rgba(129, 140, 248, 0.35)
+                color: notifHover.hovered ? Theme.bgCardHover : (modelData.read ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.08))
+                border.color: modelData.read ? Theme.borderSubtle : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
                 border.width: 1
-                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
                 HoverHandler { id: notifHover }
 
@@ -143,12 +143,14 @@ Item {
                             anchors.fill: parent
                             source: (modelData.avatar && modelData.avatar.length > 5) ? modelData.avatar : ""
                             fillMode: Image.PreserveAspectCrop
+                            
+                            // 🚀 显存关键约束：降采样解码
+                            sourceSize.width: 72
+                            sourceSize.height: 72
+                            asynchronous: true
+                            cache: true
                             visible: status === Image.Ready
-                            onStatusChanged: {
-                                if (status === Image.Error) {
-                                    source = ""
-                                }
-                            }
+                            onStatusChanged: if (status === Image.Error) source = ""
                         }
 
                         Text {
@@ -179,14 +181,14 @@ Item {
                             }
                             Text {
                                 text: "• Teams"
-                                color: "#818cf8"
+                                color: Theme.notification
                                 font.pixelSize: 9
                                 font.weight: Font.Bold
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
                                 text: modelData.time || ""
-                                color: Qt.rgba(1, 1, 1, 0.4)
+                                color: Theme.textMuted
                                 font.pixelSize: 9
                                 font.family: "Monospace"
                                 anchors.verticalCenter: parent.verticalCenter
@@ -195,7 +197,7 @@ Item {
 
                         Text {
                             text: modelData.content || "未提供正文详情"
-                            color: Qt.rgba(1, 1, 1, 0.75)
+                            color: Theme.textSecondary
                             font.pixelSize: 11
                             font.family: notifPageRoot.chosenFont
                             elide: Text.ElideRight
@@ -206,17 +208,17 @@ Item {
                     Rectangle {
                         width: 58; height: 26; radius: 13
                         anchors.verticalCenter: parent.verticalCenter
-                        color: actionBtnArea.pressed ? "#4338ca" : (actionBtnArea.containsMouse ? "#4f46e5" : Qt.rgba(99, 102, 241, 0.2))
-                        border.color: "#6366f1"
+                        color: actionBtnArea.pressed ? "#4338ca" : (actionBtnArea.containsMouse ? "#4f46e5" : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.2))
+                        border.color: Theme.notification
                         border.width: 1
                         scale: actionBtnArea.pressed ? 0.94 : 1.0
-                        Behavior on scale { NumberAnimation { duration: 100 } }
+                        Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
                         Row {
                             anchors.centerIn: parent
                             spacing: 2
                             Text { text: "回复"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
-                            Text { text: "↗"; color: "#818cf8"; font.pixelSize: 10; font.weight: Font.Bold }
+                            Text { text: "↗"; color: Theme.notification; font.pixelSize: 10; font.weight: Font.Bold }
                         }
 
                         MouseArea {

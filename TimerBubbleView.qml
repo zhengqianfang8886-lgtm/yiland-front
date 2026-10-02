@@ -18,11 +18,11 @@ Rectangle {
     signal wheelAdjust(int deltaSec)
 
     readonly property color urgencyColor: {
-        if (isCountUp) return "#38bdf8"
-        if (!active) return "#f97316"
-        if (remainingSeconds <= 60) return "#ef4444"
+        if (isCountUp) return Theme.stopwatch
+        if (!active) return Theme.timer
+        if (remainingSeconds <= 60) return Theme.danger
         if (remainingSeconds <= 300) return "#f43f5e"
-        return "#f97316"
+        return Theme.timer
     }
 
     width: hasHours ? 104 : 84
@@ -30,33 +30,30 @@ Rectangle {
     radius: height / 2
     clip: true
 
-    color: Qt.rgba(0.08, 0.08, 0.1, 0.96)
+    color: Theme.bgCapsule
     border.width: 1
     border.color: timerBubbleHover.hovered ? Qt.lighter(urgencyColor, 1.2) : Qt.rgba(urgencyColor.r, urgencyColor.g, urgencyColor.b, 0.45)
-    Behavior on border.color { ColorAnimation { duration: 200 } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
 
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.2
     visible: opacity > 0.01
 
-    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.18 } }
+    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.smoothEasing } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.springEasing; easing.overshoot: Theme.springOvershoot } }
 
     Row {
         anchors.centerIn: parent
         spacing: 5.5
 
-        // 🚀 核心优化：采用 QtQuick.Shapes GPU 顶点硬件加速管线，取代 Canvas CPU 软绘
+        // 🚀 核心优化：移除 layer.samples: 4 离屏 FBO，直接走 GPU 顶点 Shader
         Shape {
             id: ringShape
             width: 14
             height: 14
             anchors.verticalCenter: parent.verticalCenter
-            layer.enabled: true
-            layer.samples: 4 // 开启硬件 MSAA 多重采样抗锯齿
 
-            // 底层导轨
             ShapePath {
                 strokeColor: Qt.rgba(1, 1, 1, 0.18)
                 strokeWidth: 1.8
@@ -71,7 +68,6 @@ Rectangle {
                 }
             }
 
-            // 表层动态进度弧
             ShapePath {
                 strokeColor: timerBubbleRoot.urgencyColor
                 strokeWidth: 1.8

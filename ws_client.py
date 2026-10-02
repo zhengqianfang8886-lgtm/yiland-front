@@ -5,16 +5,24 @@ from bridge import IslandBridge, to_compact_speed
 from logger import app_logger
 
 def _sanitize_media_time(val):
+    """
+    科学清洗 MPRIS 媒体时间：
+    - MPRIS 标准时间戳为微秒 (1s = 1,000,000 us)
+    - 绝不能用 10,000,000 作为分界线，否则 1~9 秒会被当成毫秒放大 1000 倍！
+    """
     if val is None:
-        return 0.0
+        return None
     try:
         f = float(val)
-        if f <= 0: return 0.0
-        if f > 10000000: return f / 1000000.0
-        if f > 100000: return f / 1000.0
+        if f < 0:
+            return 0.0
+        # 1. 只要大于等于 100,000（即 >= 0.1秒的微秒表达），必然是微秒
+        if f >= 100_000:
+            return f / 1_000_000.0
+        # 2. 否则本身就已经是以秒为单位的小数/整数
         return f
     except Exception:
-        return 0.0
+        return None
 
 class WebSocketDaemonClient:
     """专职异步 WebSocket 监听守护服务，负责将系统状态实时解构并路由至 IslandBridge"""
@@ -59,7 +67,8 @@ class WebSocketDaemonClient:
                             self._dispatch_message(message)
 
                     await asyncio.gather(sender(), receiver())
-            except Exception:
+            except Exception as e:
+                app_logger.warning(f"[WS] 连接断开或异常: {e}，2秒后重连...")
                 await asyncio.sleep(2)
 
     def _dispatch_message(self, message: str):
@@ -68,27 +77,43 @@ class WebSocketDaemonClient:
             m_type = msg.get("type", "")
             data = msg.get("data", {})
 
-            # 1. 媒体播放与进度
+            # 打印收到的媒体相关报文
+            if "media" in data or m_type.startswith("MEDIA_"):
+                app_logger.info(f"[WS-原始报文] type={m_type} | media={json.dumps(data.get('media', {}), ensure_ascii=False)}")
+
+            # 1. 媒体播放与进度推送
             if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
                 m = data["media"]
-                pos = _sanitize_media_time(m.get("position"))
-                dur = _sanitize_media_time(m.get("duration"))
+                raw_pos = m.get("position")
+                raw_dur = m.get("duration")
+                pos = _sanitize_media_time(raw_pos)
+                dur = _sanitize_media_time(raw_dur)
                 raw_prog = m.get("progress")
-                prog = float(raw_prog) if raw_prog is not None else (pos / dur if dur > 0 else 0.0)
-                self.bridge.update_progress_state(pos, dur, min(1.0, max(0.0, prog)))
+                prog = float(raw_prog) if raw_prog is not None else -1.0
+                
+                safe_pos = pos if pos is not None else -1.0
+                safe_dur = dur if dur is not None else -1.0
+                self.bridge.update_progress_state(safe_pos, safe_dur, prog)
 
             elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
                 m = data["media"]
                 art = m.get("art_url", "")
                 if art and art.startswith("/") and not art.startswith("file://"):
                     art = "file://" + art
-                pos = _sanitize_media_time(m.get("position", 0.0))
-                dur = _sanitize_media_time(m.get("duration", 0.0))
+                
+                raw_pos = m.get("position")
+                raw_dur = m.get("duration")
+                pos = _sanitize_media_time(raw_pos)
+                dur = _sanitize_media_time(raw_dur)
+
+                safe_pos = pos if pos is not None else -1.0
+                safe_dur = dur if dur is not None else -1.0
+
                 self.bridge.update_media_state(
                     m.get("title", "等待播放..."),
                     m.get("artist", "未知歌手"),
                     m.get("status", "Paused"),
-                    art, pos, dur
+                    art, safe_pos, safe_dur
                 )
 
             # 2. 虚拟工作区
@@ -151,7 +176,7 @@ class WebSocketDaemonClient:
                 elif m_type == "VPN_DISCONNECTED":
                     self.bridge.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
-            # 6. 系统及 Teams 呼叫通知（增强调试日志与空通知拦截）
+            # 6. 系统及 Teams 呼叫通知
             if m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "TEAMS_CALL_INCOMING"):
                 if "notification" in data:
                     noti = data["notification"]
@@ -159,7 +184,6 @@ class WebSocketDaemonClient:
                     t_sub = noti.get("content", "").strip()
                     safe_avatar = noti.get("avatar", "")
                     
-                    # 只有标题或正文有效且非空串时才计入未读
                     if len(t_title) > 0 or len(t_sub) > 0:
                         app_logger.info(f"[Notif] 收到通知推送: 标题='{t_title}' | 内容='{t_sub}'")
                         self.bridge.add_notification(noti.get("icon", "💬"), t_title, t_sub, safe_avatar)

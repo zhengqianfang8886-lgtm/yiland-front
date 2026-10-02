@@ -41,16 +41,11 @@ Item {
     Timer { id: tabWheelReset; interval: 260; onTriggered: cardRoot.tabWheelAccum = 0 }
 
     readonly property int activeTabIndex: {
+        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return 0
         for (var i = 0; i < cardRoot.enabledTabs.length; i++) {
-            if (cardRoot.enabledTabs[i].key === cardRoot.expandedTab) return i
+            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === cardRoot.expandedTab) return i
         }
         return 0
-    }
-
-    onExpandedTabChanged: {
-        if (expandedTab === "calendar" && calendarPage) calendarPage.resetToToday()
-        if (expandedTab === "bluetooth" && bluetoothPage) bluetoothPage.refresh()
-        if (expandedTab === "notification" && notifCenterPage) notifCenterPage.refresh()
     }
 
     function selectTabByIndex(idx) {
@@ -68,15 +63,14 @@ Item {
         anchors.fill: parent
         spacing: 12
 
-        // 1. 顶部 Header 状态标签与自适应 Tab 栏
+        // 1. 顶部 Header
         Item {
             id: headerArea
             width: parent.width
             height: 26
 
-            readonly property int dynamicTabWidth: cardRoot.enabledTabs.length > 5 ? 42 : 48
+            readonly property int dynamicTabWidth: (cardRoot.enabledTabs && cardRoot.enabledTabs.length > 5) ? 42 : 48
 
-            // 🚀 左侧标题区域：独立滚轮检测区，边界在 Tab 栏左侧终止，绝不遮挡 Tab 点击！
             MouseArea {
                 anchors.left: parent.left
                 anchors.right: tabSliderContainer.left
@@ -95,19 +89,17 @@ Item {
                 }
             }
 
-            // 🚀 右侧自适应 Tab 栏容器（保证完全可点击）
             Rectangle {
                 id: tabSliderContainer
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: cardRoot.enabledTabs.length * headerArea.dynamicTabWidth
+                width: (cardRoot.enabledTabs ? cardRoot.enabledTabs.length : 0) * headerArea.dynamicTabWidth
                 height: 24
                 radius: 12
                 color: Qt.rgba(1, 1, 1, 0.08)
-                visible: !cardRoot.isCalling && cardRoot.enabledTabs.length > 1
+                visible: !cardRoot.isCalling && cardRoot.enabledTabs && cardRoot.enabledTabs.length > 1
                 z: 5
 
-                // Tab 栏专属滚轮切换（使用 NoButton，允许鼠标点击毫无阻碍地穿透给 Tab 项）
                 MouseArea {
                     anchors.fill: parent
                     z: 0
@@ -124,7 +116,6 @@ Item {
                     }
                 }
 
-                // 滑块背景指示器
                 Rectangle {
                     z: 1; y: 2
                     x: cardRoot.activeTabIndex * headerArea.dynamicTabWidth + 2
@@ -132,54 +123,52 @@ Item {
                     height: 20
                     radius: 10
                     color: {
+                        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return Qt.rgba(1, 1, 1, 0.18)
                         var curr = cardRoot.enabledTabs[cardRoot.activeTabIndex]
-                        return curr ? curr.activeColor : Qt.rgba(1, 1, 1, 0.18)
+                        return curr && curr.activeColor ? curr.activeColor : Qt.rgba(1, 1, 1, 0.18)
                     }
                     border.color: {
+                        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return Theme.borderFocus
                         var curr = cardRoot.enabledTabs[cardRoot.activeTabIndex]
-                        return curr ? curr.color : Qt.rgba(1, 1, 1, 0.3)
+                        return curr && curr.color ? curr.color : Theme.borderFocus
                     }
                     border.width: 1
-                    Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                    Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
+                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
+                    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
                 }
 
-                // Tab 文字与点击热区（z: 2 置顶响应点击）
                 Row {
                     z: 2
                     anchors.fill: parent
 
                     Repeater {
-                        model: cardRoot.enabledTabs
+                        model: cardRoot.enabledTabs || []
 
                         Item {
                             width: headerArea.dynamicTabWidth
                             height: parent.height
                             readonly property bool isCurrent: cardRoot.expandedTab === modelData.key
 
-                            // 悬停轻量高亮背景
                             Rectangle {
                                 anchors.fill: parent
                                 anchors.margins: 2
                                 radius: 10
                                 color: tabMouseArea.containsMouse && !isCurrent ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
-                                Behavior on color { ColorAnimation { duration: 120 } }
+                                Behavior on color { ColorAnimation { duration: Theme.animFast } }
                             }
 
                             Text {
                                 anchors.centerIn: parent
-                                text: modelData.name
-                                color: isCurrent ?
-                                       (modelData.key === "media" ? "#ffffff" : modelData.color) :
-                                       (tabMouseArea.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.45))
+                                text: modelData.name || ""
+                                color: isCurrent ? (modelData.key === "media" ? Theme.textPrimary : modelData.color) :
+                                       (tabMouseArea.containsMouse ? Theme.textPrimary : Theme.textMuted)
                                 font.pixelSize: 11
                                 font.family: cardRoot.chosenFont
                                 font.weight: isCurrent ? Font.Black : Font.Bold
-                                Behavior on color { ColorAnimation { duration: 120 } }
+                                Behavior on color { ColorAnimation { duration: Theme.animFast } }
                             }
 
-                            // 🚀 核心点击 MouseArea
                             MouseArea {
                                 id: tabMouseArea
                                 anchors.fill: parent
@@ -199,7 +188,6 @@ Item {
                 }
             }
 
-            // 左侧状态指示标签
             Text {
                 anchors.left: parent.left
                 anchors.right: tabSliderContainer.visible ? tabSliderContainer.left : parent.right
@@ -217,15 +205,15 @@ Item {
                       (cardRoot.expandedTab === "clock" ? "● WORLD CLOCK" :
                       (cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"))))))))
 
-                color: cardRoot.isCalling ? "#22c55e" :
-                       (cardRoot.expandedTab === "notification" ? "#818cf8" :
-                       (cardRoot.expandedTab === "calendar" ? "#38bdf8" :
-                       (cardRoot.expandedTab === "workspace" ? "#a855f7" :
+                color: cardRoot.isCalling ? Theme.media :
+                       (cardRoot.expandedTab === "notification" ? Theme.notification :
+                       (cardRoot.expandedTab === "calendar" ? Theme.calendar :
+                       (cardRoot.expandedTab === "workspace" ? Theme.workspace :
                        (cardRoot.expandedTab === "timer" ? persistentTimerPage.accentColor :
-                       (cardRoot.expandedTab === "bluetooth" ? "#60a5fa" :
-                       (cardRoot.expandedTab === "network" ? "#34d399" :
-                       (cardRoot.expandedTab === "clock" ? "#f59e0b" :
-                       (cardRoot.status === "Playing" ? Qt.rgba(0.2, 0.85, 0.5, 0.9) : Qt.rgba(1, 1, 1, 0.4)))))))))
+                       (cardRoot.expandedTab === "bluetooth" ? Theme.bluetooth :
+                       (cardRoot.expandedTab === "network" ? Theme.network :
+                       (cardRoot.expandedTab === "clock" ? Theme.clock :
+                       (cardRoot.status === "Playing" ? Theme.media : Theme.textMuted))))))))
                 font.family: cardRoot.chosenFont
                 font.pixelSize: 10
                 font.weight: Font.Black
@@ -255,12 +243,6 @@ Item {
                 visible: opacity > 0.01
             }
 
-            CalendarPage {
-                id: calendarPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                opacity: ((typeof Config !== "undefined" && Config.showCalendarTab) && cardRoot.expandedTab === "calendar" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
-            }
-
             TimerPage {
                 id: persistentTimerPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 opacity: (cardRoot.expandedTab === "timer" && !cardRoot.isCalling) ? 1.0 : 0.0
@@ -268,30 +250,60 @@ Item {
                 onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
             }
 
-            NotificationPage {
-                id: notifCenterPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                opacity: (cardRoot.expandedTab === "notification" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+            Loader {
+                id: calendarLoader
+                anchors.fill: parent
+                active: cardRoot.expandedTab === "calendar"
+                visible: active
+                sourceComponent: Component {
+                    CalendarPage { chosenFont: cardRoot.chosenFont }
+                }
             }
 
-            BluetoothPage {
-                id: bluetoothPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                opacity: ((typeof Config !== "undefined" && Config.showBluetoothTab) && cardRoot.expandedTab === "bluetooth" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+            Loader {
+                id: notifLoader
+                anchors.fill: parent
+                active: cardRoot.expandedTab === "notification"
+                visible: active
+                sourceComponent: Component {
+                    NotificationPage { chosenFont: cardRoot.chosenFont }
+                }
             }
 
-            NetworkPage {
-                id: networkPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                downSpeed: cardRoot.downSpeedStr; upSpeed: cardRoot.upSpeedStr; localIp: cardRoot.localIp
-                opacity: ((typeof Config !== "undefined" && Config.showNetworkTab) && cardRoot.expandedTab === "network" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+            Loader {
+                id: bluetoothLoader
+                anchors.fill: parent
+                active: cardRoot.expandedTab === "bluetooth"
+                visible: active
+                sourceComponent: Component {
+                    BluetoothPage { chosenFont: cardRoot.chosenFont }
+                }
             }
 
-            WorldClockPage {
-                id: worldClockPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                is24h: (typeof Config !== "undefined") ? (Config.timeFormat === "24h") : true
-                opacity: ((typeof Config !== "undefined" && Config.showClockTab) && cardRoot.expandedTab === "clock" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+            Loader {
+                id: networkLoader
+                anchors.fill: parent
+                active: cardRoot.expandedTab === "network"
+                visible: active
+                sourceComponent: Component {
+                    NetworkPage {
+                        chosenFont: cardRoot.chosenFont
+                        downSpeed: cardRoot.downSpeedStr; upSpeed: cardRoot.upSpeedStr; localIp: cardRoot.localIp
+                    }
+                }
+            }
+
+            Loader {
+                id: clockLoader
+                anchors.fill: parent
+                active: cardRoot.expandedTab === "clock"
+                visible: active
+                sourceComponent: Component {
+                    WorldClockPage {
+                        chosenFont: cardRoot.chosenFont
+                        is24h: (typeof Config !== "undefined") ? (Config.timeFormat === "24h") : true
+                    }
+                }
             }
         }
     }

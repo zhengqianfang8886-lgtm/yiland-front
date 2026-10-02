@@ -12,9 +12,9 @@ Item {
 
     function getBatteryColor(pct) {
         if (pct === null || pct === undefined || isNaN(pct)) return Qt.rgba(1, 1, 1, 0.4)
-        if (pct >= 60) return "#22c55e"
-        if (pct >= 25) return "#f59e0b"
-        return "#ef4444"
+        if (pct >= 60) return Theme.media
+        if (pct >= 25) return Theme.clock
+        return Theme.danger
     }
 
     function refresh() {
@@ -85,9 +85,9 @@ Item {
         Rectangle {
             width: 142
             height: parent.height
-            radius: 16
-            color: Qt.rgba(1, 1, 1, 0.04)
-            border.color: Qt.rgba(96, 165, 250, 0.22)
+            radius: Theme.radiusCard
+            color: Theme.bgCardItem
+            border.color: Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.22)
             border.width: 1
 
             Column {
@@ -100,20 +100,20 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                     Rectangle {
                         width: 6; height: 6; radius: 3
-                        color: btRoot.isPowered ? (btRoot.connectedList.length > 0 ? "#60a5fa" : "#34d399") : Qt.rgba(1, 1, 1, 0.25)
+                        color: btRoot.isPowered ? (btRoot.connectedList.length > 0 ? Theme.bluetooth : Theme.network) : Qt.rgba(1, 1, 1, 0.25)
                         anchors.verticalCenter: parent.verticalCenter
                     }
                     Text {
                         text: "BLUETOOTH"
                         font.pixelSize: 9
                         font.weight: Font.Black
-                        color: btRoot.isPowered ? "#60a5fa" : Qt.rgba(1, 1, 1, 0.4)
+                        color: btRoot.isPowered ? Theme.bluetooth : Theme.textMuted
                         font.family: btRoot.chosenFont
                         font.letterSpacing: 0.8
                     }
                 }
 
-                // 徽章：GPU 硬件加速绘制蓝牙矢量符号
+                // 徽章
                 Item {
                     width: 38; height: 38
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -122,11 +122,9 @@ Item {
                         anchors.centerIn: parent
                         width: 20; height: 24
                         visible: !btRoot.primaryActiveDevice || btRoot.getDeviceIcon(btRoot.primaryActiveDevice.name, btRoot.primaryActiveDevice.icon) === "bluetooth"
-                        layer.enabled: true
-                        layer.samples: 4
 
                         ShapePath {
-                            strokeColor: "#60a5fa"
+                            strokeColor: Theme.bluetooth
                             strokeWidth: 2.2
                             fillColor: "transparent"
                             capStyle: ShapePath.RoundCap
@@ -198,7 +196,7 @@ Item {
 
                 Text {
                     text: btRoot.connectedList.length > 0 ? ("共 " + btRoot.connectedList.length + " 个已连") : "蓝牙控制器已就绪"
-                    color: Qt.rgba(1, 1, 1, 0.45)
+                    color: Theme.textMuted
                     font.pixelSize: 9
                     font.weight: Font.Bold
                     font.family: btRoot.chosenFont
@@ -210,19 +208,19 @@ Item {
 
                 Rectangle {
                     width: 96; height: 24; radius: 12
-                    color: managerBtnArea.containsMouse ? Qt.rgba(96, 165, 250, 0.24) : Qt.rgba(1, 1, 1, 0.08)
-                    border.color: Qt.rgba(96, 165, 250, 0.3)
+                    color: managerBtnArea.containsMouse ? Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.24) : Qt.rgba(1, 1, 1, 0.08)
+                    border.color: Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.3)
                     border.width: 1
                     scale: managerBtnArea.pressed ? 0.94 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 120 } }
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                    Behavior on color { ColorAnimation { duration: Theme.animInstant } }
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     Row {
                         anchors.centerIn: parent
                         spacing: 4
                         Text { text: "系统管理"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.chosenFont }
-                        Text { text: "↗"; color: "#60a5fa"; font.pixelSize: 10; font.weight: Font.Bold }
+                        Text { text: "↗"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Bold }
                     }
 
                     MouseArea {
@@ -245,7 +243,7 @@ Item {
                 Text {
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                     text: "已配对设备"
-                    color: Qt.rgba(1, 1, 1, 0.5)
+                    color: Theme.textMuted
                     font.pixelSize: 11
                     font.weight: Font.Bold
                     font.family: btRoot.chosenFont
@@ -256,7 +254,7 @@ Item {
                     width: 52; height: 20; radius: 10
                     color: refreshArea.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.06)
                     scale: refreshArea.pressed ? 0.92 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
                     Row {
                         anchors.centerIn: parent
@@ -264,7 +262,7 @@ Item {
                         Text {
                             text: "⟳"
                             font.pixelSize: 12
-                            color: "#60a5fa"
+                            color: Theme.bluetooth
                             RotationAnimator on rotation {
                                 running: btRoot.isRefreshing
                                 loops: Animation.Infinite
@@ -291,7 +289,7 @@ Item {
 
                 ScrollBar.vertical: ScrollBar {
                     width: 4; policy: ScrollBar.AsNeeded
-                    contentItem: Rectangle { radius: 2; color: Qt.rgba(1, 1, 1, 0.3) }
+                    contentItem: Rectangle { radius: 2; color: Theme.borderSubtle }
                 }
 
                 Item {
@@ -301,8 +299,8 @@ Item {
                     Column {
                         anchors.centerIn: parent
                         spacing: 4
-                        Text { text: "未发现配对的蓝牙设备"; color: Qt.rgba(1, 1, 1, 0.5); font.pixelSize: 11; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
-                        Text { text: "点击左侧“系统管理”进行配对 ↗"; color: "#60a5fa"; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "未发现配对的蓝牙设备"; color: Theme.textMuted; font.pixelSize: 11; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "点击左侧“系统管理”进行配对 ↗"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
                     }
                 }
 
@@ -310,11 +308,11 @@ Item {
                     id: devCard
                     width: deviceListView.width - 6
                     height: 38
-                    radius: 8
-                    color: devHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04)
-                    border.color: modelData.connected ? Qt.rgba(96, 165, 250, 0.35) : Qt.rgba(1, 1, 1, 0.06)
+                    radius: Theme.radiusItem
+                    color: devHover.hovered ? Theme.bgCardHover : Theme.bgCardItem
+                    border.color: modelData.connected ? Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.35) : Theme.borderSubtle
                     border.width: 1
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on color { ColorAnimation { duration: Theme.animInstant } }
 
                     HoverHandler { id: devHover }
 
@@ -323,7 +321,6 @@ Item {
                         anchors.leftMargin: 8; anchors.rightMargin: 8
                         spacing: 8
 
-                        // 列表项左侧硬件加速矢量图标
                         Item {
                             width: 18; height: 18
                             anchors.verticalCenter: parent.verticalCenter
@@ -332,11 +329,9 @@ Item {
                                 anchors.centerIn: parent
                                 width: 12; height: 14
                                 visible: btRoot.getDeviceIcon(modelData.name, modelData.icon) === "bluetooth"
-                                layer.enabled: true
-                                layer.samples: 4
 
                                 ShapePath {
-                                    strokeColor: modelData.connected ? "#60a5fa" : Qt.rgba(1, 1, 1, 0.5)
+                                    strokeColor: modelData.connected ? Theme.bluetooth : Theme.textMuted
                                     strokeWidth: 1.6
                                     fillColor: "transparent"
                                     capStyle: ShapePath.RoundCap
@@ -382,12 +377,12 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     Rectangle {
                                         width: 4; height: 4; radius: 2
-                                        color: modelData.connected ? "#34d399" : Qt.rgba(1, 1, 1, 0.25)
+                                        color: modelData.connected ? Theme.network : Qt.rgba(1, 1, 1, 0.25)
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                     Text {
                                         text: modelData.connected ? "已连接" : "未连接"
-                                        color: modelData.connected ? "#34d399" : Qt.rgba(1, 1, 1, 0.4)
+                                        color: modelData.connected ? Theme.network : Theme.textMuted
                                         font.pixelSize: 9
                                         font.family: btRoot.chosenFont
                                         anchors.verticalCenter: parent.verticalCenter
@@ -437,22 +432,22 @@ Item {
                             width: 46; height: 22; radius: 11
                             anchors.verticalCenter: parent.verticalCenter
                             color: modelData.connected ?
-                                  (toggleBtnArea.containsMouse ? Qt.rgba(239, 68, 68, 0.25) : Qt.rgba(1, 1, 1, 0.08)) :
-                                  (toggleBtnArea.containsMouse ? Qt.rgba(96, 165, 250, 0.3) : Qt.rgba(96, 165, 250, 0.15))
+                                  (toggleBtnArea.containsMouse ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.25) : Qt.rgba(1, 1, 1, 0.08)) :
+                                  (toggleBtnArea.containsMouse ? Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.3) : Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.15))
                             border.color: modelData.connected ?
-                                  (toggleBtnArea.containsMouse ? "#ef4444" : "transparent") :
-                                  "#60a5fa"
+                                  (toggleBtnArea.containsMouse ? Theme.danger : "transparent") :
+                                  Theme.bluetooth
                             border.width: 1
                             scale: toggleBtnArea.pressed ? 0.92 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 120 } }
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                            Behavior on color { ColorAnimation { duration: Theme.animInstant } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.connected ? "断开" : "连接"
                                 font.pixelSize: 9
                                 font.weight: Font.Bold
-                                color: modelData.connected ? (toggleBtnArea.containsMouse ? "#ef4444" : "white") : "#60a5fa"
+                                color: modelData.connected ? (toggleBtnArea.containsMouse ? Theme.danger : "white") : Theme.bluetooth
                                 font.family: btRoot.chosenFont
                             }
 

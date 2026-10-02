@@ -58,11 +58,11 @@ Item {
     }
 
     readonly property color alertThemeColor: {
-        if (compactRoot.alertIcon === "⏰") return "#f97316"
-        if (isBluetoothAlert) return "#38bdf8"
-        if (compactRoot.alertIcon === "🛡️") return "#10b981"
-        if (compactRoot.alertIcon === "📞") return "#22c55e"
-        return "#818cf8"
+        if (compactRoot.alertIcon === "⏰") return Theme.timer
+        if (isBluetoothAlert) return Theme.bluetooth
+        if (compactRoot.alertIcon === "🛡️") return Theme.network
+        if (compactRoot.alertIcon === "📞") return Theme.media
+        return Theme.notification
     }
 
     onWsCurrentChanged: {
@@ -92,8 +92,8 @@ Item {
         visible: opacity > 0.01
         scale: compactRoot.activeTransient === "WORKSPACE" ? 1.0 : 0.90
 
-        Behavior on opacity { NumberAnimation { duration: compactRoot.activeTransient === "WORKSPACE" ? 150 : 85; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: compactRoot.activeTransient === "WORKSPACE" ? 220 : 95; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
         Item {
             id: wsNameWrapper
@@ -105,7 +105,7 @@ Item {
                 id: wsNameText
                 anchors.centerIn: parent
                 text: compactRoot.wsName ? compactRoot.wsName : ("桌面 " + compactRoot.wsCurrent)
-                color: "white"
+                color: Theme.textPrimary
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 12
                 font.weight: Font.Black
@@ -130,13 +130,14 @@ Item {
                 ParallelAnimation {
                     NumberAnimation { target: wsTextTrans; property: "x"; to: 0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.25 }
                     NumberAnimation { target: wsNameText; property: "opacity"; to: 1.0; duration: 160; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: wsTextScale; properties: "xScale,yScale"; to: 1.0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+                    NumberAnimation { target: wsTextScale; properties: "xScale,yScale"; to: 1.0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot }
                 }
             }
         }
 
         Row {
-            spacing: 4.5
+            id: wsDotsRow
+            spacing: 5
             anchors.verticalCenter: parent.verticalCenter
 
             Repeater {
@@ -147,11 +148,11 @@ Item {
                     width: isCurrent ? 15 : (dotMouse.containsMouse ? 7 : 4.5)
                     height: 4.5
                     radius: 2.25
-                    color: isCurrent ? "#ffffff" : (dotMouse.containsMouse ? "#a855f7" : Qt.rgba(1, 1, 1, 0.24))
+                    color: isCurrent ? "#ffffff" : (dotMouse.containsMouse ? Theme.workspace : Qt.rgba(1, 1, 1, 0.24))
                     scale: isCurrent ? 1.0 : (dotMouse.containsMouse ? 1.2 : 0.85)
 
-                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                    Behavior on color { ColorAnimation { duration: 140 } }
+                    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
                     Behavior on scale { NumberAnimation { duration: 160 } }
 
                     MouseArea {
@@ -176,7 +177,7 @@ Item {
         spacing: 7
         opacity: compactRoot.activeTransient === "OSD" ? 1.0 : 0.0
         visible: opacity > 0.01
-        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
         Text { text: compactRoot.osdIcon; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
         Rectangle {
@@ -206,12 +207,12 @@ Item {
         visible: opacity > 0.01
         scale: compactRoot.activeTransient === "ALERT" ? 1.0 : 0.88
 
-        Behavior on opacity { NumberAnimation { duration: compactRoot.activeTransient === "ALERT" ? 180 : 100; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: compactRoot.activeTransient === "ALERT" ? Theme.animNormal : Theme.animInstant; easing.type: Easing.OutQuad } }
         Behavior on scale {
             NumberAnimation {
-                duration: compactRoot.activeTransient === "ALERT" ? 260 : 120
+                duration: compactRoot.activeTransient === "ALERT" ? Theme.animSlow : Theme.animFast
                 easing.type: compactRoot.activeTransient === "ALERT" ? Easing.OutBack : Easing.InQuad
-                easing.overshoot: 1.15
+                easing.overshoot: Theme.springOvershoot
             }
         }
 
@@ -234,7 +235,10 @@ Item {
                     source: (compactRoot.alertAvatar && compactRoot.alertAvatar.length > 5) ? compactRoot.alertAvatar : ""
                     fillMode: Image.PreserveAspectCrop
                     visible: status === Image.Ready
-                    cache: false
+                    sourceSize.width: 72
+                    sourceSize.height: 72
+                    asynchronous: true
+                    cache: true
                     onStatusChanged: if (status === Image.Error) source = ""
                 }
 
@@ -260,7 +264,7 @@ Item {
                 anchors.fill: parent
                 radius: 18
                 color: "transparent"
-                border.color: Qt.rgba(1, 1, 1, 0.22)
+                border.color: Theme.borderFocus
                 border.width: 1.5
             }
         }
@@ -270,8 +274,8 @@ Item {
             width: 26; height: 26; radius: 13
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            color: alertActionHover.containsMouse ? Qt.rgba(129, 140, 248, 0.35) : Qt.rgba(1, 1, 1, 0.1)
-            border.color: Qt.rgba(129, 140, 248, 0.45)
+            color: alertActionHover.containsMouse ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35) : Qt.rgba(1, 1, 1, 0.1)
+            border.color: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.45)
             border.width: 1
 
             Text {
@@ -333,7 +337,7 @@ Item {
                 Text {
                     id: timeText
                     text: "刚刚"
-                    color: Qt.rgba(1, 1, 1, 0.35)
+                    color: Theme.textMuted
                     font.family: compactRoot.chosenFont
                     font.pixelSize: 9
                     font.weight: Font.Bold
@@ -344,7 +348,7 @@ Item {
             Text {
                 id: subText
                 text: compactRoot.alertSubtitle
-                color: Qt.rgba(1, 1, 1, 0.88)
+                color: Theme.textSecondary
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 11
                 font.weight: Font.Medium
@@ -365,12 +369,15 @@ Item {
 
         Rectangle {
             width: 26; height: 26; radius: 13
-            color: callAvatarImg.visible ? "transparent" : "#22c55e"
+            color: callAvatarImg.visible ? "transparent" : Theme.media
             anchors.verticalCenter: parent.verticalCenter
             clip: true
             Image {
                 id: callAvatarImg; anchors.fill: parent; source: compactRoot.callAvatar
-                fillMode: Image.PreserveAspectCrop; visible: compactRoot.callAvatar !== "" && status === Image.Ready; cache: false
+                fillMode: Image.PreserveAspectCrop
+                visible: compactRoot.callAvatar !== "" && status === Image.Ready
+                sourceSize.width: 52; sourceSize.height: 52
+                asynchronous: true; cache: true
             }
             Text {
                 anchors.centerIn: parent
@@ -381,7 +388,7 @@ Item {
         Column {
             anchors.verticalCenter: parent.verticalCenter; spacing: 1; width: parent.width - 36
             Text { text: compactRoot.callTitle; color: "white"; font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Black; elide: Text.ElideRight; width: parent.width }
-            Text { text: compactRoot.callSubtitle + "  ➔ 点击直达"; color: "#22c55e"; font.family: compactRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Bold; elide: Text.ElideRight; width: parent.width }
+            Text { text: compactRoot.callSubtitle + "  ➔ 点击直达"; color: Theme.media; font.family: compactRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Bold; elide: Text.ElideRight; width: parent.width }
         }
     }
 
@@ -398,13 +405,14 @@ Item {
         Behavior on opacity {
             SequentialAnimation {
                 PauseAnimation { duration: compactRoot.activeTransient === "" ? 40 : 0 }
-                NumberAnimation { duration: 130; easing.type: Easing.OutQuad }
+                NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
             }
         }
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
         Item {
-            width: compactRoot.showNetSpeed ? 42 : 0
+            id: netSpeedItem
+            width: compactRoot.showNetSpeed ? 44 : 0
             height: 22
             visible: compactRoot.showNetSpeed
             clip: true
@@ -417,10 +425,10 @@ Item {
                 Row {
                     spacing: 2
                     anchors.left: parent.left
-                    Text { text: "↓"; font.pixelSize: 8; color: "#38bdf8"; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "↓"; font.pixelSize: 8; color: Theme.calendar; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.downCompact
-                        color: Qt.rgba(1, 1, 1, 0.85)
+                        color: Theme.textSecondary
                         font.pixelSize: 9
                         font.family: "Monospace"
                         font.weight: Font.Bold
@@ -430,10 +438,10 @@ Item {
                 Row {
                     spacing: 2
                     anchors.left: parent.left
-                    Text { text: "↑"; font.pixelSize: 8; color: "#34d399"; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "↑"; font.pixelSize: 8; color: Theme.network; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.upCompact
-                        color: Qt.rgba(1, 1, 1, 0.85)
+                        color: Theme.textSecondary
                         font.pixelSize: 9
                         font.family: "Monospace"
                         font.weight: Font.Bold
@@ -444,13 +452,15 @@ Item {
         }
 
         Text {
-            text: compactRoot.displayDate; color: Qt.rgba(1, 1, 1, 0.82)
+            id: dateText
+            text: compactRoot.displayDate; color: Theme.textSecondary
             font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Bold
             visible: (typeof Config !== "undefined" && Config.showDate) && compactRoot.displayDate !== ""
             anchors.verticalCenter: parent.verticalCenter
         }
 
         Row {
+            id: timeInnerRow
             spacing: 2
             anchors.verticalCenter: parent.verticalCenter
 
@@ -461,7 +471,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
             Text {
-                text: compactRoot.displaySeconds; color: "#34d399"
+                text: compactRoot.displaySeconds; color: Theme.network
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
                 font.pixelSize: 14; font.weight: Font.ExtraBold
                 visible: (typeof Config !== "undefined" && Config.showSeconds) && compactRoot.displaySeconds !== ""

@@ -1,4 +1,3 @@
-// File: Island.qml
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
@@ -15,13 +14,11 @@ Item {
 
     readonly property bool isMouseOverCapsule: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse)
 
-    // 🚀 通用副岛与各入口直达核心调度器
     function expandToTab(tabName) {
         root.cancelCollapse()
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
         
-        // 如果是从非 Alert 入口进入，且当前处于 Alert 瞬态，重置瞬态
         if (tabName !== "notification" && root.activeTransient === "ALERT") {
             transientTimer.stop()
             root.activeTransient = ""
@@ -34,7 +31,6 @@ Item {
 
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
 
-    // 数据状态
     property string title: "等待播放..."
     property string artist: "未知歌手"
     property string status: "Paused"
@@ -83,6 +79,7 @@ Item {
     onTargetWidthChanged: safeCommitMask()
     onTargetHeightChanged: safeCommitMask()
     onSplitGapChanged: safeCommitMask()
+    onIsMorphingChanged: safeCommitMask()
 
     Timer {
         id: maskRetractTimer
@@ -90,45 +87,72 @@ Item {
         onTriggered: root.safeCommitMask()
     }
 
-    onHasMusicIslandChanged: {
-        if (hasMusicIsland) safeCommitMask()
-        else maskRetractTimer.restart()
-    }
-    onHasTimerIslandChanged: {
-        if (hasTimerIsland) safeCommitMask()
-        else maskRetractTimer.restart()
-    }
-    onHasNotifIslandChanged: {
-        if (hasNotifIsland) safeCommitMask()
-        else maskRetractTimer.restart()
-    }
+    onHasMusicIslandChanged: if (hasMusicIsland) safeCommitMask(); else maskRetractTimer.restart()
+    onHasTimerIslandChanged: if (hasTimerIsland) safeCommitMask(); else maskRetractTimer.restart()
+    onHasNotifIslandChanged: if (hasNotifIsland) safeCommitMask(); else maskRetractTimer.restart()
 
     onIsCollapsingChanged: {
-        if (!root.isCollapsing && !root.isExpanded) safeCommitMask()
+        if (!root.isCollapsing && !root.isExpanded) {
+            root.safeCommitMask()
+            Bridge.onIslandCollapsed()
+        }
     }
 
     function safeCommitMask() {
         if (!root.animationReady) return
 
+        // 🚀 核心优化：展开、变形、弹性过渡阶段使用全覆盖安全遮罩，杜绝动效期间切片
         if (root.isExpanded || root.isCollapsing || root.isMorphing || root.targetWidth > 300 || root.targetHeight > 100) {
-            var fullW = 430 + 80, fullH = 240 + 32
+            var fullW = 430 + 100, fullH = 240 + 40
             var pX = Math.max(0, Math.round((root.width - fullW) / 2) + Config.offsetX)
-            Bridge.updateMask(pX, Math.max(0, Math.round(Config.topMargin)), Math.min(root.width, Math.round(fullW)), Math.round(fullH))
+            Bridge.updateMask(pX, 0, Math.min(root.width, Math.round(fullW)), Math.round(fullH))
             return
         }
 
-        var cx = Math.round(root.width / 2) + Config.offsetX
-        var halfCapW = Math.round(root.targetWidth / 2)
+        var rectList = []
+        // 🚀 预留 16px 缓冲区，从容包容 Easing.OutBack 的 1.15 倍弹性 overshoot
+        var padX = 16
+        var padY = 6
 
-        var leftBubbleActive = root.hasMusicIsland || maskRetractTimer.running
-        var leftExtra = (leftBubbleActive ? (48 + root.splitGap) : 0) + ((root.notifExpandsToLeft && (root.hasNotifIsland || maskRetractTimer.running)) ? (48 + root.splitGap) : 0)
+        var effectiveW = Math.max(capsule.width, root.targetWidth)
+        var effectiveH = Math.max(capsule.height, root.targetHeight)
+        var effectiveX = Math.round((root.width - effectiveW) / 2) + Config.offsetX
 
-        var rightBubbleActive = root.hasTimerIsland || maskRetractTimer.running
-        var rightExtra = (rightBubbleActive ? (rightTimerBubble ? rightTimerBubble.width : 84) + root.splitGap : 0) + ((!root.notifExpandsToLeft && (root.hasNotifIsland || maskRetractTimer.running)) ? (48 + root.splitGap) : 0)
+        rectList.push({
+            x: Math.max(0, effectiveX - padX),
+            y: Math.max(0, Math.round(capsule.y) - padY),
+            w: Math.round(effectiveW) + padX * 2,
+            h: Math.round(effectiveH) + padY * 2
+        })
 
-        var minX = Math.max(0, (cx - halfCapW - leftExtra) - 20)
-        var maxX = Math.min(root.width, (cx + halfCapW + rightExtra) + 20)
-        Bridge.updateMask(minX, Math.max(0, Math.round(Config.topMargin)), Math.round(maxX - minX), Math.round(root.targetHeight + 16))
+        if (leftMusicBubble.active) {
+            rectList.push({
+                x: Math.max(0, Math.round(leftMusicBubble.x) - padX),
+                y: Math.max(0, Math.round(leftMusicBubble.y) - padY),
+                w: Math.round(leftMusicBubble.width) + padX * 2,
+                h: Math.round(leftMusicBubble.height) + padY * 2
+            })
+        }
+
+        if (rightTimerBubble.active) {
+            rectList.push({
+                x: Math.max(0, Math.round(rightTimerBubble.x) - padX),
+                y: Math.max(0, Math.round(rightTimerBubble.y) - padY),
+                w: Math.round(rightTimerBubble.width) + padX * 2,
+                h: Math.round(rightTimerBubble.height) + padY * 2
+            })
+        }
+
+        if (notifBubble.active) {
+            rectList.push({
+                x: Math.max(0, Math.round(notifBubble.x) - padX),
+                y: Math.max(0, Math.round(notifBubble.y) - padY),
+                w: Math.round(notifBubble.width) + padX * 2,
+                h: Math.round(notifBubble.height) + padY * 2
+            })
+        }
+
+        Bridge.updateCompositeMask(rectList)
     }
 
     property string displayDate: ""
@@ -136,21 +160,19 @@ Item {
     property string displayPeriod: "pm"
     property string displaySeconds: ""
 
-    // 默认排布：将“桌面”作为第一或优先 Tab
     readonly property var enabledTabs: {
         var list = []
-        if (typeof Config !== "undefined" && Config.showWorkspaceTab) list.push({ key: "workspace", name: "桌面", color: "#a855f7", activeColor: Qt.rgba(168, 85, 247, 0.22) })
-        if (Config.showMediaTab) list.push({ key: "media", name: "媒体", color: "#ffffff", activeColor: Qt.rgba(1, 1, 1, 0.18) })
-        if (Config.showCalendarTab) list.push({ key: "calendar", name: "日历", color: "#38bdf8", activeColor: Qt.rgba(56, 189, 248, 0.22) })
-        list.push({ key: "timer", name: "计时", color: "#f97316", activeColor: Qt.rgba(249, 115, 22, 0.22) })
-        list.push({ key: "notification", name: "消息", color: "#818cf8", activeColor: Qt.rgba(129, 140, 248, 0.22) })
-        if (typeof Config !== "undefined" && Config.showBluetoothTab) list.push({ key: "bluetooth", name: "蓝牙", color: "#60a5fa", activeColor: Qt.rgba(96, 165, 250, 0.22) })
-        if (Config.showNetworkTab) list.push({ key: "network", name: "网络", color: "#34d399", activeColor: Qt.rgba(52, 211, 153, 0.22) })
-        if (Config.showClockTab) list.push({ key: "clock", name: "时钟", color: "#f59e0b", activeColor: Qt.rgba(245, 158, 11, 0.22) })
+        if (typeof Config !== "undefined" && Config.showWorkspaceTab) list.push({ key: "workspace", name: "桌面", color: Theme.workspace, activeColor: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22) })
+        if (Config.showMediaTab) list.push({ key: "media", name: "媒体", color: Theme.textPrimary, activeColor: Qt.rgba(1, 1, 1, 0.18) })
+        if (Config.showCalendarTab) list.push({ key: "calendar", name: "日历", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
+        list.push({ key: "timer", name: "计时", color: Theme.timer, activeColor: Qt.rgba(Theme.timer.r, Theme.timer.g, Theme.timer.b, 0.22) })
+        list.push({ key: "notification", name: "消息", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) })
+        if (typeof Config !== "undefined" && Config.showBluetoothTab) list.push({ key: "bluetooth", name: "蓝牙", color: Theme.bluetooth, activeColor: Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.22) })
+        if (Config.showNetworkTab) list.push({ key: "network", name: "网络", color: Theme.network, activeColor: Qt.rgba(Theme.network.r, Theme.network.g, Theme.network.b, 0.22) })
+        if (Config.showClockTab) list.push({ key: "clock", name: "时钟", color: Theme.clock, activeColor: Qt.rgba(Theme.clock.r, Theme.clock.g, Theme.clock.b, 0.22) })
         return list
     }
 
-    // 🚀 默认界面变更为桌面工作区
     property string expandedTab: "workspace"
     SettingsWindow { id: settingsDialog }
 
@@ -181,16 +203,21 @@ Item {
         transientTimer.interval = ms; transientTimer.restart()
     }
 
-    onIsExpandedChanged: {
-        safeCommitMask()
-    }
+    onIsExpandedChanged: safeCommitMask()
 
     Connections {
         target: Bridge
         function onMediaUpdated(t, a, s, u, pos, dur) {
             root.title = t; root.artist = a; root.status = s; root.artUrl = u
-            root.duration = (dur !== undefined && !isNaN(dur)) ? Number(dur) : 0
-            root.position = (pos !== undefined && !isNaN(pos)) ? Number(pos) : 0
+            
+            // 🚀 核心防护：只有在传入有效合法数值时才更新，防止暂停事件导致进度被 0 冲刷
+            var newDur = (dur !== undefined && !isNaN(dur)) ? Number(dur) : 0
+            if (newDur > 0) root.duration = newDur
+
+            var newPos = (pos !== undefined && !isNaN(pos)) ? Number(pos) : -1
+            if (newPos >= 0) {
+                root.position = newPos
+            }
         }
         function onProgressUpdated(pos, dur) {
             var d = (dur !== undefined && !isNaN(dur)) ? Number(dur) : root.duration
@@ -230,17 +257,13 @@ Item {
         }
     }
 
-    // 🚀 悬停计时器：悬停进入，默认进入桌面工作区
     Timer {
         id: hoverDwellTimer
         interval: 180
         onTriggered: {
             if (!root.isCollapsing && root.isMouseOverCapsule && !root.isExpanded) {
-                if (root.activeTransient === "ALERT") {
-                    root.expandToTab("notification")
-                } else {
-                    root.expandToTab("workspace") // 悬停默认进入桌面
-                }
+                if (root.activeTransient === "ALERT") root.expandToTab("notification")
+                else root.expandToTab("workspace")
             }
         }
     }
@@ -268,6 +291,7 @@ Item {
         return totalLen > 18 || (root.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // 🚀 核心改进：加宽冗余度，保障字体较宽、秒数开启、工作区多桌面点显示完整无裁切
     readonly property int targetWidth: {
         if (root.isExpanded) return 430
         if (root.isCalling) return 250
@@ -275,9 +299,9 @@ Item {
             var rawLen = (root.alertTitle || "").length + (root.alertSubtitle || "").length
             return rawLen > 30 ? 430 : (rawLen > 16 ? 400 : 360)
         }
-        if (root.activeTransient === "WORKSPACE") return Math.max(130, compactCapsuleView.wsRowImplicitWidth + 32)
+        if (root.activeTransient === "WORKSPACE") return Math.max(148, compactCapsuleView.wsRowImplicitWidth + 48)
         if (root.activeTransient === "OSD") return 175
-        return compactCapsuleView.textRowImplicitWidth + 36
+        return Math.max(124, compactCapsuleView.textRowImplicitWidth + 46)
     }
 
     readonly property int targetHeight: {
@@ -286,36 +310,37 @@ Item {
         return root.isCalling ? 38 : 36
     }
 
-    // 主胶囊容器
     Rectangle {
         id: capsule
         z: 2
-        anchors.top: parent.top; anchors.topMargin: Config.topMargin
+        // 🚀 核心修复：固定留出 6px 上呼吸空隙，绝不贴死 y=0，保证顶部圆角与边框 100% 完整显示
+        anchors.top: parent.top; anchors.topMargin: 6
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.horizontalCenterOffset: Config.offsetX
-        Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
 
         width: root.targetWidth; height: root.targetHeight
         radius: root.isExpanded ? 28 : (root.activeTransient === "ALERT" ? 26 : Math.min(height / 2, 27))
-        clip: true; color: Qt.rgba(0.08, 0.08, 0.1, 0.96)
-        border.color: (root.activeTransient === "ALERT") ? Qt.rgba(129, 140, 248, 0.6) : ((capsuleMouseArea.containsMouse || root.isExpanded) ? Qt.rgba(1, 1, 1, 0.24) : Qt.rgba(1, 1, 1, 0.14))
+        clip: true; color: Theme.bgCapsule
+        border.color: (root.activeTransient === "ALERT") ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.6) :
+                      ((capsuleMouseArea.containsMouse || root.isExpanded) ? Theme.borderFocus : Theme.borderSubtle)
         border.width: root.activeTransient === "ALERT" ? 1.5 : 1
 
         Behavior on width {
             NumberAnimation {
-                id: widthNumAnim; duration: root.isExpanded ? 300 : 220
+                id: widthNumAnim; duration: root.isExpanded ? Theme.animSlow : Theme.animNormal
                 easing.type: root.isExpanded ? Easing.OutBack : Easing.OutCubic
                 onRunningChanged: { root.isMorphing = running || heightNumAnim.running; if (!running) { root.safeCommitMask(); if (!root.isExpanded) cooldownTimer.restart() } }
             }
         }
         Behavior on height {
             NumberAnimation {
-                id: heightNumAnim; duration: root.isExpanded ? 300 : 220
+                id: heightNumAnim; duration: root.isExpanded ? Theme.animSlow : Theme.animNormal
                 easing.type: root.isExpanded ? Easing.OutBack : Easing.OutCubic
                 onRunningChanged: { root.isMorphing = running || widthNumAnim.running; if (!running) root.safeCommitMask() }
             }
         }
-        Behavior on radius { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        Behavior on radius { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
 
         HoverHandler {
             id: capsuleHover
@@ -334,7 +359,7 @@ Item {
             id: capsuleMouseArea
             anchors.fill: parent; hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
-            cursorShape: Qt.PointingHandCursor // 全态支持手型指引，表示支持点击直达
+            cursorShape: Qt.PointingHandCursor
 
             onEntered: { root.cancelCollapse(); if (!root.isExpanded && !root.isCollapsing) hoverDwellTimer.restart() }
             onExited: { hoverDwellTimer.stop(); root.requestCollapse() }
@@ -346,7 +371,6 @@ Item {
                     }
                 }
             }
-            // 🚀 核心改动：点击主岛，默认直达桌面工作区
             onClicked: (mouse) => {
                 hoverDwellTimer.stop()
                 leaveGraceTimer.stop()
@@ -355,18 +379,14 @@ Item {
                     settingsDialog.show(); settingsDialog.raise(); settingsDialog.requestActivate()
                     return
                 }
-
                 if (root.isCalling) {
                     Bridge.focusTeamsWindow()
                     return
                 }
-
                 if (root.activeTransient === "ALERT") {
                     root.expandToTab("notification")
                     return
                 }
-
-                // 默认点击进入：直达桌面工作区
                 root.expandToTab("workspace")
             }
         }
@@ -383,7 +403,7 @@ Item {
             callTitle: root.callTitle; callSubtitle: root.callSubtitle; callAvatar: root.callAvatar
             displayDate: root.displayDate; displayTime: root.displayTime; displaySeconds: root.displaySeconds; displayPeriod: root.displayPeriod
             downCompact: root.downSpeedCompact; upCompact: root.upSpeedCompact
-            Behavior on opacity { NumberAnimation { duration: root.isExpanded ? 100 : 180; easing.type: Easing.OutQuad } }
+            Behavior on opacity { NumberAnimation { duration: root.isExpanded ? Theme.animInstant : Theme.animNormal; easing.type: Easing.OutQuad } }
         }
 
         ExpandedCardView {
@@ -393,7 +413,6 @@ Item {
             opacity: root.isExpanded ? 1 : 0; scale: root.isExpanded ? 1.0 : 0.96; visible: opacity > 0.01
             chosenFont: root.chosenFont
             
-            // 🚀 单向声明式绑定维持有效
             expandedTab: root.expandedTab
             enabledTabs: root.enabledTabs
             
@@ -408,34 +427,32 @@ Item {
             onTimerCompleted: (t, msg) => {
                 root.alertIcon = "⏰"; root.alertTitle = t; root.alertSubtitle = msg; root.triggerTransient("ALERT", 6000); Bridge.forceRaise()
             }
-            
-            // 🚀 响应子组件传递上来的 Tab 切换信号，统一在顶层修改 SSOT 源头
             onTabSelected: (key) => {
                 root.expandedTab = key
             }
 
-            Behavior on opacity { NumberAnimation { duration: root.isExpanded ? 240 : 100; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: root.isExpanded ? 280 : 140; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: root.isExpanded ? Theme.animSlow : Theme.animInstant; easing.type: Easing.OutQuad } }
+            Behavior on scale { NumberAnimation { duration: root.isExpanded ? Theme.animSlow : Theme.animFast; easing.type: Easing.OutCubic } }
         }
     }
 
     // ==========================================
-    // 相对锚定多副岛 (各入口绑定直达调度)
+    // 相对锚定多副岛
     // ==========================================
 
-    // 1. 音乐副岛：点击直达媒体卡片
     MusicBubbleView {
         id: leftMusicBubble; z: 1
         anchors.right: capsule.left; anchors.rightMargin: root.splitGap; anchors.verticalCenter: capsule.verticalCenter
-        active: !root.isExpanded && !root.isCollapsing && !root.isMorphing && root.hasMusicIsland
+        active: !root.isExpanded && !root.isCollapsing && root.hasMusicIsland
+        onActiveChanged: root.safeCommitMask()
         onClicked: root.expandToTab("media")
     }
 
-    // 2. 计时器副岛：点击直达计时器卡片
     TimerBubbleView {
         id: rightTimerBubble; z: 1
         anchors.left: capsule.right; anchors.leftMargin: root.splitGap; anchors.verticalCenter: capsule.verticalCenter
-        active: !root.isExpanded && !root.isCollapsing && !root.isMorphing && root.hasTimerIsland
+        active: !root.isExpanded && !root.isCollapsing && root.hasTimerIsland
+        onActiveChanged: root.safeCommitMask()
         timerText: expandedCardView.timerPageRef.formattedTime
         hasHours: expandedCardView.timerPageRef.hasHours
         chosenFont: root.chosenFont
@@ -446,7 +463,6 @@ Item {
         onClicked: root.expandToTab("timer")
     }
 
-    // 3. 消息副岛：点击直达消息中心
     NotificationBubbleView {
         id: notifBubble; z: 1
         anchors.verticalCenter: capsule.verticalCenter
@@ -454,7 +470,8 @@ Item {
         anchors.left: !root.notifExpandsToLeft ? (root.hasTimerIsland ? rightTimerBubble.right : capsule.right) : undefined
         anchors.rightMargin: root.notifExpandsToLeft ? root.splitGap : 0
         anchors.leftMargin: !root.notifExpandsToLeft ? root.splitGap : 0
-        active: !root.isExpanded && !root.isCollapsing && !root.isMorphing && root.hasNotifIsland
+        active: !root.isExpanded && !root.isCollapsing && root.hasNotifIsland
+        onActiveChanged: root.safeCommitMask()
         unreadCount: root.unreadNotificationCount; avatarUrl: root.latestNotifAvatar; chosenFont: root.chosenFont
 
         onClicked: root.expandToTab("notification")
@@ -464,6 +481,6 @@ Item {
     Component.onCompleted: {
         root.animationReady = true; root.updateDateTime(); root.safeCommitMask()
         if (root.isCalling) root.expandedTab = "media"
-        else root.expandedTab = "workspace" // 默认优先进入桌面
+        else root.expandedTab = "workspace"
     }
 }

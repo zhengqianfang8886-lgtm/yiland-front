@@ -54,7 +54,7 @@ class ConfigManager(QObject):
         self._showBluetoothTab = True
         self._savedClocks = list(DEFAULT_SAVED_CLOCKS)
 
-        self._system_fonts = self._load_system_fonts()
+        self._system_fonts = None
         self._world_cities = self._load_world_cities()
         self.load()
 
@@ -256,7 +256,11 @@ class ConfigManager(QObject):
             self.savedClocksChanged.emit(self._savedClocks)
 
     @Property(list, constant=True)
-    def systemFonts(self): return self._system_fonts
+    def systemFonts(self):
+        if self._system_fonts is None:
+            self._system_fonts = self._load_system_fonts()
+        return self._system_fonts
+
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
     @Property(str, notify=fontFamilyChanged)
