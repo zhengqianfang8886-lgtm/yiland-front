@@ -56,9 +56,9 @@ Rectangle {
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
     property bool anySubBubbleHovered: false
-    readonly property bool isMouseOver: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || 
-                                        (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse) || 
-                                        anySubBubbleHovered
+
+    // 🚀 全局可靠鼠标悬停检测
+    readonly property bool isMouseOver: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse) || anySubBubbleHovered
 
     signal requestExpand(string tabName)
     signal requestSettings()
@@ -71,7 +71,6 @@ Rectangle {
         return totalLen > 20 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // 🚀 强化感知：横向舒展至 400~470px
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 260
@@ -79,12 +78,11 @@ Rectangle {
             var rawLen = (capsuleRoot.alertTitle || "").length + (capsuleRoot.alertSubtitle || "").length
             return rawLen > 24 ? 470 : (rawLen > 12 ? 430 : 400)
         }
-        if (capsuleRoot.activeTransient === "WORKSPACE") return Math.max(148, compactCapsuleView.wsRowImplicitWidth + 48)
+        if (capsuleRoot.activeTransient === "WORKSPACE") return 184
         if (capsuleRoot.activeTransient === "OSD") return 175
-        return Math.max(124, compactCapsuleView.textRowImplicitWidth + 46)
+        return Math.max(130, compactCapsuleView.textRowImplicitWidth + 48)
     }
 
-    // 🚀 强化感知：纵向适度扩充至 58~72px
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 72 : 58
@@ -96,13 +94,12 @@ Rectangle {
     readonly property int durExpandH: isJellyStyle ? 260 : 230
     readonly property real overshootW: isJellyStyle ? 1.08 : 1.018
     readonly property real overshootH: isJellyStyle ? 1.15 : 1.025
-    readonly property int durCollapseW: isJellyStyle ? 210 : 220
-    readonly property int durCollapseH: isJellyStyle ? 190 : 210
+    readonly property int durCollapseW: isJellyStyle ? 200 : 210
+    readonly property int durCollapseH: isJellyStyle ? 180 : 190
 
     z: 2
     anchors.top: parent.top
-    anchors.topMargin: capsuleRoot.isExpanded ? 8 : 6
-    Behavior on anchors.topMargin { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    anchors.topMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6
 
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: Config.offsetX
@@ -112,9 +109,10 @@ Rectangle {
     height: targetHeight
     radius: isExpanded ? 28 : (activeTransient === "ALERT" ? 22 : Math.min(height / 2, 27))
     clip: false
+    
     color: Theme.bgCapsule
     border.color: (activeTransient === "ALERT") ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.75) :
-                  ((capsuleMouseArea.containsMouse || isExpanded) ? Theme.borderFocus : Theme.borderSubtle)
+                  ((isMouseOver || isExpanded) ? Theme.borderFocus : Theme.borderSubtle)
     border.width: activeTransient === "ALERT" ? 1.8 : 1
 
     Behavior on width {
@@ -125,9 +123,13 @@ Rectangle {
             easing.overshoot: capsuleRoot.isExpanded ? capsuleRoot.overshootW : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || heightNumAnim.running
+                capsuleRoot.maskCommitRequested()
                 if (!running) {
-                    capsuleRoot.maskCommitRequested()
                     if (!capsuleRoot.isExpanded) cooldownTimer.restart()
+                    // 🚀 核心修复保底：如果展开动画结束时鼠标早已移出，立即触发自动收回
+                    if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver && !capsuleRoot.isCalling) {
+                        capsuleRoot.startCollapse()
+                    }
                 }
             }
         }
@@ -141,38 +143,40 @@ Rectangle {
             easing.overshoot: capsuleRoot.isExpanded ? capsuleRoot.overshootH : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || widthNumAnim.running
-                if (!running) capsuleRoot.maskCommitRequested()
+                capsuleRoot.maskCommitRequested()
+                if (!running && capsuleRoot.isExpanded && !capsuleRoot.isMouseOver && !capsuleRoot.isCalling) {
+                    capsuleRoot.startCollapse()
+                }
             }
         }
     }
 
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
 
-    // 🚀 全岛外发光呼吸脉冲层 (Aura Glow Pulse)
-    Rectangle {
-        id: alertAuraGlow
-        anchors.fill: parent
-        anchors.margins: -4
-        radius: capsuleRoot.radius + 3
-        color: "transparent"
-        border.color: Theme.notification
-        border.width: 3
-        visible: capsuleRoot.activeTransient === "ALERT"
-        opacity: 0.0
+    property bool scrollSessionLocked: false
 
-        SequentialAnimation on opacity {
-            running: capsuleRoot.activeTransient === "ALERT"
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.65; duration: 800; easing.type: Easing.InOutSine }
-            NumberAnimation { to: 0.15; duration: 800; easing.type: Easing.InOutSine }
+    HoverHandler {
+        id: capsuleRootHover
+        onHoveredChanged: {
+            if (hovered) {
+                capsuleRoot.cancelCollapse()
+                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) {
+                    hoverDwellTimer.restart()
+                }
+            } else {
+                hoverDwellTimer.stop()
+                capsuleRoot.scrollSessionLocked = false
+                // 🚀 无论此时是否在动画中，只要移出便立即启动退出保护倒计时
+                capsuleRoot.requestCollapse()
+            }
         }
     }
 
     Timer {
         id: hoverDwellTimer
-        interval: 180
+        interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
-            if (!capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
+            if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
                 if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
                 else capsuleRoot.requestExpand("workspace")
             }
@@ -181,22 +185,33 @@ Rectangle {
 
     Timer {
         id: leaveGraceTimer
-        interval: 280
-        onTriggered: { if (!capsuleRoot.isCalling && !capsuleRoot.isMouseOver) capsuleRoot.startCollapse() }
+        interval: 180
+        onTriggered: {
+            // 🚀 核心修复：彻底剔除 !isMorphing 限制，允许在形变中途随鼠标离开直接平滑折回
+            if (!capsuleRoot.isCalling && !capsuleRoot.isMouseOver && capsuleRoot.isExpanded) {
+                capsuleRoot.startCollapse()
+            }
+        }
     }
 
     Timer {
         id: cooldownTimer
-        interval: 140
+        interval: 100
         onTriggered: {
             capsuleRoot.isCollapsing = false
             capsuleRoot.maskCommitRequested()
-            if (capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) hoverDwellTimer.restart()
+            if (capsuleRoot.isMouseOver && !capsuleRoot.isExpanded && !capsuleRoot.scrollSessionLocked) hoverDwellTimer.restart()
         }
     }
 
     function cancelCollapse() { leaveGraceTimer.stop() }
-    function requestCollapse() { if (!isCalling && isExpanded) leaveGraceTimer.restart() }
+
+    function requestCollapse() {
+        if (!isCalling && isExpanded) {
+            leaveGraceTimer.restart()
+        }
+    }
+
     function startCollapse() {
         if (!isExpanded) return
         isCollapsing = true
@@ -204,39 +219,52 @@ Rectangle {
         leaveGraceTimer.stop()
         isExpanded = false
         if (activeTransient === "ALERT") activeTransient = ""
+        capsuleRoot.maskCommitRequested()
     }
 
-    HoverHandler {
-        id: capsuleHover
-        onHoveredChanged: {
-            if (hovered) {
-                capsuleRoot.cancelCollapse()
-                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) hoverDwellTimer.restart()
-            } else {
-                hoverDwellTimer.stop()
-                capsuleRoot.requestCollapse()
-            }
+    function handleWheelAction(deltaY) {
+        if (!capsuleRoot.isExpanded) {
+            hoverDwellTimer.stop()
+            capsuleRoot.scrollSessionLocked = true
+            capsuleRoot.activeTransient = "WORKSPACE"
+        }
+
+        if (typeof Bridge !== "undefined") {
+            if (deltaY > 0) Bridge.switchWorkspacePrev()
+            else if (deltaY < 0) Bridge.switchWorkspaceNext()
         }
     }
 
     MouseArea {
-        id: capsuleMouseArea
-        anchors.fill: parent; hoverEnabled: true
+        id: hitSensorArea
+        anchors.fill: parent
+        anchors.topMargin: -(typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined ? Config.capsuleTopMargin : 6) - 2
+        z: capsuleRoot.isExpanded ? -1 : 10
+        hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
 
-        onEntered: { capsuleRoot.cancelCollapse(); if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) hoverDwellTimer.restart() }
-        onExited: { hoverDwellTimer.stop(); capsuleRoot.requestCollapse() }
-        onWheel: (wheel) => {
-            if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") {
-                if (typeof Bridge !== "undefined") {
-                    if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
-                    else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
-                }
+        onEntered: {
+            capsuleRoot.cancelCollapse()
+            capsuleRoot.scrollSessionLocked = false
+            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) {
+                hoverDwellTimer.restart()
             }
         }
+        onExited: {
+            hoverDwellTimer.stop()
+            capsuleRoot.scrollSessionLocked = false
+            capsuleRoot.requestCollapse()
+        }
+        onWheel: (wheel) => {
+            wheel.accepted = true
+            capsuleRoot.handleWheelAction(wheel.angleDelta.y)
+        }
         onClicked: (mouse) => {
-            hoverDwellTimer.stop(); leaveGraceTimer.stop()
+            hoverDwellTimer.stop()
+            leaveGraceTimer.stop()
+            capsuleRoot.scrollSessionLocked = false
+
             if (mouse.button === Qt.RightButton) { capsuleRoot.requestSettings(); return }
             if (capsuleRoot.isCalling) { Bridge.focusTeamsWindow(); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
@@ -247,9 +275,11 @@ Rectangle {
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
-        opacity: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1 : 0
-        scale: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1.0 : 0.94
-        visible: opacity > 0.01
+        anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        opacity: (!capsuleRoot.isExpanded) ? 1 : 0
+        scale: (!capsuleRoot.isExpanded) ? 1.0 : 0.94
+        visible: !capsuleRoot.isExpanded
 
         showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
         status: capsuleRoot.status; isCalling: capsuleRoot.isCalling; isExpanded: capsuleRoot.isExpanded; isCollapsing: capsuleRoot.isCollapsing
@@ -260,24 +290,18 @@ Rectangle {
         displayDate: capsuleRoot.displayDate; displayTime: capsuleRoot.displayTime; displaySeconds: capsuleRoot.displaySeconds; displayPeriod: capsuleRoot.displayPeriod
         downCompact: capsuleRoot.downCompact; upCompact: capsuleRoot.upCompact
 
-        Behavior on opacity {
-            SequentialAnimation {
-                PauseAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 150 : 0 }
-                NumberAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 120 : 0; easing.type: Easing.OutCubic }
-            }
-        }
-        Behavior on scale {
-            SequentialAnimation {
-                PauseAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 150 : 0 }
-                NumberAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 160 : 0; easing.type: Easing.OutBack; easing.overshoot: 1.05 }
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.05 } }
     }
 
     ExpandedCardView {
         id: expandedCardView
         width: 398; height: 208
-        anchors.top: parent.top; anchors.topMargin: 16; anchors.horizontalCenter: parent.horizontalCenter
+        z: 20
+        anchors.top: parent.top
+        anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
+        anchors.horizontalCenter: parent.horizontalCenter
+        
         opacity: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1 : 0
         scale: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1.0 : (capsuleRoot.isJellyStyle ? 0.92 : 0.97)
         visible: opacity > 0.01
@@ -300,14 +324,17 @@ Rectangle {
         Behavior on opacity {
             SequentialAnimation {
                 PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
-                NumberAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 0; easing.type: Easing.OutQuad }
+                NumberAnimation {
+                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 40
+                    easing.type: Easing.OutQuad
+                }
             }
         }
         Behavior on scale {
             SequentialAnimation {
                 PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
                 NumberAnimation {
-                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 240 : 170) : 0
+                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 240 : 170) : 80
                     easing.type: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? Easing.OutBack : Easing.InQuad
                     easing.overshoot: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 1.08 : 1.02) : 1.0
                 }

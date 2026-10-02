@@ -10,19 +10,25 @@ Item {
     property string currentWsName: "Desktop 1"
     property var wsList: []
 
-    // 🚀 核心防护：只有本页面处于激活渲染态时才驱动动画，杜绝在 setSource 阶段抢占计时器死锁
     readonly property bool isVisibleOnScreen: wsPageRoot.visible && wsPageRoot.opacity > 0.1
-
     readonly property int effectiveTotal: Math.max(1, (wsList && wsList.length > 0) ? wsList.length : totalWs)
 
+    // 🚀 核心修复：同样支持 0 号桌面原生返回，绝不在底层 Math.max(1, currentWs)
     readonly property int displayCurrentNumber: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
-                if (wsList[i] && wsList[i].active) return (i + 1)
+                if (wsList[i] && wsList[i].active) {
+                    if (wsList[i].id !== undefined && !isNaN(Number(wsList[i].id))) {
+                        return Number(wsList[i].id)
+                    }
+                    return i
+                }
             }
         }
-        return Math.max(1, currentWs)
+        return currentWs
     }
+
+    readonly property bool hasZeroWs: (wsPageRoot.currentWs === 0 || wsPageRoot.displayCurrentNumber === 0)
 
     property real wsWheelAccum: 0
     Timer { id: wsWheelReset; interval: 260; onTriggered: wsPageRoot.wsWheelAccum = 0 }
@@ -292,7 +298,10 @@ Item {
                         Rectangle {
                             id: itemCard
                             readonly property var itemData: (wsPageRoot.wsList && wsPageRoot.wsList.length > 0) ? modelData : null
-                            readonly property int displayBadge: index + 1
+                            readonly property int displayBadge: {
+                                if (itemData && itemData.id !== undefined && !isNaN(Number(itemData.id))) return Number(itemData.id)
+                                return wsPageRoot.hasZeroWs ? index : (index + 1)
+                            }
                             readonly property string wsTitle: itemData ? (itemData.name || ("桌面 " + displayBadge)) : ("桌面 " + displayBadge)
                             readonly property bool isActive: itemData ? (itemData.active === true) : (displayBadge === wsPageRoot.displayCurrentNumber)
                             readonly property var targetParam: {
@@ -300,7 +309,7 @@ Item {
                                     if (itemData.id && String(itemData.id).length > 2) return String(itemData.id)
                                     if (itemData.name) return String(itemData.name)
                                 }
-                                return (index + 1)
+                                return wsPageRoot.hasZeroWs ? index : (index + 1)
                             }
 
                             width: (wsGrid.width - 6) / 2
@@ -352,7 +361,6 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                // 🚀 安全双层呼吸灯：只在可见渲染态运行，杜绝死锁
                                 Item {
                                     width: 14; height: 14
                                     anchors.verticalCenter: parent.verticalCenter

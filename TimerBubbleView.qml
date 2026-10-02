@@ -15,15 +15,13 @@ Rectangle {
     property int totalSeconds: 0
 
     signal clicked()
-    signal hoverActivated()
     signal wheelAdjust(int deltaSec)
 
-    // 智能紧迫度色彩
     readonly property color urgencyColor: {
         if (isCountUp) return Theme.stopwatch
         if (!active) return Theme.timer
-        if (remainingSeconds <= 60) return "#ef4444" // 紧急红
-        if (remainingSeconds <= 300) return "#f97316" // 5分钟内温润橙
+        if (remainingSeconds <= 60) return "#ef4444"
+        if (remainingSeconds <= 300) return "#f97316"
         return Theme.timer
     }
 
@@ -41,25 +39,9 @@ Rectangle {
     scale: active ? 1.0 : 0.2
     visible: opacity > 0.01
 
-    // 🚀 核心修复：直接使用 QtQuick 内建 Easing 枚举，彻底杜绝 [undefined]
     Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
     Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
     Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
-
-    Timer {
-        id: dwellTimer
-        interval: 180
-        onTriggered: {
-            if (timerBubbleRoot.isHovered && timerBubbleRoot.active) {
-                timerBubbleRoot.hoverActivated()
-            }
-        }
-    }
-
-    onIsHoveredChanged: {
-        if (isHovered && active) dwellTimer.restart()
-        else dwellTimer.stop()
-    }
 
     onProgressChanged: progressCanvas.requestPaint()
     onUrgencyColorChanged: progressCanvas.requestPaint()
@@ -85,7 +67,6 @@ Rectangle {
                 var radius = 6.8
                 var strokeW = 2.0
 
-                // 1. 底轨灰环
                 ctx.beginPath()
                 ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false)
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.15)"
@@ -93,7 +74,6 @@ Rectangle {
                 ctx.lineCap = "round"
                 ctx.stroke()
 
-                // 2. 动态进度光弧
                 var p = Math.min(1.0, Math.max(0.0, timerBubbleRoot.progress))
                 if (p > 0.005) {
                     var startAngle = -0.5 * Math.PI
@@ -121,10 +101,7 @@ Rectangle {
 
     HoverHandler { id: timerBubbleHover; cursorShape: Qt.PointingHandCursor }
     TapHandler {
-        onTapped: {
-            dwellTimer.stop()
-            timerBubbleRoot.clicked()
-        }
+        onTapped: timerBubbleRoot.clicked()
     }
     WheelHandler {
         onWheel: (event) => {

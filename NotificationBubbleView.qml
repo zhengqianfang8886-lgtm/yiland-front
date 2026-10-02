@@ -13,7 +13,6 @@ Rectangle {
 
     signal clicked()
     signal rightClicked()
-    signal hoverActivated()
 
     width: 48
     height: 36
@@ -32,23 +31,7 @@ Rectangle {
 
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
     Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-    // 🚀 核心修复：直接使用 Easing.OutBack
     Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
-
-    Timer {
-        id: dwellTimer
-        interval: 180
-        onTriggered: {
-            if (notifBubbleRoot.isHovered && notifBubbleRoot.shouldShow) {
-                notifBubbleRoot.hoverActivated()
-            }
-        }
-    }
-
-    onIsHoveredChanged: {
-        if (isHovered && shouldShow) dwellTimer.restart()
-        else dwellTimer.stop()
-    }
 
     Rectangle {
         anchors.centerIn: parent
@@ -128,17 +111,11 @@ Rectangle {
 
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        onTapped: {
-            dwellTimer.stop()
-            notifBubbleRoot.clicked()
-        }
+        onTapped: notifBubbleRoot.clicked()
     }
 
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: {
-            dwellTimer.stop()
-            notifBubbleRoot.rightClicked()
-        }
+        onTapped: notifBubbleRoot.rightClicked()
     }
 }

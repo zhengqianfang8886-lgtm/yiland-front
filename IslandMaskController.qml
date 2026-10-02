@@ -18,7 +18,7 @@ Item {
 
     Timer {
         id: retractTimer
-        interval: 320 // 确保长于副岛淡出动画（280ms）
+        interval: 220
         onTriggered: maskCtrl.commit()
     }
 
@@ -27,16 +27,17 @@ Item {
     function commit() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
 
-        // 展开状态直接给予全尺寸充裕包围盒
-        if (isExpanded || isCollapsing || isMorphing || targetW > 300 || targetH > 100) {
-            var fullW = 430 + 120, fullH = 240 + 50
+        var isLargeSize = (capsuleItem.height > 48) || (targetH > 50) || (capsuleItem.width > 220) || (targetW > 220)
+        if (isExpanded || isCollapsing || isMorphing || isLargeSize) {
+            // 🚀 核心修复：限制在实际窗口高度内（270px），避免溢出导致窗口系统丢弃事件
+            var fullW = Math.min(rootItem.width, 430 + 100)
+            var fullH = Math.min(rootItem.height, 240 + 24)
             var pX = Math.max(0, Math.round((rootItem.width - fullW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0))
-            Bridge.updateMask(pX, 0, Math.min(rootItem.width, Math.round(fullW)), Math.round(fullH))
+            Bridge.updateMask(pX, 0, Math.round(fullW), Math.round(fullH))
             return
         }
 
         var rectList = []
-        // 🚀 安全冗余垫片：padX 设为 36px，容纳果冻 Overshoot 弹性回弹，杜绝切边！
         var padX = 36, padY = 10
 
         var effectiveW = Math.max(capsuleItem.width, targetW)
@@ -50,7 +51,6 @@ Item {
             h: Math.round(effectiveH) + padY * 2
         })
 
-        // 只要副岛仍在屏幕上有渲染痕迹（opacity > 0.02），就必须保留遮罩，不提前截断
         if (leftBubble && (leftBubble.active || leftBubble.opacity > 0.02)) {
             rectList.push({
                 x: Math.max(0, Math.round(leftBubble.x) - padX),

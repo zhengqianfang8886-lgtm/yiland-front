@@ -55,8 +55,6 @@ Item {
                         id: coverImg; anchors.fill: parent
                         source: mediaRoot.isCalling ? mediaRoot.callAvatar : (mediaRoot.artUrl ? (mediaRoot.artUrl.indexOf("://") !== -1 ? mediaRoot.artUrl : "file://" + mediaRoot.artUrl) : "")
                         fillMode: Image.PreserveAspectCrop
-                        
-                        // 🚀 核心优化：锁死解码为 116x116，适配 2x Retina，显存直降 99%
                         sourceSize.width: 116
                         sourceSize.height: 116
                         asynchronous: true
@@ -123,8 +121,6 @@ Item {
                 anchors.fill: parent
                 enabled: !mediaRoot.isCalling
                 hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                onEntered: mediaRoot.cancelCollapse()
-                onExited: mediaRoot.requestCollapse()
                 onClicked: {
                     Bridge.focusMediaWindow(mediaRoot.title, mediaRoot.artist)
                     mediaRoot.startCollapse()
@@ -156,8 +152,6 @@ Item {
                 MouseArea {
                     id: callPortalArea
                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onEntered: mediaRoot.cancelCollapse()
-                    onExited: mediaRoot.requestCollapse()
                     onClicked: (mouse) => { mouse.accepted = true; Bridge.focusTeamsWindow(); mediaRoot.startCollapse() }
                 }
             }
@@ -228,8 +222,6 @@ Item {
                     MouseArea {
                         id: prevArea
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onEntered: mediaRoot.cancelCollapse()
-                        onExited: mediaRoot.requestCollapse()
                         onClicked: (mouse) => { mouse.accepted = true; Bridge.sendMediaCmd("MEDIA_PREV") }
                     }
                 }
@@ -253,8 +245,6 @@ Item {
                     MouseArea {
                         id: playArea
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onEntered: mediaRoot.cancelCollapse()
-                        onExited: mediaRoot.requestCollapse()
                         onClicked: (mouse) => { mouse.accepted = true; Bridge.sendMediaCmd("MEDIA_PLAY_PAUSE") }
                     }
                 }
@@ -275,8 +265,6 @@ Item {
                     MouseArea {
                         id: nextArea
                         anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onEntered: mediaRoot.cancelCollapse()
-                        onExited: mediaRoot.requestCollapse()
                         onClicked: (mouse) => { mouse.accepted = true; Bridge.sendMediaCmd("MEDIA_NEXT") }
                     }
                 }

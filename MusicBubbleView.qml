@@ -7,7 +7,6 @@ Rectangle {
     readonly property bool isHovered: bubbleHover.hovered
 
     signal clicked()
-    signal hoverActivated()
 
     width: 48
     height: 36
@@ -31,22 +30,6 @@ Rectangle {
             easing.type: musicBubbleRoot.active ? Easing.OutBack : Easing.InQuad
             easing.overshoot: Theme.springOvershoot
         }
-    }
-
-    // 悬停意图识别 (180ms)
-    Timer {
-        id: dwellTimer
-        interval: 180
-        onTriggered: {
-            if (musicBubbleRoot.isHovered && musicBubbleRoot.active) {
-                musicBubbleRoot.hoverActivated()
-            }
-        }
-    }
-
-    onIsHoveredChanged: {
-        if (isHovered && active) dwellTimer.restart()
-        else dwellTimer.stop()
     }
 
     Rectangle {
@@ -130,12 +113,8 @@ Rectangle {
         }
     }
 
-    // 纯轻量化 Pointer Handlers
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
     TapHandler {
-        onTapped: {
-            dwellTimer.stop()
-            musicBubbleRoot.clicked()
-        }
+        onTapped: musicBubbleRoot.clicked()
     }
 }

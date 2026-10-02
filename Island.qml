@@ -8,7 +8,6 @@ Item {
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
     
-    // 🚀 核心修复：只有在长报警通知(ALERT)需要占满胶囊时才避让，切桌面(WORKSPACE)和OSD期间副岛稳稳保留！
     readonly property bool isBlockingTransient: (capsule.activeTransient === "ALERT")
     readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
     readonly property bool hasTimerIsland: capsule.timerRunning && !isBlockingTransient
@@ -57,7 +56,6 @@ Item {
         transientTimer.interval = ms; transientTimer.restart()
     }
 
-    // 遮罩控制器
     IslandMaskController {
         id: maskController
         rootItem: root; capsuleItem: capsule; leftBubble: leftMusicBubble; rightBubble: rightTimerBubble; notifBubble: notifBubble
@@ -103,7 +101,6 @@ Item {
         active: !capsule.isExpanded && !capsule.isCollapsing && root.hasMusicIsland
         onActiveChanged: maskController.commit()
         onClicked: root.expandToTab("media")
-        onHoverActivated: root.expandToTab("media")
     }
 
     TimerBubbleView {
@@ -115,7 +112,6 @@ Item {
         isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
         remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
         onClicked: root.expandToTab("timer")
-        onHoverActivated: root.expandToTab("timer")
     }
 
     NotificationBubbleView {
@@ -130,7 +126,6 @@ Item {
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
         onClicked: root.expandToTab("notification")
         onRightClicked: root.expandToTab("notification")
-        onHoverActivated: root.expandToTab("notification")
     }
 
     Timer {

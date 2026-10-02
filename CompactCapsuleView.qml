@@ -65,6 +65,33 @@ Item {
         return Theme.notification
     }
 
+    // 🚀 核心修复：尊重系统的原始桌面编号，0 始终如实显示为 0，不再强行加 1 或取 max(1, n)
+    readonly property int displayWsNumber: {
+        var n = Number(compactRoot.wsCurrent)
+        if (isNaN(n)) return 0
+        if (compactRoot.wsName) {
+            var trimmedName = compactRoot.wsName.trim()
+            if (/^\d+$/.test(trimmedName)) return Number(trimmedName)
+            if (trimmedName.indexOf(String(n)) !== -1) return n
+            // 仅当名称明确表明偏移（如名字是 "Desktop 2" 而 n 是 1）时才做对齐，若为 0 则维持 0
+            if (n !== 0 && trimmedName.indexOf(String(n + 1)) !== -1) return n + 1
+        }
+        return n
+    }
+
+    readonly property bool hasZeroWs: (compactRoot.wsCurrent === 0 || compactRoot.displayWsNumber === 0)
+
+    // 🚀 确保槽位索引与桌面系统（0-based / 1-based）精准匹配
+    readonly property int activeSlotIndex: {
+        var n = compactRoot.displayWsNumber
+        var tot = Math.max(1, compactRoot.wsTotal)
+        if (isNaN(n)) return 0
+        if (hasZeroWs) {
+            return Math.max(0, Math.min(n, tot - 1))
+        }
+        return Math.max(0, Math.min(n - 1, tot - 1))
+    }
+
     onWsCurrentChanged: {
         if (compactRoot.activeTransient === "WORKSPACE") {
             var dir = wsCurrent >= previousWsCurrent ? 1 : -1
@@ -83,37 +110,67 @@ Item {
         }
     }
 
-    // 1. 工作区切换
+    // 1. 切换桌面时的动画展示栏
     Row {
         id: wsLayoutRow
         anchors.centerIn: parent
         spacing: 9
-        opacity: compactRoot.activeTransient === "WORKSPACE" ? 1.0 : 0.0
-        visible: opacity > 0.01
-        scale: compactRoot.activeTransient === "WORKSPACE" ? 1.0 : 0.90
+        
+        visible: compactRoot.activeTransient === "WORKSPACE"
+        opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.90
 
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+
+        // 桌面编号小徽章
+        Rectangle {
+            width: 20; height: 20; radius: 6
+            anchors.verticalCenter: parent.verticalCenter
+            color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.25)
+            border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.75)
+            border.width: 1
+
+            Text {
+                id: badgeNumText
+                anchors.centerIn: parent
+                // 0 会直接输出 "0"
+                text: compactRoot.displayWsNumber
+                color: "white"
+                font.pixelSize: 11
+                font.weight: Font.Black
+                font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
+
+                Behavior on text {
+                    SequentialAnimation {
+                        NumberAnimation { target: badgeNumText; property: "scale"; to: 0.8; duration: 50 }
+                        NumberAnimation { target: badgeNumText; property: "scale"; to: 1.0; duration: 120; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                    }
+                }
+            }
+        }
 
         Item {
             id: wsNameWrapper
-            height: 18
-            width: wsNameText.implicitWidth
+            height: 20
+            width: Math.min(80, wsNameText.implicitWidth)
+            clip: true
             anchors.verticalCenter: parent.verticalCenter
 
             Text {
                 id: wsNameText
-                anchors.centerIn: parent
-                text: compactRoot.wsName ? compactRoot.wsName : ("桌面 " + compactRoot.wsCurrent)
-                color: Theme.textPrimary
+                anchors.verticalCenter: parent.verticalCenter
+                text: compactRoot.wsName ? compactRoot.wsName : ("桌面 " + compactRoot.displayWsNumber)
+                color: "white"
                 font.family: compactRoot.chosenFont
-                font.pixelSize: 12
+                font.pixelSize: 13
                 font.weight: Font.Black
-                font.letterSpacing: 0.3
+                font.letterSpacing: 0.4
+                elide: Text.ElideRight
+                width: parent.width
 
                 transform: [
-                    Translate { id: wsTextTrans; x: 0 },
-                    Scale { id: wsTextScale; origin.x: wsNameText.width / 2; origin.y: wsNameText.height / 2; xScale: 1.0; yScale: 1.0 }
+                    Translate { id: wsTextTrans; y: 0 }
                 ]
             }
 
@@ -122,42 +179,57 @@ Item {
                 property int direction: 1
 
                 ParallelAnimation {
-                    NumberAnimation { target: wsTextTrans; property: "x"; to: -8 * wsChangeAnim.direction; duration: 65; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: wsNameText; property: "opacity"; to: 0.25; duration: 65; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: wsTextScale; properties: "xScale,yScale"; to: 0.88; duration: 65 }
+                    NumberAnimation { target: wsTextTrans; property: "y"; to: -8 * wsChangeAnim.direction; duration: 60; easing.type: Easing.OutQuad }
+                    NumberAnimation { target: wsNameText; property: "opacity"; to: 0.2; duration: 60 }
                 }
-                ScriptAction { script: { wsTextTrans.x = 9 * wsChangeAnim.direction } }
+                ScriptAction { script: { wsTextTrans.y = 8 * wsChangeAnim.direction } }
                 ParallelAnimation {
-                    NumberAnimation { target: wsTextTrans; property: "x"; to: 0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.25 }
-                    NumberAnimation { target: wsNameText; property: "opacity"; to: 1.0; duration: 160; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: wsTextScale; properties: "xScale,yScale"; to: 1.0; duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot }
+                    NumberAnimation { target: wsTextTrans; property: "y"; to: 0; duration: 140; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                    NumberAnimation { target: wsNameText; property: "opacity"; to: 1.0; duration: 130 }
                 }
             }
         }
 
-        Row {
-            id: wsDotsRow
-            spacing: 5
+        // 桌面小圆点轨道
+        Rectangle {
+            id: wsTrackContainer
+            height: 16
+            radius: 8
+            width: wsDotsRow.implicitWidth + 10
             anchors.verticalCenter: parent.verticalCenter
+            color: Qt.rgba(1, 1, 1, 0.12)
+            border.color: Qt.rgba(1, 1, 1, 0.15)
+            border.width: 1
 
-            Repeater {
-                model: Math.min(10, Math.max(1, compactRoot.wsTotal))
-                Rectangle {
-                    readonly property int dotIndex: index + 1
-                    readonly property bool isCurrent: dotIndex === compactRoot.wsCurrent
-                    width: isCurrent ? 15 : (dotMouse.hovered ? 7 : 4.5)
-                    height: 4.5
-                    radius: 2.25
-                    color: isCurrent ? "#ffffff" : (dotMouse.hovered ? Theme.workspace : Qt.rgba(1, 1, 1, 0.24))
-                    scale: isCurrent ? 1.0 : (dotMouse.hovered ? 1.2 : 0.85)
+            Row {
+                id: wsDotsRow
+                anchors.centerIn: parent
+                spacing: 4
 
-                    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack } }
-                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
-                    Behavior on scale { NumberAnimation { duration: 160 } }
+                Repeater {
+                    model: Math.min(8, Math.max(2, compactRoot.wsTotal))
+                    Rectangle {
+                        readonly property bool isCurrent: (index === compactRoot.activeSlotIndex)
+                        
+                        width: isCurrent ? 14 : 4
+                        height: 4
+                        radius: 2
+                        color: isCurrent ? Theme.workspace : Qt.rgba(1, 1, 1, 0.5)
+                        scale: isCurrent ? 1.0 : (dotMouse.hovered ? 1.3 : 1.0)
 
-                    HoverHandler { id: dotMouse; cursorShape: Qt.PointingHandCursor }
-                    TapHandler {
-                        onTapped: if (typeof Bridge !== "undefined") Bridge.switchWorkspace(dotIndex)
+                        Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on scale { NumberAnimation { duration: 120 } }
+
+                        HoverHandler { id: dotMouse; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            onTapped: {
+                                if (typeof Bridge !== "undefined") {
+                                    var target = compactRoot.hasZeroWs ? index : (index + 1)
+                                    Bridge.switchWorkspace(target)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -168,9 +240,9 @@ Item {
     Row {
         anchors.centerIn: parent
         spacing: 7
-        opacity: compactRoot.activeTransient === "OSD" ? 1.0 : 0.0
-        visible: opacity > 0.01
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        visible: compactRoot.activeTransient === "OSD"
+        opacity: visible ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 100 } }
 
         Text { text: compactRoot.osdIcon; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
         Rectangle {
@@ -189,16 +261,15 @@ Item {
         }
     }
 
-    // 3. 强化感知版消息提醒
+    // 3. 消息提醒卡片
     Item {
         id: alertContainer
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-
-        opacity: compactRoot.activeTransient === "ALERT" ? 1.0 : 0.0
-        visible: opacity > 0.01
-        scale: compactRoot.activeTransient === "ALERT" ? 1.0 : 0.88
+        visible: compactRoot.activeTransient === "ALERT"
+        opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.88
 
         Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
@@ -264,34 +335,22 @@ Item {
             color: alertActionTap.pressed ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.4) : (alertActionHover.hovered ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.28) : Qt.rgba(1, 1, 1, 0.1))
             border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.5)
             border.width: 1
-            scale: alertActionTap.pressed ? 0.92 : (alertActionHover.hovered ? 1.05 : 1.0)
-            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
-            Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
-            Text {
-                anchors.centerIn: parent
-                text: "↗"
-                color: "white"
-                font.pixelSize: 12
-                font.weight: Font.Bold
-            }
+            Text { anchors.centerIn: parent; text: "↗"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold }
             HoverHandler { id: alertActionHover; cursorShape: Qt.PointingHandCursor }
             TapHandler { id: alertActionTap }
         }
 
         Column {
             id: textColumn
-            anchors.left: avatarItem.right
-            anchors.leftMargin: 12
-            anchors.right: actionBtn.left
-            anchors.rightMargin: 12
+            anchors.left: avatarItem.right; anchors.leftMargin: 12
+            anchors.right: actionBtn.left; anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
             spacing: compactRoot.isLongAlert ? 3 : 2
 
             Row {
                 id: metaRow
-                width: parent.width
-                spacing: 7
+                width: parent.width; spacing: 7
 
                 Text {
                     id: titleText
@@ -306,8 +365,7 @@ Item {
 
                 Rectangle {
                     id: badgeRect
-                    height: 16
-                    radius: 4
+                    height: 16; radius: 4
                     width: badgeInnerRow.implicitWidth + 10
                     color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.22)
                     border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.55)
@@ -316,14 +374,12 @@ Item {
 
                     Row {
                         id: badgeInnerRow
-                        anchors.centerIn: parent
-                        spacing: 4
+                        anchors.centerIn: parent; spacing: 4
 
                         Rectangle {
                             width: 5; height: 5; radius: 2.5
                             color: compactRoot.alertThemeColor
                             anchors.verticalCenter: parent.verticalCenter
-
                             SequentialAnimation on opacity {
                                 running: compactRoot.activeTransient === "ALERT"
                                 loops: Animation.Infinite
@@ -337,9 +393,7 @@ Item {
                             text: compactRoot.alertSourceTag
                             color: compactRoot.alertThemeColor
                             font.family: compactRoot.chosenFont
-                            // 🚀 修复为合法的整型
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
+                            font.pixelSize: 10; font.weight: Font.Bold
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -350,9 +404,7 @@ Item {
                     text: "刚刚"
                     color: Theme.textMuted
                     font.family: compactRoot.chosenFont
-                    // 🚀 修复为合法的整型
-                    font.pixelSize: 10
-                    font.weight: Font.Bold
+                    font.pixelSize: 10; font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
@@ -362,7 +414,6 @@ Item {
                 text: compactRoot.alertSubtitle
                 color: Qt.rgba(1, 1, 1, 0.88)
                 font.family: compactRoot.chosenFont
-                // 🚀 修复为合法的整型
                 font.pixelSize: 11
                 font.weight: Font.Medium
                 lineHeight: 1.15
@@ -376,8 +427,7 @@ Item {
 
     // 4. 通话中
     Row {
-        anchors.fill: parent
-        spacing: 10
+        anchors.fill: parent; spacing: 10
         visible: compactRoot.isCalling && compactRoot.activeTransient === ""
 
         Rectangle {
@@ -409,19 +459,14 @@ Item {
     Row {
         id: compactTimeRow
         anchors.centerIn: parent
-        spacing: 8
+        spacing: 9
 
-        opacity: (compactRoot.activeTransient === "" && !compactRoot.isCalling) ? 1.0 : 0.0
-        visible: opacity > 0.01
-        scale: opacity > 0.5 ? 1.0 : 0.94
+        visible: (compactRoot.activeTransient === "" && !compactRoot.isCalling)
+        opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.92
 
-        Behavior on opacity {
-            SequentialAnimation {
-                PauseAnimation { duration: compactRoot.activeTransient === "" ? 40 : 0 }
-                NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-            }
-        }
-        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
 
         Item {
             id: netSpeedItem
@@ -436,8 +481,7 @@ Item {
                 spacing: 1
 
                 Row {
-                    spacing: 2
-                    anchors.left: parent.left
+                    spacing: 2; anchors.left: parent.left
                     Text { text: "↓"; font.pixelSize: 8; color: Theme.calendar; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.downCompact
@@ -449,8 +493,7 @@ Item {
                     }
                 }
                 Row {
-                    spacing: 2
-                    anchors.left: parent.left
+                    spacing: 2; anchors.left: parent.left
                     Text { text: "↑"; font.pixelSize: 8; color: Theme.network; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.upCompact
@@ -466,8 +509,11 @@ Item {
 
         Text {
             id: dateText
-            text: compactRoot.displayDate; color: Theme.textSecondary
-            font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Bold
+            text: compactRoot.displayDate
+            color: Qt.rgba(1, 1, 1, 0.65)
+            font.family: compactRoot.chosenFont
+            font.pixelSize: 10
+            font.weight: Font.Bold
             visible: (typeof Config !== "undefined" && Config.showDate) && compactRoot.displayDate !== ""
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -478,22 +524,31 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
 
             Text {
-                text: compactRoot.displayTime; color: "white"
+                text: compactRoot.displayTime
+                color: "white"
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
-                font.pixelSize: 22; font.weight: Font.Black
+                font.pixelSize: 20
+                font.weight: Font.Black
                 anchors.verticalCenter: parent.verticalCenter
             }
+
             Text {
-                text: compactRoot.displaySeconds; color: Theme.network
+                text: compactRoot.displaySeconds
+                color: Theme.network
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
-                font.pixelSize: 14; font.weight: Font.ExtraBold
+                font.pixelSize: 13
+                font.weight: Font.ExtraBold
                 visible: (typeof Config !== "undefined" && Config.showSeconds) && compactRoot.displaySeconds !== ""
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 1
             }
+
             Text {
-                text: compactRoot.displayPeriod; color: Qt.rgba(1, 1, 1, 0.65)
-                font.family: compactRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Black
+                text: compactRoot.displayPeriod
+                color: Qt.rgba(1, 1, 1, 0.5)
+                font.family: compactRoot.chosenFont
+                font.pixelSize: 10
+                font.weight: Font.Black
                 font.capitalization: Font.AllUppercase
                 visible: (typeof Config !== "undefined" && Config.timeFormat === "12h") && compactRoot.displayPeriod !== ""
                 anchors.verticalCenter: parent.verticalCenter
