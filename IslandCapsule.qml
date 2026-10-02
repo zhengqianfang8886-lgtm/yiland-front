@@ -57,7 +57,6 @@ Rectangle {
 
     property bool anySubBubbleHovered: false
 
-    // 🚀 全局可靠鼠标悬停检测
     readonly property bool isMouseOver: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse) || anySubBubbleHovered
 
     signal requestExpand(string tabName)
@@ -126,7 +125,6 @@ Rectangle {
                 capsuleRoot.maskCommitRequested()
                 if (!running) {
                     if (!capsuleRoot.isExpanded) cooldownTimer.restart()
-                    // 🚀 核心修复保底：如果展开动画结束时鼠标早已移出，立即触发自动收回
                     if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver && !capsuleRoot.isCalling) {
                         capsuleRoot.startCollapse()
                     }
@@ -153,6 +151,40 @@ Rectangle {
 
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
 
+    // ========================================================
+    // 🚀 核心状态机：严格错峰显隐，彻底杜绝浮空残影与双重曝光
+    // ========================================================
+    property bool contentReady: false
+    property bool clockReady: true
+
+    Timer {
+        id: contentRevealTimer
+        interval: capsuleRoot.isJellyStyle ? 160 : 130
+        onTriggered: capsuleRoot.contentReady = true
+    }
+
+    Timer {
+        id: clockRevealTimer
+        interval: 140
+        onTriggered: capsuleRoot.clockReady = true
+    }
+
+    onIsExpandedChanged: {
+        if (isExpanded) {
+            // 展开开始：小时间立即灭灯（0ms），卡片内容暂不开启，等黑底撑开 130ms 后再优雅浮现
+            clockReady = false
+            clockRevealTimer.stop()
+            contentReady = false
+            contentRevealTimer.restart()
+        } else {
+            // 收缩开始：大卡片内容已在 startCollapse 瞬间掐灭，启动定时器等黑壳缩回后淡入时钟
+            contentRevealTimer.stop()
+            contentReady = false
+            clockReady = false
+            clockRevealTimer.restart()
+        }
+    }
+
     property bool scrollSessionLocked: false
 
     HoverHandler {
@@ -166,7 +198,6 @@ Rectangle {
             } else {
                 hoverDwellTimer.stop()
                 capsuleRoot.scrollSessionLocked = false
-                // 🚀 无论此时是否在动画中，只要移出便立即启动退出保护倒计时
                 capsuleRoot.requestCollapse()
             }
         }
@@ -187,7 +218,6 @@ Rectangle {
         id: leaveGraceTimer
         interval: 180
         onTriggered: {
-            // 🚀 核心修复：彻底剔除 !isMorphing 限制，允许在形变中途随鼠标离开直接平滑折回
             if (!capsuleRoot.isCalling && !capsuleRoot.isMouseOver && capsuleRoot.isExpanded) {
                 capsuleRoot.startCollapse()
             }
@@ -214,6 +244,9 @@ Rectangle {
 
     function startCollapse() {
         if (!isExpanded) return
+        // 🚀 核心关键：收拢第一帧（0ms）瞬间灭灯！绝不在收缩过程中产生任何浮空拖影
+        contentRevealTimer.stop()
+        contentReady = false
         isCollapsing = true
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
@@ -272,14 +305,15 @@ Rectangle {
         }
     }
 
+    // 1. 紧凑时钟视图（干净利落的单向淡出/淡入，彻底杜绝与大卡片重影）
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
         anchors.leftMargin: 12
         anchors.rightMargin: 12
-        opacity: (!capsuleRoot.isExpanded) ? 1 : 0
-        scale: (!capsuleRoot.isExpanded) ? 1.0 : 0.94
-        visible: !capsuleRoot.isExpanded
+        visible: capsuleRoot.clockReady && !capsuleRoot.isExpanded
+        opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
         status: capsuleRoot.status; isCalling: capsuleRoot.isCalling; isExpanded: capsuleRoot.isExpanded; isCollapsing: capsuleRoot.isCollapsing
@@ -290,54 +324,49 @@ Rectangle {
         displayDate: capsuleRoot.displayDate; displayTime: capsuleRoot.displayTime; displaySeconds: capsuleRoot.displaySeconds; displayPeriod: capsuleRoot.displayPeriod
         downCompact: capsuleRoot.downCompact; upCompact: capsuleRoot.upCompact
 
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.05 } }
+        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    ExpandedCardView {
-        id: expandedCardView
-        width: 398; height: 208
-        z: 20
-        anchors.top: parent.top
-        anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
-        anchors.horizontalCenter: parent.horizontalCenter
-        
-        opacity: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1 : 0
-        scale: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1.0 : (capsuleRoot.isJellyStyle ? 0.92 : 0.97)
-        visible: opacity > 0.01
-        chosenFont: capsuleRoot.chosenFont
-        
-        expandedTab: capsuleRoot.expandedTab
-        enabledTabs: capsuleRoot.enabledTabs
-        
-        isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
-        title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
-        wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal; wsName: capsuleRoot.wsName; wsList: capsuleRoot.wsList
-        downSpeedStr: capsuleRoot.downSpeedStr; upSpeedStr: capsuleRoot.upSpeedStr; localIp: capsuleRoot.localIp; activeTransient: capsuleRoot.activeTransient
+    // 2. 展开大卡片（🚀 物理裁剪安全容器 + 错峰显隐，彻底消除收放双向残影）
+    Item {
+        anchors.fill: parent
+        clip: true // 物理底线：内容尺寸哪怕有半个像素超出当前黑底药丸，立刻被剪切，绝对无法在桌面上悬空裸露！
 
-        onCancelCollapse: capsuleRoot.cancelCollapse()
-        onRequestCollapse: capsuleRoot.requestCollapse()
-        onStartCollapse: capsuleRoot.startCollapse()
-        onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
-        onTabSelected: (key) => capsuleRoot.expandedTab = key
+        ExpandedCardView {
+            id: expandedCardView
+            width: 398; height: 208
+            z: 20
+            anchors.top: parent.top
+            anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
+            anchors.horizontalCenter: parent.horizontalCenter
 
-        Behavior on opacity {
-            SequentialAnimation {
-                PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
-                NumberAnimation {
-                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 40
-                    easing.type: Easing.OutQuad
-                }
+            // 展开时等待 130ms 黑底撑大后才变为 true；收缩时第 0 毫秒瞬间变为 false
+            visible: capsuleRoot.contentReady && capsuleRoot.isExpanded
+            opacity: visible ? 1.0 : 0.0
+            scale: visible ? 1.0 : 0.95
+            chosenFont: capsuleRoot.chosenFont
+
+            expandedTab: capsuleRoot.expandedTab
+            enabledTabs: capsuleRoot.enabledTabs
+
+            isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
+            title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
+            wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal; wsName: capsuleRoot.wsName; wsList: capsuleRoot.wsList
+            downSpeedStr: capsuleRoot.downSpeedStr; upSpeedStr: capsuleRoot.upSpeedStr; localIp: capsuleRoot.localIp; activeTransient: capsuleRoot.activeTransient
+
+            onCancelCollapse: capsuleRoot.cancelCollapse()
+            onRequestCollapse: capsuleRoot.requestCollapse()
+            onStartCollapse: capsuleRoot.startCollapse()
+            onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
+            onTabSelected: (key) => capsuleRoot.expandedTab = key
+
+            // 单向纯粹的展开淡入动画，不再有任何 QML 引擎未定义行为
+            Behavior on opacity {
+                NumberAnimation { duration: 110; easing.type: Easing.OutQuad }
             }
-        }
-        Behavior on scale {
-            SequentialAnimation {
-                PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
-                NumberAnimation {
-                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 240 : 170) : 80
-                    easing.type: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? Easing.OutBack : Easing.InQuad
-                    easing.overshoot: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 1.08 : 1.02) : 1.0
-                }
+            Behavior on scale {
+                NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: 1.04 }
             }
         }
     }
