@@ -5,40 +5,25 @@ Item {
     id: notifPageRoot
 
     property string chosenFont: ""
-    property var historyList: []
-    property int unreadCount: 0
-
-    signal openHistoryItem(string title, string content)
-
-    function refresh() {
-        if (typeof Bridge !== "undefined" && Bridge.getNotificationHistory) {
-            notifPageRoot.historyList = Bridge.getNotificationHistory()
-            notifPageRoot.unreadCount = Bridge.getUnreadNotificationCount()
-        }
-    }
-
-    Connections {
-        target: (typeof Bridge !== "undefined") ? Bridge : null
-        function onNotificationHistoryUpdated(list) {
-            notifPageRoot.historyList = list
-        }
-        function onUnreadCountChanged(cnt) {
-            notifPageRoot.unreadCount = cnt
-        }
-    }
-
-    Component.onCompleted: refresh()
+    
+    // 直接绑定 Bridge 导出的高性能 C++ / Python 模型
+    readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
+    readonly property int unreadCount: notifModel ? notifModel.unreadCount : 0
 
     Column {
         anchors.fill: parent
         spacing: 8
 
+        // 1. 顶部状态栏与批处理按钮
         Item {
-            width: parent.width; height: 22
+            width: parent.width
+            height: 22
 
             Row {
-                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
+
                 Text {
                     text: "已归档消息"
                     color: "white"
@@ -46,12 +31,15 @@ Item {
                     font.weight: Font.Bold
                     font.family: notifPageRoot.chosenFont
                 }
+
                 Rectangle {
                     width: Math.max(16, unreadBadgeText.implicitWidth + 8)
-                    height: 16; radius: 8
+                    height: 16
+                    radius: 8
                     color: "#6366f1"
                     visible: notifPageRoot.unreadCount > 0
                     anchors.verticalCenter: parent.verticalCenter
+
                     Text {
                         id: unreadBadgeText
                         anchors.centerIn: parent
@@ -64,48 +52,71 @@ Item {
             }
 
             Row {
-                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
-                visible: notifPageRoot.historyList.length > 0
+                visible: notifPageRoot.notifModel && notifPageRoot.notifModel.rowCount() > 0
 
                 Rectangle {
                     width: 58; height: 20; radius: 10
-                    color: readAllArea.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(1, 1, 1, 0.06)
-                    Text { anchors.centerIn: parent; text: "全部已读"; color: Theme.textSecondary; font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
-                    MouseArea {
-                        id: readAllArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (typeof Bridge !== "undefined") Bridge.markAllNotificationsRead()
+                    color: readAllTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (readAllHover.hovered ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06))
+                    
+                    Text {
+                        anchors.centerIn: parent
+                        text: "全部已读"
+                        color: Theme.textSecondary
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                        font.family: notifPageRoot.chosenFont
+                    }
+
+                    HoverHandler { id: readAllHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: readAllTap
+                        onTapped: if (notifPageRoot.notifModel) notifPageRoot.notifModel.markAllRead()
                     }
                 }
 
                 Rectangle {
                     width: 44; height: 20; radius: 10
-                    color: clearArea.containsMouse ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.25) : Qt.rgba(1, 1, 1, 0.06)
-                    Text { anchors.centerIn: parent; text: "清空"; color: clearArea.containsMouse ? Theme.danger : Theme.textMuted; font.pixelSize: 9; font.weight: Font.Bold; font.family: notifPageRoot.chosenFont }
-                    MouseArea {
-                        id: clearArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (typeof Bridge !== "undefined") Bridge.clearNotificationHistory()
+                    color: clearTap.pressed ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.35) : (clearHover.hovered ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.22) : Qt.rgba(1, 1, 1, 0.06))
+                    
+                    Text {
+                        anchors.centerIn: parent
+                        text: "清空"
+                        color: clearHover.hovered ? Theme.danger : Theme.textMuted
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                        font.family: notifPageRoot.chosenFont
+                    }
+
+                    HoverHandler { id: clearHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: clearTap
+                        onTapped: if (notifPageRoot.notifModel) notifPageRoot.notifModel.clearAll()
                     }
                 }
             }
         }
 
+        // 2. 消息流列表：行级细粒度复用
         ListView {
             id: notifListView
             width: parent.width
             height: parent.height - 30
             clip: true
             spacing: 6
-            model: notifPageRoot.historyList
+            model: notifPageRoot.notifModel
 
             ScrollBar.vertical: ScrollBar {
-                width: 4; policy: ScrollBar.AsNeeded
+                width: 4
+                policy: ScrollBar.AsNeeded
                 contentItem: Rectangle { radius: 2; color: Theme.borderSubtle }
             }
 
             Item {
                 anchors.fill: parent
-                visible: notifPageRoot.historyList.length === 0
+                visible: !notifPageRoot.notifModel || notifPageRoot.notifModel.rowCount() === 0
 
                 Column {
                     anchors.centerIn: parent
@@ -120,12 +131,14 @@ Item {
                 width: notifListView.width - 6
                 height: 52
                 radius: 10
-                color: notifHover.hovered ? Theme.bgCardHover : (modelData.read ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.08))
-                border.color: modelData.read ? Theme.borderSubtle : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
+                
+                // 直接使用 model.* 提取角色字段
+                color: notifCardHover.hovered ? Theme.bgCardHover : (model.read ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.08))
+                border.color: model.read ? Theme.borderSubtle : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
                 border.width: 1
                 Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
-                HoverHandler { id: notifHover }
+                HoverHandler { id: notifCardHover }
 
                 Row {
                     anchors.fill: parent
@@ -141,10 +154,8 @@ Item {
                         Image {
                             id: itemAvatar
                             anchors.fill: parent
-                            source: (modelData.avatar && modelData.avatar.length > 5) ? modelData.avatar : ""
+                            source: (model.avatar && model.avatar.length > 5) ? model.avatar : ""
                             fillMode: Image.PreserveAspectCrop
-                            
-                            // 🚀 显存关键约束：降采样解码
                             sourceSize.width: 72
                             sourceSize.height: 72
                             asynchronous: true
@@ -157,7 +168,7 @@ Item {
                             anchors.centerIn: parent
                             text: {
                                 if (itemAvatar.visible) return ""
-                                if (modelData.title && modelData.title.length > 0) return modelData.title.charAt(0).toUpperCase()
+                                if (model.title && model.title.length > 0) return model.title.charAt(0).toUpperCase()
                                 return "💬"
                             }
                             color: "white"; font.pixelSize: 14; font.weight: Font.Bold; visible: !itemAvatar.visible
@@ -172,7 +183,7 @@ Item {
                         Row {
                             spacing: 6
                             Text {
-                                text: modelData.title || "新提醒"
+                                text: model.title || "新提醒"
                                 color: "white"
                                 font.pixelSize: 12
                                 font.weight: Font.Bold
@@ -187,7 +198,7 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                             Text {
-                                text: modelData.time || ""
+                                text: model.time || ""
                                 color: Theme.textMuted
                                 font.pixelSize: 9
                                 font.family: "Monospace"
@@ -196,7 +207,7 @@ Item {
                         }
 
                         Text {
-                            text: modelData.content || "未提供正文详情"
+                            text: model.content || "未提供正文详情"
                             color: Theme.textSecondary
                             font.pixelSize: 11
                             font.family: notifPageRoot.chosenFont
@@ -208,10 +219,10 @@ Item {
                     Rectangle {
                         width: 58; height: 26; radius: 13
                         anchors.verticalCenter: parent.verticalCenter
-                        color: actionBtnArea.pressed ? "#4338ca" : (actionBtnArea.containsMouse ? "#4f46e5" : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.2))
+                        color: actionBtnTap.pressed ? "#4338ca" : (actionBtnHover.hovered ? "#4f46e5" : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.2))
                         border.color: Theme.notification
                         border.width: 1
-                        scale: actionBtnArea.pressed ? 0.94 : 1.0
+                        scale: actionBtnTap.pressed ? 0.94 : 1.0
                         Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
                         Row {
@@ -221,13 +232,13 @@ Item {
                             Text { text: "↗"; color: Theme.notification; font.pixelSize: 10; font.weight: Font.Bold }
                         }
 
-                        MouseArea {
-                            id: actionBtnArea
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                        HoverHandler { id: actionBtnHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            id: actionBtnTap
+                            onTapped: {
                                 if (typeof Bridge !== "undefined") {
                                     Bridge.focusTeamsWindow()
-                                    Bridge.markAllNotificationsRead()
+                                    if (notifPageRoot.notifModel) notifPageRoot.notifModel.markAllRead()
                                 }
                             }
                         }

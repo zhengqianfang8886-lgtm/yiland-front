@@ -31,9 +31,11 @@ Item {
     property string alertSubtitle: ""
     property string alertAvatar: ""
 
-    // 网络与通知
-    property int unreadCount: 0
-    property string latestNotifAvatar: ""
+    // 网络与通知（声明式单向绑定至 NotificationListModel）
+    readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
+    property int unreadCount: notifModel ? notifModel.unreadCount : 0
+    property string latestNotifAvatar: notifModel ? notifModel.latestAvatar : ""
+
     property string downSpeedStr: "0.0 B/s"
     property string upSpeedStr: "0.0 B/s"
     property string downSpeedCompact: "0K"
@@ -81,12 +83,6 @@ Item {
             relay.downSpeedStr = down; relay.upSpeedStr = up
             relay.downSpeedCompact = downComp; relay.upSpeedCompact = upComp
             if (ip) relay.localIp = ip
-        }
-        function onUnreadCountChanged(cnt) {
-            relay.unreadCount = cnt
-            if (typeof Bridge !== "undefined" && Bridge.getLatestNotificationAvatar) {
-                relay.latestNotifAvatar = Bridge.getLatestNotificationAvatar()
-            }
         }
     }
 }

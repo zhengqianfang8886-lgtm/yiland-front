@@ -47,7 +47,7 @@ Rectangle {
     property string upSpeedStr: ""
     property string localIp: ""
 
-    // 对外基础状态派发 (零别名链死锁)
+    // 基础状态派发 (零别名链死锁)
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
     readonly property bool timerHasHours: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.hasHours : false
@@ -56,7 +56,11 @@ Rectangle {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
-    readonly property bool isMouseOver: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse)
+    // 🚀 核心优化：全岛互保状态——主岛或任何一个副岛处于悬停，整体都不收拢！(唯一声明)
+    property bool anySubBubbleHovered: false
+    readonly property bool isMouseOver: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || 
+                                        (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse) || 
+                                        anySubBubbleHovered
 
     signal requestExpand(string tabName)
     signal requestSettings()
@@ -87,23 +91,16 @@ Rectangle {
         return capsuleRoot.isCalling ? 38 : 36
     }
 
-    // =========================================================================
-    // 🚀 核心阻尼物理引擎
-    // =========================================================================
+    // 阻尼物理参数
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
-
-    // 展开参数
     readonly property int durExpandW: isJellyStyle ? 340 : 240
     readonly property int durExpandH: isJellyStyle ? 260 : 230
     readonly property real overshootW: isJellyStyle ? 1.08 : 1.018
     readonly property real overshootH: isJellyStyle ? 1.15 : 1.025
-
-    // 收起参数：220ms 从容优雅回鞘，前快后慢
     readonly property int durCollapseW: isJellyStyle ? 210 : 220
     readonly property int durCollapseH: isJellyStyle ? 190 : 210
 
     z: 2
-    // 🚀 核心破局点 1：打破拉卷闸门感！展开时整体伴随微弱的 2px 悬挂沉降，收拢时轻柔提回复位
     anchors.top: parent.top
     anchors.topMargin: capsuleRoot.isExpanded ? 8 : 6
     Behavior on anchors.topMargin { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -228,7 +225,7 @@ Rectangle {
         }
     }
 
-    // 🚀 核心破局点 2：常态小文字优雅呼吸浮现！收拢时等待 150ms（外壳基本回位后），用 120ms 温润点亮微张
+    // 常态小文字：收拢等待 150ms 后柔光呼吸点亮
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
@@ -265,7 +262,7 @@ Rectangle {
         }
     }
 
-    // 🚀 核心破局点 3：大卡片内容收拢时 0ms 瞬间蒸发消失！彻底消灭内容被外壳腰斩截断！
+    // 大卡片内容：收起时 0ms 瞬间蒸发隐形
     ExpandedCardView {
         id: expandedCardView
         width: 398; height: 208
@@ -293,7 +290,6 @@ Rectangle {
             SequentialAnimation {
                 PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
                 NumberAnimation {
-                    // 展开时 140ms 优雅淡入；收起时 0ms 瞬间蒸发隐形！
                     duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 0
                     easing.type: Easing.OutQuad
                 }

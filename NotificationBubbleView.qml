@@ -4,12 +4,16 @@ Rectangle {
     id: notifBubbleRoot
 
     property bool active: false
-    property int unreadCount: 0
-    property string avatarUrl: ""
     property string chosenFont: ""
+    readonly property bool isHovered: bubbleHover.hovered
+
+    readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
+    property int unreadCount: notifModel ? notifModel.unreadCount : 0
+    property string avatarUrl: notifModel ? notifModel.latestAvatar : ""
 
     signal clicked()
     signal rightClicked()
+    signal hoverActivated()
 
     width: 48
     height: 36
@@ -17,7 +21,7 @@ Rectangle {
     clip: false
 
     color: Theme.bgCapsule
-    border.color: bubbleHover.hovered ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.8) :
+    border.color: notifBubbleRoot.isHovered ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.9) :
                   Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
     border.width: 1
 
@@ -28,14 +32,29 @@ Rectangle {
 
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
     Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.springEasing; easing.overshoot: Theme.springOvershoot } }
+    // 🚀 核心修复：直接使用 Easing.OutBack
+    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+    Timer {
+        id: dwellTimer
+        interval: 180
+        onTriggered: {
+            if (notifBubbleRoot.isHovered && notifBubbleRoot.shouldShow) {
+                notifBubbleRoot.hoverActivated()
+            }
+        }
+    }
+
+    onIsHoveredChanged: {
+        if (isHovered && shouldShow) dwellTimer.restart()
+        else dwellTimer.stop()
+    }
 
     Rectangle {
         anchors.centerIn: parent
         width: 30; height: 22; radius: 11
         color: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.18)
-        
-        // 🚀 幽灵渲染消除：折叠时关闭呼吸灯
+
         SequentialAnimation on opacity {
             running: notifBubbleRoot.shouldShow && notifBubbleRoot.opacity > 0.05
             loops: Animation.Infinite
@@ -61,12 +80,8 @@ Rectangle {
                 anchors.fill: parent
                 source: (notifBubbleRoot.avatarUrl && notifBubbleRoot.avatarUrl.length > 5) ? notifBubbleRoot.avatarUrl : ""
                 fillMode: Image.PreserveAspectCrop
-                
-                // 🚀 头像显存约束
-                sourceSize.width: 44
-                sourceSize.height: 44
-                asynchronous: true
-                cache: true
+                sourceSize.width: 44; sourceSize.height: 44
+                asynchronous: true; cache: true
                 visible: status === Image.Ready
                 onStatusChanged: if (status === Image.Error) source = ""
             }
@@ -88,7 +103,6 @@ Rectangle {
         }
     }
 
-    // 未读消息数角标
     Rectangle {
         anchors.top: parent.top; anchors.topMargin: -2
         anchors.right: parent.right; anchors.rightMargin: -2
@@ -112,16 +126,19 @@ Rectangle {
 
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
 
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        cursorShape: Qt.PointingHandCursor
-        onClicked: (mouse) => {
-            if (mouse.button === Qt.RightButton) {
-                notifBubbleRoot.rightClicked()
-            } else {
-                notifBubbleRoot.clicked()
-            }
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onTapped: {
+            dwellTimer.stop()
+            notifBubbleRoot.clicked()
+        }
+    }
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: {
+            dwellTimer.stop()
+            notifBubbleRoot.rightClicked()
         }
     }
 }

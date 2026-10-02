@@ -4,7 +4,10 @@ Rectangle {
     id: musicBubbleRoot
 
     property bool active: false
+    readonly property bool isHovered: bubbleHover.hovered
+
     signal clicked()
+    signal hoverActivated()
 
     width: 48
     height: 36
@@ -14,26 +17,36 @@ Rectangle {
     transformOrigin: Item.Right
 
     color: Theme.bgCapsule
-    border.color: bubbleHover.hovered ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.6) : Theme.borderSubtle
+    border.color: musicBubbleRoot.isHovered ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.8) : Theme.borderSubtle
     border.width: 1
 
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
     visible: opacity > 0.01
 
-    Behavior on opacity {
-        NumberAnimation {
-            duration: Theme.animNormal
-            easing.type: Easing.OutQuad
-        }
-    }
-
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
     Behavior on scale {
         NumberAnimation {
             duration: Theme.animSlow
             easing.type: musicBubbleRoot.active ? Easing.OutBack : Easing.InQuad
             easing.overshoot: Theme.springOvershoot
         }
+    }
+
+    // 悬停意图识别 (180ms)
+    Timer {
+        id: dwellTimer
+        interval: 180
+        onTriggered: {
+            if (musicBubbleRoot.isHovered && musicBubbleRoot.active) {
+                musicBubbleRoot.hoverActivated()
+            }
+        }
+    }
+
+    onIsHoveredChanged: {
+        if (isHovered && active) dwellTimer.restart()
+        else dwellTimer.stop()
     }
 
     Rectangle {
@@ -45,7 +58,6 @@ Rectangle {
 
     readonly property bool isActuallyRendering: musicBubbleRoot.active && musicBubbleRoot.opacity > 0.05
 
-    // 🚀 核心优化：固定尺寸，仅走 GPU 矩阵变换（yScale），绝不触发 CPU 锚点重新排版！
     Row {
         id: waveRow
         anchors.centerIn: parent
@@ -53,10 +65,8 @@ Rectangle {
         height: 18
         opacity: musicBubbleRoot.active ? 1.0 : 0.0
 
-        // 柱 1
         Item {
-            width: 2.6; height: 16
-            anchors.verticalCenter: parent.verticalCenter
+            width: 2.6; height: 16; anchors.verticalCenter: parent.verticalCenter
             Rectangle {
                 anchors.fill: parent; radius: 99; color: Theme.media
                 transform: Scale { id: s1; origin.y: 8; yScale: 0.2 }
@@ -71,10 +81,8 @@ Rectangle {
             }
         }
 
-        // 柱 2
         Item {
-            width: 2.6; height: 16
-            anchors.verticalCenter: parent.verticalCenter
+            width: 2.6; height: 16; anchors.verticalCenter: parent.verticalCenter
             Rectangle {
                 anchors.fill: parent; radius: 99; color: Theme.network
                 transform: Scale { id: s2; origin.y: 8; yScale: 0.2 }
@@ -89,10 +97,8 @@ Rectangle {
             }
         }
 
-        // 柱 3
         Item {
-            width: 2.6; height: 16
-            anchors.verticalCenter: parent.verticalCenter
+            width: 2.6; height: 16; anchors.verticalCenter: parent.verticalCenter
             Rectangle {
                 anchors.fill: parent; radius: 99; color: Theme.media
                 transform: Scale { id: s3; origin.y: 8; yScale: 0.2 }
@@ -107,10 +113,8 @@ Rectangle {
             }
         }
 
-        // 柱 4
         Item {
-            width: 2.6; height: 16
-            anchors.verticalCenter: parent.verticalCenter
+            width: 2.6; height: 16; anchors.verticalCenter: parent.verticalCenter
             Rectangle {
                 anchors.fill: parent; radius: 99; color: Theme.network
                 transform: Scale { id: s4; origin.y: 8; yScale: 0.2 }
@@ -126,10 +130,12 @@ Rectangle {
         }
     }
 
+    // 纯轻量化 Pointer Handlers
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
-
-    MouseArea {
-        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-        onClicked: musicBubbleRoot.clicked()
+    TapHandler {
+        onTapped: {
+            dwellTimer.stop()
+            musicBubbleRoot.clicked()
+        }
     }
 }

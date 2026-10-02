@@ -7,9 +7,12 @@ Item {
 
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
-    readonly property bool hasMusicIsland: (relay.status === "Playing") && (capsule.activeTransient === "")
-    readonly property bool hasTimerIsland: capsule.timerRunning && (capsule.activeTransient === "")
-    readonly property bool hasNotifIsland: (relay.unreadCount > 0) && (capsule.activeTransient === "")
+    
+    // 🚀 核心修复：只有在长报警通知(ALERT)需要占满胶囊时才避让，切桌面(WORKSPACE)和OSD期间副岛稳稳保留！
+    readonly property bool isBlockingTransient: (capsule.activeTransient === "ALERT")
+    readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
+    readonly property bool hasTimerIsland: capsule.timerRunning && !isBlockingTransient
+    readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
     readonly property bool notifExpandsToLeft: (Config.multiIslandExpandDirection === "left")
 
     readonly property var enabledTabs: {
@@ -25,8 +28,7 @@ Item {
         return list
     }
 
-    // 1. 数据服务中继
-    IslandTimeService   { id: timeService }
+    IslandTimeService { id: timeService }
     IslandBridgeRelay {
         id: relay
         onTriggerOsd: (icon, label, val) => triggerTransient("OSD", 1500)
@@ -55,7 +57,7 @@ Item {
         transientTimer.interval = ms; transientTimer.restart()
     }
 
-    // 2. 几何遮罩控制器
+    // 遮罩控制器
     IslandMaskController {
         id: maskController
         rootItem: root; capsuleItem: capsule; leftBubble: leftMusicBubble; rightBubble: rightTimerBubble; notifBubble: notifBubble
@@ -63,9 +65,9 @@ Item {
         targetW: capsule.targetWidth; targetH: capsule.targetHeight
     }
 
-    onHasMusicIslandChanged: if (hasMusicIsland) maskController.commit(); else maskController.requestRetract()
-    onHasTimerIslandChanged: if (hasTimerIsland) maskController.commit(); else maskController.requestRetract()
-    onHasNotifIslandChanged: if (hasNotifIsland) maskController.commit(); else maskController.requestRetract()
+    onHasMusicIslandChanged: maskController.commit()
+    onHasTimerIslandChanged: maskController.commit()
+    onHasNotifIslandChanged: maskController.commit()
 
     function expandToTab(tabName) {
         capsule.cancelCollapse()
@@ -73,10 +75,10 @@ Item {
         capsule.expandedTab = tabName; capsule.isExpanded = true; maskController.commit()
     }
 
-    // 3. 主胶囊
     IslandCapsule {
         id: capsule
         chosenFont: root.chosenFont; enabledTabs: root.enabledTabs
+        anySubBubbleHovered: leftMusicBubble.isHovered || rightTimerBubble.isHovered || notifBubble.isHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -95,12 +97,13 @@ Item {
         }
     }
 
-    // 4. 三大副岛
     MusicBubbleView {
         id: leftMusicBubble; z: 1
         anchors.right: capsule.left; anchors.rightMargin: root.splitGap; anchors.verticalCenter: capsule.verticalCenter
         active: !capsule.isExpanded && !capsule.isCollapsing && root.hasMusicIsland
-        onActiveChanged: maskController.commit(); onClicked: root.expandToTab("media")
+        onActiveChanged: maskController.commit()
+        onClicked: root.expandToTab("media")
+        onHoverActivated: root.expandToTab("media")
     }
 
     TimerBubbleView {
@@ -112,6 +115,7 @@ Item {
         isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
         remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
         onClicked: root.expandToTab("timer")
+        onHoverActivated: root.expandToTab("timer")
     }
 
     NotificationBubbleView {
@@ -124,10 +128,11 @@ Item {
         active: !capsule.isExpanded && !capsule.isCollapsing && root.hasNotifIsland
         onActiveChanged: maskController.commit()
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
-        onClicked: root.expandToTab("notification"); onRightClicked: root.expandToTab("notification")
+        onClicked: root.expandToTab("notification")
+        onRightClicked: root.expandToTab("notification")
+        onHoverActivated: root.expandToTab("notification")
     }
 
-    // 🚀 确保窗口映射完全就绪后再激活遮罩
     Timer {
         id: startupMaskTimer
         interval: 60; running: false; repeat: false

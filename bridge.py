@@ -1,18 +1,24 @@
 import os
 import gc
+import json
 import time
 import socket
 import shutil
 import hashlib
 import urllib.parse
-import threading
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from PySide6.QtCore import QObject, Signal, Slot, QRect, QTimer, QDateTime, QTimeZone, QByteArray
+
+from PySide6.QtCore import (
+    QObject, Signal, Slot, Property, QRect, QTimer,
+    QDateTime, QTimeZone, QByteArray, Qt
+)
 from PySide6.QtGui import QRegion
 from logger import app_logger
+from models import NotificationListModel, BluetoothListModel
 
 AVATAR_CACHE_DIR = os.path.expanduser("~/.local/state/alcove_island/avatar_cache")
+
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
     if not raw_avatar_url:
@@ -39,6 +45,7 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
         app_logger.warning(f"处理头像缓存异常: {e}")
         return ""
 
+
 def to_compact_speed(speed_str: str) -> str:
     if not speed_str:
         return "0K"
@@ -46,16 +53,20 @@ def to_compact_speed(speed_str: str) -> str:
     if len(parts) >= 2:
         val, unit = parts[0], parts[1].upper()
         if "M" in unit:
-            try: return f"{float(val):.1f}M"
-            except ValueError: return f"{val}M"
+            try:
+                return f"{float(val):.1f}M"
+            except ValueError:
+                return f"{val}M"
         elif "K" in unit:
             try:
                 f = float(val)
                 return f"{int(f)}K" if f >= 10 else f"{f:.1f}K"
-            except ValueError: return f"{val}K"
+            except ValueError:
+                return f"{val}K"
         elif "B" in unit:
             return "0K"
     return "0K"
+
 
 def get_local_ip() -> str:
     try:
@@ -79,188 +90,268 @@ class IslandBridge(QObject):
     syncDataUpdated = Signal("QVariantMap")
     netSpeedUpdated = Signal(str, str, str, str, str)
 
-    bluetoothUpdated = Signal("QVariantList")
     bluetoothStateChanged = Signal(bool)
-    notificationHistoryUpdated = Signal("QVariantList")
     unreadCountChanged = Signal(int)
 
-    _sig_update_media = Signal(str, str, str, str, float, float)
-    _sig_update_progress = Signal(float, float, float)
-    _sig_force_raise = Signal()
+    _sig_daemon_payload = Signal(str, str)
 
     def __init__(self, view):
         super().__init__()
         self.view = view
+
         self._curr_title = ""
         self._curr_artist = ""
         self._curr_pos = 0.0
         self._curr_dur = 0.0
         self._curr_status = "Paused"
 
-        self._bt_lock = threading.Lock()
-        self._notif_lock = threading.Lock()
-        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="IslandWorker")
+        self._notif_model = NotificationListModel(self)
+        self._bt_model = BluetoothListModel(self)
+        self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
 
-        self._cached_bluetooth_devices = []
         self._bluetooth_powered = True
         self._known_devices_state = {}
         self._first_poll = True
-
-        self._notification_history = []
-        self._unread_count = 0
-        self._latest_notif_avatar = ""
         self._cached_ip = get_local_ip()
 
         self._ipc_sender = None
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="SubprocessWorker")
 
         self._local_media_timer = QTimer(self)
         self._local_media_timer.setInterval(1000)
         self._local_media_timer.timeout.connect(self._on_local_media_tick)
 
-        self._sig_update_media.connect(self._do_update_media_state)
-        self._sig_update_progress.connect(self._do_update_progress_state)
-        self._sig_force_raise.connect(self.forceRaise)
+        self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
+
+    @Property(QObject, constant=True)
+    def notificationModel(self):
+        return self._notif_model
+
+    @Property(QObject, constant=True)
+    def bluetoothModel(self):
+        return self._bt_model
 
     def set_ipc_sender(self, sender_func):
-        """挂接 WS 反向指令通道"""
         self._ipc_sender = sender_func
+
+    def post_daemon_message(self, msg_type: str, data_json_str: str):
+        self._sig_daemon_payload.emit(msg_type, data_json_str)
 
     def _on_local_media_tick(self):
         if self._curr_status == "Playing" and self._curr_dur > 0:
             if self._curr_pos < self._curr_dur:
                 self._curr_pos += 1.0
                 prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur))
-                app_logger.debug(f"[Media 本地步进] pos={self._curr_pos:.1f}s / {self._curr_dur:.1f}s")
                 self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
 
-    def update_media_state(self, title, artist, status, art, pos, dur):
-        self._sig_update_media.emit(title, artist, status, art, pos, dur)
-
-    def update_progress_state(self, pos, dur, prog):
-        self._sig_update_progress.emit(pos, dur, prog)
-
-    def safe_force_raise(self):
-        self._sig_force_raise.emit()
-
-    def add_notification(self, icon, title, content, avatar=""):
-        if not title and not content:
+    @Slot(str, str)
+    def _handle_daemon_payload(self, m_type: str, data_str: str):
+        try:
+            data = json.loads(data_str) if data_str else {}
+        except Exception as e:
+            app_logger.error(f"解析报文异常: {e}")
             return
-        now_str = time.strftime("%H:%M")
-        safe_avatar = process_notification_avatar(avatar) if avatar else ""
-        item_id = int(time.time() * 1000)
-        item = {
-            "id": item_id, "icon": icon or "💬", "title": title or "新通知",
-            "content": content or "", "avatar": safe_avatar, "time": now_str, "read": False
-        }
-        with self._notif_lock:
-            if self._notification_history:
-                top = self._notification_history[0]
-                if top.get("title") == title and top.get("content") == content:
-                    if (item_id - top.get("id", 0)) < 3000:
-                        return
-            self._notification_history.insert(0, item)
-            if len(self._notification_history) > 15:
-                self._notification_history.pop()
-            self._unread_count += 1
-            if safe_avatar:
-                self._latest_notif_avatar = safe_avatar
-            history_copy = [dict(n) for n in self._notification_history]
-            current_unread = self._unread_count
-        self.unreadCountChanged.emit(current_unread)
-        self.notificationHistoryUpdated.emit(history_copy)
 
-    @Slot(result=list)
-    def getNotificationHistory(self):
-        with self._notif_lock:
-            return [dict(n) for n in self._notification_history]
+        if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
+            m = data["media"]
+            self._apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))
 
-    @Slot(result=int)
-    def getUnreadNotificationCount(self):
-        with self._notif_lock:
-            return self._unread_count
+        elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
+            m = data["media"]
+            art = m.get("art_url", "")
+            if art and art.startswith("/") and not art.startswith("file://"):
+                art = "file://" + art
+            self._apply_media_state(
+                m.get("title", "等待播放..."),
+                m.get("artist", "未知歌手"),
+                m.get("status", "Paused"),
+                art,
+                m.get("position"),
+                m.get("duration"),
+            )
 
-    @Slot(result=str)
-    def getLatestNotificationAvatar(self):
-        with self._notif_lock:
-            return self._latest_notif_avatar
+        if m_type in ("WORKSPACE_CHANGED", "FULL_SYNC") and "workspace" in data:
+            ws_info = data["workspace"]
+            self.workspaceTriggered.emit(
+                int(ws_info.get("current_index", 1)),
+                int(ws_info.get("total", 4)),
+                str(ws_info.get("current_name", "")),
+            )
+            if "list" in ws_info:
+                self.workspaceListUpdated.emit(ws_info.get("list", []))
 
-    @Slot()
-    def markAllNotificationsRead(self):
-        with self._notif_lock:
-            self._unread_count = 0
-            for n in self._notification_history:
-                n["read"] = True
-            history_copy = [dict(n) for n in self._notification_history]
-        self.unreadCountChanged.emit(0)
-        self.notificationHistoryUpdated.emit(history_copy)
+        if m_type == "VOLUME_UPDATE" and "system" in data:
+            sys_info = data["system"]
+            self.osdTriggered.emit(
+                "🔇" if sys_info.get("muted", False) else "🔊",
+                "Volume",
+                int(sys_info.get("volume", 50)),
+            )
+        elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
+            self.osdTriggered.emit("☀️", "Display", int(data["system"].get("brightness", 50)))
 
-    @Slot()
-    def clearNotificationHistory(self):
-        with self._notif_lock:
-            self._notification_history.clear()
-            self._unread_count = 0
-            self._latest_notif_avatar = ""
-        self.unreadCountChanged.emit(0)
-        self.notificationHistoryUpdated.emit([])
+        if "bluetooth" in data:
+            b_info = data["bluetooth"]
+            devices = b_info.get("connected_devices", [])
+            powered = b_info.get("powered", True)
+            self._bluetooth_powered = powered
 
-    @Slot(str, str, str, str, float, float)
-    def _do_update_media_state(self, title, artist, status, art, pos, dur):
+            alerts_to_emit = []
+            if not self._first_poll and m_type in ("BLUETOOTH_CONNECT", "BLUETOOTH_DISCONNECT", "BLUETOOTH_BATTERY"):
+                for dev in devices:
+                    mac = dev.get("mac")
+                    conn = dev.get("connected", False)
+                    bat = dev.get("battery")
+                    name = dev.get("name", "蓝牙设备")
+                    prev_conn, _ = self._known_devices_state.get(mac, (None, None))
+                    if prev_conn is not None and prev_conn != conn:
+                        emoji = "🎧" if any(w in name.lower() for w in ["buds", "pods", "wh-", "head", "audio"]) else "蓝牙"
+                        status_str = f"已连接 · 🔋 电量 {bat}%" if (conn and bat is not None) else ("已连接" if conn else "已断开连接")
+                        alerts_to_emit.append((emoji, name, status_str, 2500, ""))
+                    self._known_devices_state[mac] = (conn, bat)
+            else:
+                for dev in devices:
+                    self._known_devices_state[dev.get("mac")] = (dev.get("connected", False), dev.get("battery"))
+            self._first_poll = False
+
+            self._bt_model.sync_devices(devices)
+            self.bluetoothStateChanged.emit(powered)
+            for alert in alerts_to_emit:
+                self.alertTriggered.emit(*alert)
+
+        if "network" in data:
+            net_info = data["network"]
+            rx_str = net_info.get("rx_speed", "0 B/s")
+            tx_str = net_info.get("tx_speed", "0 B/s")
+            self.netSpeedUpdated.emit(rx_str, tx_str, to_compact_speed(rx_str), to_compact_speed(tx_str), self._cached_ip)
+            if m_type == "VPN_CONNECTED":
+                self.alertTriggered.emit("🛡️", "VPN 安全网络已接入", net_info.get("vpn_name", "VPN Active"), 2000, "")
+            elif m_type == "VPN_DISCONNECTED":
+                self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
+
+        if m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "TEAMS_CALL_INCOMING"):
+            if "notification" in data:
+                noti = data["notification"]
+                t_title = noti.get("title", "").strip()
+                t_sub = noti.get("content", "").strip()
+                raw_avatar = noti.get("avatar", "")
+                safe_avatar = process_notification_avatar(raw_avatar) if raw_avatar else ""
+
+                if t_title or t_sub:
+                    item_id = int(time.time() * 1000)
+                    now_str = time.strftime("%H:%M")
+                    self._notif_model.add_notification({
+                        "id": item_id,
+                        "icon": noti.get("icon", "💬"),
+                        "title": t_title or "新通知",
+                        "content": t_sub or "",
+                        "avatar": safe_avatar,
+                        "time": now_str,
+                        "read": False,
+                    })
+                    if m_type == "TEAMS_CALL_INCOMING":
+                        self.alertTriggered.emit(noti.get("icon", "📞"), t_title, t_sub or "正在呼叫...", 0, safe_avatar)
+                        self.view.raise_()
+                    else:
+                        self.alertTriggered.emit(noti.get("icon", "🔔"), t_title, t_sub, 4500, safe_avatar)
+
+        elif m_type == "TEAMS_CALL_ENDED":
+            if "notification" in data:
+                noti = data["notification"]
+                self.alertTriggered.emit("📞", noti.get("title", "") or "Teams 通话", noti.get("content", "") or "呼叫已完成", 1500, "")
+            self.callEndedTriggered.emit()
+
+        self.syncDataUpdated.emit(data)
+
+    def _apply_media_state(self, title, artist, status, art, pos_val, dur_val):
+        pos = self._sanitize_time(pos_val)
+        dur = self._sanitize_time(dur_val)
         is_track_changed = (title != self._curr_title) or (artist != self._curr_artist)
-        prev_status = self._curr_status
         self._curr_status = status
 
         if is_track_changed:
             self._curr_title = title
             self._curr_artist = artist
-            self._curr_dur = dur if dur > 0 else 0.0
-            # 若新歌曲传入有效位置（>=0），采用之；若没传（-1），设为 0.0
-            self._curr_pos = pos if pos >= 0 else 0.0
-            app_logger.info(
-                f"[Media 切歌] 《{title}》- {artist} | 初始位置: {self._curr_pos:.2f}s | 总时长: {self._curr_dur:.2f}s | 状态: {status}"
-            )
+            self._curr_dur = dur if (dur and dur > 0) else 0.0
+            self._curr_pos = pos if (pos and pos >= 0) else 0.0
         else:
-            if dur > 0:
+            if dur and dur > 0:
                 self._curr_dur = dur
-
-            # 只有收到明确的大于 0 的进度才推进
-            if pos > 0:
+            if pos and pos > 0:
                 self._curr_pos = pos
-                app_logger.info(
-                    f"[Media 位置更新] 《{title}》| 收到新进度: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s | 状态: {status}"
-                )
-            elif status == "Paused" and prev_status == "Playing":
-                app_logger.info(
-                    f"[Media 暂停锁定] 播放已暂停，锁定进度在: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s (忽略传入无效 pos={pos})"
-                )
-            else:
-                app_logger.info(
-                    f"[Media 状态同步] 当前进度保持: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s | 状态: {status}"
-                )
 
         if status == "Playing":
             if not self._local_media_timer.isActive():
-                app_logger.info("[Media 本地时钟] 状态变为 Playing，启动本地秒级推进定时器")
                 self._local_media_timer.start()
         else:
             if self._local_media_timer.isActive():
-                app_logger.info(f"[Media 本地时钟] 状态为 {status}，停止本地推进定时器")
                 self._local_media_timer.stop()
 
         self.mediaUpdated.emit(title, artist, status, art, self._curr_pos, self._curr_dur)
 
-    @Slot(float, float, float)
-    def _do_update_progress_state(self, pos, dur, prog):
-        if dur > 0:
+    def _apply_media_progress(self, pos_val, dur_val, prog):
+        pos = self._sanitize_time(pos_val)
+        dur = self._sanitize_time(dur_val)
+        if dur and dur > 0:
             self._curr_dur = dur
-        if pos >= 0:
+        if pos and pos >= 0:
             self._curr_pos = pos
 
         actual_prog = prog
         if actual_prog < 0:
             actual_prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur)) if self._curr_dur > 0 else 0.0
 
-        app_logger.info(f"[Media 实时进度] 当前: {self._curr_pos:.2f}s / {self._curr_dur:.2f}s ({actual_prog*100:.1f}%) | 状态: {self._curr_status}")
         self.progressUpdated.emit(self._curr_pos, self._curr_dur, actual_prog)
+
+    @staticmethod
+    def _sanitize_time(val):
+        if val is None:
+            return None
+        try:
+            f = float(val)
+            if f < 0:
+                return 0.0
+            if f >= 100_000:
+                return f / 1_000_000.0
+            return f
+        except Exception:
+            return None
+
+    # ========================== 核心遮罩修复：坚决不乘 DPR ==========================
+    @Slot(int, int, int, int)
+    def updateMask(self, x, y, width, height):
+        """Qt 6 QWindow::setMask 严格使用逻辑 DIP 坐标，不能乘 dpr"""
+        if width > 0 and height > 0:
+            vw = self.view.width()
+            vh = self.view.height()
+            safe_x = max(0, int(x))
+            safe_y = max(0, int(y))
+            safe_w = min(vw - safe_x, int(width))
+            safe_h = min(vh - safe_y, int(height))
+            if safe_w > 0 and safe_h > 0:
+                self.view.setMask(QRegion(QRect(safe_x, safe_y, safe_w, safe_h)))
+
+    @Slot("QVariantList")
+    def updateCompositeMask(self, rects):
+        """多区域复合遮罩：纯逻辑坐标裁剪，消除切边错位"""
+        if not rects:
+            return
+        composite = QRegion()
+        vw = self.view.width()
+        vh = self.view.height()
+        for r in rects:
+            rx = max(0, int(r.get("x", 0)))
+            ry = max(0, int(r.get("y", 0)))
+            rw = min(vw - rx, int(r.get("w", 0)))
+            rh = min(vh - ry, int(r.get("h", 0)))
+            if rw > 0 and rh > 0:
+                composite = composite.united(QRect(rx, ry, rw, rh))
+        if not composite.isEmpty():
+            self.view.setMask(composite)
+
+    @Slot(result=str)
+    def getLatestNotificationAvatar(self):
+        return self._notif_model.latestAvatar
 
     @Slot()
     def forceRaise(self):
@@ -270,37 +361,6 @@ class IslandBridge(QObject):
     def requestWindowFocus(self):
         self.view.requestActivate()
         self.view.raise_()
-
-    @Slot(int, int, int, int)
-    def updateMask(self, x, y, width, height):
-        if width > 0 and height > 0:
-            dpr = self.view.devicePixelRatio() if hasattr(self.view, "devicePixelRatio") else 1.0
-            safe_x = max(0, int(round(x * dpr)))
-            safe_y = max(0, int(round(y * dpr)))
-            vw = int(round(self.view.width() * dpr))
-            vh = int(round(self.view.height() * dpr))
-            safe_w = min(vw - safe_x, int(round(width * dpr)))
-            safe_h = min(vh - safe_y, int(round(height * dpr)))
-            if safe_w > 0 and safe_h > 0:
-                self.view.setMask(QRegion(QRect(safe_x, safe_y, safe_w, safe_h)))
-
-    @Slot("QVariantList")
-    def updateCompositeMask(self, rects):
-        if not rects:
-            return
-        dpr = self.view.devicePixelRatio() if hasattr(self.view, "devicePixelRatio") else 1.0
-        composite = QRegion()
-        vw = int(round(self.view.width() * dpr))
-        vh = int(round(self.view.height() * dpr))
-        for r in rects:
-            rx = max(0, int(round(r.get("x", 0) * dpr)))
-            ry = max(0, int(round(r.get("y", 0) * dpr)))
-            rw = min(vw - rx, int(round(r.get("w", 0) * dpr)))
-            rh = min(vh - ry, int(round(r.get("h", 0) * dpr)))
-            if rw > 0 and rh > 0:
-                composite = composite.united(QRect(rx, ry, rw, rh))
-        if not composite.isEmpty():
-            self.view.setMask(composite)
 
     @Slot()
     def onIslandCollapsed(self):
@@ -376,28 +436,28 @@ class IslandBridge(QObject):
         except Exception:
             return "UTC"
 
-    @Slot(result=list)
-    def getBluetoothDevices(self):
-        with self._bt_lock:
-            return [dict(d) for d in self._cached_bluetooth_devices]
-
     @Slot(result=bool)
     def isBluetoothPowered(self):
-        with self._bt_lock:
-            return self._bluetooth_powered
+        return self._bluetooth_powered
 
     @Slot(str)
     def connectBluetooth(self, mac):
         def _con():
             if shutil.which("bluetoothctl"):
-                subprocess.run(["bluetoothctl", "connect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.run(["bluetoothctl", "connect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3.0)
+                except subprocess.TimeoutExpired:
+                    app_logger.warning(f"连接蓝牙设备超时: {mac}")
         self._pool.submit(_con)
 
     @Slot(str)
     def disconnectBluetooth(self, mac):
         def _dis():
             if shutil.which("bluetoothctl"):
-                subprocess.run(["bluetoothctl", "disconnect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.run(["bluetoothctl", "disconnect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3.0)
+                except subprocess.TimeoutExpired:
+                    app_logger.warning(f"断开蓝牙设备超时: {mac}")
         self._pool.submit(_dis)
 
     @Slot()
@@ -406,13 +466,16 @@ class IslandBridge(QObject):
             candidates = ["blueman-manager", "gnome-control-center", "plasma-open-settings", "kcmshell6", "blueberry", "overskride"]
             for cmd in candidates:
                 if shutil.which(cmd):
-                    if cmd == "gnome-control-center":
-                        subprocess.Popen([cmd, "bluetooth"])
-                    elif cmd in ("plasma-open-settings", "kcmshell6"):
-                        subprocess.Popen([cmd, "kcm_bluetooth"])
-                    else:
-                        subprocess.Popen([cmd])
-                    return
+                    try:
+                        if cmd == "gnome-control-center":
+                            subprocess.Popen([cmd, "bluetooth"])
+                        elif cmd in ("plasma-open-settings", "kcmshell6"):
+                            subprocess.Popen([cmd, "kcm_bluetooth"])
+                        else:
+                            subprocess.Popen([cmd])
+                        return
+                    except Exception as e:
+                        app_logger.warning(f"调起蓝牙设置程序异常: {e}")
         self._pool.submit(_open)
 
     @Slot(str, str)
@@ -432,16 +495,19 @@ class IslandBridge(QObject):
             for kw in candidates:
                 if not kw:
                     continue
-                if shutil.which("wmctrl"):
-                    if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                        return
-                if shutil.which("xdotool"):
-                    if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                        return
-                if shutil.which("hyprctl"):
-                    if subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                        return
-                if shutil.which("swaymsg"):
-                    if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
-                        return
+                try:
+                    if shutil.which("wmctrl"):
+                        if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                    if shutil.which("xdotool"):
+                        if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                    if shutil.which("hyprctl"):
+                        if subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                    if shutil.which("swaymsg"):
+                        if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                except subprocess.TimeoutExpired:
+                    continue
         self._pool.submit(_focus)
