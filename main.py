@@ -4,11 +4,9 @@ import signal
 import gc
 import ctypes
 
-# 🚀 1. 彻底删除 QSG_RENDER_LOOP="basic"！让 Qt 恢复默认 threaded 线程垂直同步休眠！
-# （仅保留字形抗锯齿优化）
 os.environ["QSG_DISTANCEFIELD_ANTIALIASING"] = "subpixel"
 
-from logger import app_logger, install_qt_log_bridge
+from logger import app_logger
 from config import ConfigManager
 from bridge import IslandBridge
 from ws_client import WebSocketDaemonClient
@@ -18,7 +16,6 @@ from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
 
 def trim_memory():
-    """强制让 Linux 内核回收未使用的 glibc 堆内存"""
     gc.collect()
     try:
         ctypes.CDLL("libc.so.6").malloc_trim(0)
@@ -27,17 +24,14 @@ def trim_memory():
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    install_qt_log_bridge()
+    # 🚀 彻底删除 install_qt_log_bridge()！杜绝 PySide6 GIL 回调死锁
     app_logger.info("Alcove Island 前端渲染引擎启动中...")
 
-    # 纯轻量级 GUI 底座（抛弃 QtWidgets 40MB 包袱）
     app = QGuiApplication(sys.argv)
     config = ConfigManager()
 
-    # 显存位图缓存锁死为 16MB
     QPixmapCache.setCacheLimit(16 * 1024)
 
-    # 降低心跳定时器频率到 1000ms（原 300ms 纯属浪费 CPU）
     sigint_timer = QTimer()
     sigint_timer.start(1000)
     sigint_timer.timeout.connect(lambda: None)
@@ -71,15 +65,25 @@ def main():
     context.setContextProperty("WorldCities", config.worldCities)
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    view.setSource(QUrl.fromLocalFile(os.path.join(base_dir, "Island.qml")))
-    view.show()
+    qml_path = os.path.join(base_dir, "Island.qml")
+    app_logger.info(f"正在加载根组件: {qml_path}")
 
-    # 🚀 启动后立即执行内核级内存剪裁
+    # 🚀 加载 QML
+    view.setSource(QUrl.fromLocalFile(qml_path))
+
+    if view.status() == QQuickView.Status.Error:
+        app_logger.critical("❌ QML 加载失败，详细清单：")
+        for err in view.errors():
+            print(f"\033[31;1m[QML 错误] {err.toString()}\033[0m")
+        sys.exit(1)
+
+    view.show()
     trim_memory()
 
     ws_client = WebSocketDaemonClient(bridge)
     ws_client.start()
 
+    app_logger.info("✨ 界面与后台总线就绪，进入主事件循环")
     sys.exit(app.exec())
 
 if __name__ == "__main__":

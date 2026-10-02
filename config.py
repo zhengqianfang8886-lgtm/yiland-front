@@ -23,6 +23,7 @@ class ConfigManager(QObject):
     fontFamilyChanged = Signal(str)
     multiIslandExpandDirectionChanged = Signal(str)
     splitGapChanged = Signal(int)
+    animStyleChanged = Signal(str)  # 🚀 新增动效模式信号
 
     showNetSpeedChanged = Signal(bool)
     showMediaTabChanged = Signal(bool)
@@ -44,6 +45,7 @@ class ConfigManager(QObject):
         self._fontFamily = "系统默认 (Default)"
         self._multiIslandExpandDirection = "right"
         self._splitGap = 8
+        self._animStyle = "precision"  # 🚀 默认: precision(精密克制), 可选: jelly(有机果冻)
 
         self._showNetSpeed = True
         self._showMediaTab = True
@@ -109,6 +111,7 @@ class ConfigManager(QObject):
                 self._fontFamily = data.get("fontFamily", "系统默认 (Default)")
                 self._multiIslandExpandDirection = data.get("multiIslandExpandDirection", "right")
                 self._splitGap = data.get("splitGap", 8)
+                self._animStyle = data.get("animStyle", "precision")
                 self._showNetSpeed = data.get("showNetSpeed", True)
                 self._showMediaTab = data.get("showMediaTab", True)
                 self._showCalendarTab = data.get("showCalendarTab", True)
@@ -128,13 +131,21 @@ class ConfigManager(QObject):
                     "timeFormat": self._timeFormat, "showSeconds": self._showSeconds, "showDate": self._showDate,
                     "topMargin": self._topMargin, "offsetX": self._offsetX, "anchorMode": self._anchorMode,
                     "fontFamily": self._fontFamily, "multiIslandExpandDirection": self._multiIslandExpandDirection,
-                    "splitGap": self._splitGap, "showNetSpeed": self._showNetSpeed, "showMediaTab": self._showMediaTab,
-                    "showCalendarTab": self._showCalendarTab, "showWorkspaceTab": self._showWorkspaceTab,
-                    "showNetworkTab": self._showNetworkTab, "showClockTab": self._showClockTab,
-                    "showBluetoothTab": self._showBluetoothTab, "savedClocks": self._savedClocks
+                    "splitGap": self._splitGap, "animStyle": self._animStyle, "showNetSpeed": self._showNetSpeed,
+                    "showMediaTab": self._showMediaTab, "showCalendarTab": self._showCalendarTab,
+                    "showWorkspaceTab": self._showWorkspaceTab, "showNetworkTab": self._showNetworkTab,
+                    "showClockTab": self._showClockTab, "showBluetoothTab": self._showBluetoothTab,
+                    "savedClocks": self._savedClocks
                 }, f, indent=2, ensure_ascii=False)
         except Exception as e:
             app_logger.error(f"保存配置文件失败: {e}")
+
+    @Property(str, notify=animStyleChanged)
+    def animStyle(self): return self._animStyle
+    @animStyle.setter
+    def animStyle(self, val):
+        if val in ("precision", "jelly") and self._animStyle != val:
+            self._animStyle = val; self.save(); self.animStyleChanged.emit(val)
 
     @Property(str, notify=timeFormatChanged)
     def timeFormat(self): return self._timeFormat

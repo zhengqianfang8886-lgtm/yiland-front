@@ -10,6 +10,9 @@ Item {
     property string currentWsName: "Desktop 1"
     property var wsList: []
 
+    // 🚀 核心防护：只有本页面处于激活渲染态时才驱动动画，杜绝在 setSource 阶段抢占计时器死锁
+    readonly property bool isVisibleOnScreen: wsPageRoot.visible && wsPageRoot.opacity > 0.1
+
     readonly property int effectiveTotal: Math.max(1, (wsList && wsList.length > 0) ? wsList.length : totalWs)
 
     readonly property int displayCurrentNumber: {
@@ -30,7 +33,6 @@ Item {
         else Bridge.switchWorkspaceNext()
     }
 
-    // 全局防漏拦截滚轮切桌面
     MouseArea {
         anchors.fill: parent
         z: 0
@@ -50,9 +52,7 @@ Item {
         anchors.fill: parent
         spacing: 12
 
-        // ==========================================
-        // 1. 左侧【核心工作区看板】(Bento 极简微光卡片)
-        // ==========================================
+        // 1. 左侧【核心工作区看板】
         Rectangle {
             id: leftDashboard
             width: 136
@@ -62,7 +62,6 @@ Item {
             border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22)
             border.width: 1
 
-            // 内部微光渐变层
             Rectangle {
                 anchors.fill: parent; radius: parent.radius; z: 0
                 gradient: Gradient {
@@ -77,35 +76,37 @@ Item {
                 spacing: 0
                 z: 1
 
-                // 1.1 顶栏：呼吸指示灯 + 模块标签
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 6
                     height: 18
 
-                    // 看板顶栏呼吸灯
                     Item {
                         width: 8; height: 8
                         anchors.verticalCenter: parent.verticalCenter
 
-                        // 呼吸发光外圈
                         Rectangle {
+                            id: leftHalo
                             anchors.centerIn: parent
                             width: 14; height: 14; radius: 7
                             color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.4)
-                            SequentialAnimation on scale {
+                            scale: 0.8
+                            opacity: 0.3
+
+                            SequentialAnimation {
+                                running: wsPageRoot.isVisibleOnScreen
                                 loops: Animation.Infinite
-                                NumberAnimation { from: 0.8; to: 1.35; duration: 1600; easing.type: Easing.InOutSine }
-                                NumberAnimation { from: 1.35; to: 0.8; duration: 1600; easing.type: Easing.InOutSine }
+                                NumberAnimation { target: leftHalo; property: "scale"; from: 0.8; to: 1.35; duration: 1600; easing.type: Easing.InOutSine }
+                                NumberAnimation { target: leftHalo; property: "scale"; from: 1.35; to: 0.8; duration: 1600; easing.type: Easing.InOutSine }
                             }
-                            SequentialAnimation on opacity {
+                            SequentialAnimation {
+                                running: wsPageRoot.isVisibleOnScreen
                                 loops: Animation.Infinite
-                                NumberAnimation { from: 0.2; to: 0.7; duration: 1600; easing.type: Easing.InOutSine }
-                                NumberAnimation { from: 0.7; to: 0.2; duration: 1600; easing.type: Easing.InOutSine }
+                                NumberAnimation { target: leftHalo; property: "opacity"; from: 0.2; to: 0.7; duration: 1600; easing.type: Easing.InOutSine }
+                                NumberAnimation { target: leftHalo; property: "opacity"; from: 0.7; to: 0.2; duration: 1600; easing.type: Easing.InOutSine }
                             }
                         }
 
-                        // 核心实心点
                         Rectangle {
                             anchors.centerIn: parent
                             width: 5; height: 5; radius: 2.5
@@ -126,7 +127,6 @@ Item {
 
                 Item { height: 4 }
 
-                // 1.2 核心巨幅数字 (带切桌面弹性微动效)
                 Item {
                     width: parent.width
                     height: 52
@@ -140,7 +140,6 @@ Item {
                         font.weight: Font.Black
                         font.family: (wsPageRoot.chosenFont !== "") ? wsPageRoot.chosenFont : "Monospace"
 
-                        // 数字切换时带有一点灵动弹跳缩放
                         Behavior on text {
                             SequentialAnimation {
                                 NumberAnimation { target: wsNumText; property: "scale"; to: 0.86; duration: 60; easing.type: Easing.OutQuad }
@@ -150,7 +149,6 @@ Item {
                     }
                 }
 
-                // 1.3 当前桌面名 (胶囊标签质感)
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 20
@@ -175,7 +173,6 @@ Item {
 
                 Item { height: 4 }
 
-                // 1.4 总数摘要
                 Text {
                     text: "共 " + wsPageRoot.effectiveTotal + " 个空间"
                     color: Qt.rgba(1, 1, 1, 0.35)
@@ -187,7 +184,6 @@ Item {
 
                 Item { height: 8 }
 
-                // 1.5 底部切换双连药丸按钮 (带微交互弹性)
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 98; height: 24; radius: 12
@@ -198,7 +194,6 @@ Item {
                     Row {
                         anchors.fill: parent
 
-                        // 左半边：上一页
                         Rectangle {
                             width: parent.width / 2; height: parent.height; radius: 12
                             color: prevBtnMouse.pressed ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.4) :
@@ -214,10 +209,8 @@ Item {
                             }
                         }
 
-                        // 分割细线
                         Rectangle { width: 1; height: 12; color: Qt.rgba(1, 1, 1, 0.12); anchors.verticalCenter: parent.verticalCenter }
 
-                        // 右半边：下一页
                         Rectangle {
                             width: parent.width / 2; height: parent.height; radius: 12
                             color: nextBtnMouse.pressed ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.4) :
@@ -237,15 +230,12 @@ Item {
             }
         }
 
-        // ==========================================
-        // 2. 右侧【桌面矩阵】(通透条目 + 活力呼吸光晕)
-        // ==========================================
+        // 2. 右侧【桌面矩阵】
         Column {
             width: parent.width - 148
             height: parent.height
             spacing: 6
 
-            // 2.1 顶部微提示栏
             Item {
                 width: parent.width; height: 18
 
@@ -258,7 +248,6 @@ Item {
                     font.family: wsPageRoot.chosenFont
                 }
 
-                // 极简微徽章
                 Row {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     spacing: 4
@@ -276,7 +265,6 @@ Item {
                 }
             }
 
-            // 2.2 虚拟桌面网格列表
             Flickable {
                 id: wsFlickable
                 width: parent.width
@@ -319,7 +307,6 @@ Item {
                             height: 38
                             radius: 10
                             
-                            // 选中时带有通透紫色微发光，未选中时轻量灰度
                             color: isActive ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.16) :
                                    (itemHover.hovered ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(1, 1, 1, 0.035))
                             border.color: isActive ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.65) :
@@ -338,7 +325,6 @@ Item {
                                 anchors.leftMargin: 8; anchors.rightMargin: 8
                                 spacing: 7
 
-                                // 数字徽章
                                 Rectangle {
                                     width: 20; height: 20; radius: 6
                                     anchors.verticalCenter: parent.verticalCenter
@@ -355,7 +341,6 @@ Item {
                                     }
                                 }
 
-                                // 桌面标题
                                 Text {
                                     text: wsTitle
                                     color: isActive ? "white" : Qt.rgba(1, 1, 1, 0.75)
@@ -367,48 +352,41 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
 
-                                // 🚀 活力双层呼吸灯 (仅在当前激活桌面上绽放)
+                                // 🚀 安全双层呼吸灯：只在可见渲染态运行，杜绝死锁
                                 Item {
                                     width: 14; height: 14
                                     anchors.verticalCenter: parent.verticalCenter
 
-                                    // 外层光晕波纹 (Halo Ripple)
                                     Rectangle {
+                                        id: dotHalo
                                         anchors.centerIn: parent
                                         width: 14; height: 14; radius: 7
                                         color: Qt.rgba(52, 211, 153, 0.35)
                                         visible: isActive
+                                        scale: 0.6
+                                        opacity: 0.2
 
-                                        SequentialAnimation on scale {
-                                            running: isActive
+                                        SequentialAnimation {
+                                            running: isActive && wsPageRoot.isVisibleOnScreen
                                             loops: Animation.Infinite
-                                            NumberAnimation { from: 0.6; to: 1.4; duration: 1400; easing.type: Easing.InOutSine }
-                                            NumberAnimation { from: 1.4; to: 0.6; duration: 1400; easing.type: Easing.InOutSine }
+                                            NumberAnimation { target: dotHalo; property: "scale"; from: 0.6; to: 1.4; duration: 1400; easing.type: Easing.InOutSine }
+                                            NumberAnimation { target: dotHalo; property: "scale"; from: 1.4; to: 0.6; duration: 1400; easing.type: Easing.InOutSine }
                                         }
-                                        SequentialAnimation on opacity {
-                                            running: isActive
+                                        SequentialAnimation {
+                                            running: isActive && wsPageRoot.isVisibleOnScreen
                                             loops: Animation.Infinite
-                                            NumberAnimation { from: 0.2; to: 0.75; duration: 1400; easing.type: Easing.InOutSine }
-                                            NumberAnimation { from: 0.75; to: 0.2; duration: 1400; easing.type: Easing.InOutSine }
+                                            NumberAnimation { target: dotHalo; property: "opacity"; from: 0.2; to: 0.75; duration: 1400; easing.type: Easing.InOutSine }
+                                            NumberAnimation { target: dotHalo; property: "opacity"; from: 0.75; to: 0.2; duration: 1400; easing.type: Easing.InOutSine }
                                         }
                                     }
 
-                                    // 内层核心发光微珠
                                     Rectangle {
                                         anchors.centerIn: parent
                                         width: 5; height: 5; radius: 2.5
                                         color: isActive ? "#34d399" : "transparent"
                                         visible: isActive
-
-                                        SequentialAnimation on opacity {
-                                            running: isActive
-                                            loops: Animation.Infinite
-                                            NumberAnimation { from: 0.7; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
-                                            NumberAnimation { from: 1.0; to: 0.7; duration: 700; easing.type: Easing.InOutQuad }
-                                        }
                                     }
 
-                                    // 未激活时的淡灰色微小箭头
                                     Text {
                                         anchors.centerIn: parent
                                         text: "↗"

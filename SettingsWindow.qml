@@ -202,7 +202,6 @@ Window {
 
                                 HoverHandler { id: fontItemHover }
 
-                                // 左右分离锚点，彻底移除无效的 Layout.fillWidth
                                 Row {
                                     anchors.left: parent.left
                                     anchors.leftMargin: 10
@@ -255,6 +254,103 @@ Window {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // ==========================================
+            // 分组 0.5：动效物理质感 (双流派切换)
+            // ==========================================
+            Rectangle {
+                width: parent.width
+                height: 96
+                radius: 12
+                color: Qt.rgba(1, 1, 1, 0.05)
+                border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.3)
+                border.width: 1
+
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 8
+
+                    Item {
+                        width: parent.width; height: 16
+                        Text { text: "🎭 灵动岛收放物理动效"; color: Theme.workspace; font.pixelSize: 12; font.bold: true; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            text: (typeof Config !== "undefined" && Config.animStyle === "jelly") ? "有机果冻流" : "精密克制流"
+                            color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width
+                        height: 28
+                        radius: 14
+                        color: Qt.rgba(1, 1, 1, 0.08)
+
+                        Row {
+                            anchors.fill: parent
+
+                            // 精密克制
+                            Rectangle {
+                                id: precBtn
+                                width: parent.width / 2; height: parent.height; radius: 14
+                                readonly property bool isSel: (typeof Config !== "undefined" && Config.animStyle !== "jelly")
+                                color: precBtn.isSel ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.28) : "transparent"
+                                border.color: precBtn.isSel ? Theme.workspace : "transparent"
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
+                                Row {
+                                    anchors.centerIn: parent; spacing: 4
+                                    Text { text: "🎯"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                                    Text {
+                                        text: "精密克制 (阻尼沉稳)"
+                                        color: precBtn.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                        font.pixelSize: 10; font.weight: Font.Bold
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (typeof Config !== "undefined") Config.animStyle = "precision"
+                                }
+                            }
+
+                            // 有机果冻
+                            Rectangle {
+                                id: jellyBtn
+                                width: parent.width / 2; height: parent.height; radius: 14
+                                readonly property bool isSel: (typeof Config !== "undefined" && Config.animStyle === "jelly")
+                                color: jellyBtn.isSel ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.28) : "transparent"
+                                border.color: jellyBtn.isSel ? Theme.workspace : "transparent"
+                                border.width: 1
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
+                                Row {
+                                    anchors.centerIn: parent; spacing: 4
+                                    Text { text: "🍮"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                                    Text {
+                                        text: "有机果冻 (流体相位)"
+                                        color: jellyBtn.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                        font.pixelSize: 10; font.weight: Font.Bold
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (typeof Config !== "undefined") Config.animStyle = "jelly"
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: (typeof Config !== "undefined" && Config.animStyle === "jelly") ?
+                              "✨ 高度先行下冲，宽度滞后 32ms 舒展，带丰满回弹。" :
+                              "✨ 极微弱超临界阻尼，单次微沉降，适合专注工作。"
+                        color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; anchors.horizontalCenter: parent.horizontalCenter
                     }
                 }
             }
@@ -527,7 +623,7 @@ Window {
             }
 
             Text {
-                text: "💡 提示：间距与字体点击实时生效，自动写入本地配置。"
+                text: "💡 提示：动效与设置点击实时生效，自动保存。"
                 color: Qt.rgba(1, 1, 1, 0.45)
                 font.pixelSize: 11
                 anchors.horizontalCenter: parent.horizontalCenter
