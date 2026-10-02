@@ -47,7 +47,6 @@ Rectangle {
     property string upSpeedStr: ""
     property string localIp: ""
 
-    // 基础状态派发 (零别名链死锁)
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
     readonly property bool timerHasHours: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.hasHours : false
@@ -56,7 +55,6 @@ Rectangle {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
-    // 🚀 核心优化：全岛互保状态——主岛或任何一个副岛处于悬停，整体都不收拢！(唯一声明)
     property bool anySubBubbleHovered: false
     readonly property bool isMouseOver: (typeof capsuleHover !== "undefined" && capsuleHover.hovered) || 
                                         (typeof capsuleMouseArea !== "undefined" && capsuleMouseArea.containsMouse) || 
@@ -70,28 +68,29 @@ Rectangle {
     readonly property bool isLongAlert: {
         if (capsuleRoot.activeTransient !== "ALERT") return false
         var totalLen = (capsuleRoot.alertTitle || "").length + (capsuleRoot.alertSubtitle || "").length
-        return totalLen > 18 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
+        return totalLen > 20 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // 🚀 强化感知：横向舒展至 400~470px
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
-        if (capsuleRoot.isCalling) return 250
+        if (capsuleRoot.isCalling) return 260
         if (capsuleRoot.activeTransient === "ALERT") {
             var rawLen = (capsuleRoot.alertTitle || "").length + (capsuleRoot.alertSubtitle || "").length
-            return rawLen > 30 ? 430 : (rawLen > 16 ? 400 : 360)
+            return rawLen > 24 ? 470 : (rawLen > 12 ? 430 : 400)
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return Math.max(148, compactCapsuleView.wsRowImplicitWidth + 48)
         if (capsuleRoot.activeTransient === "OSD") return 175
         return Math.max(124, compactCapsuleView.textRowImplicitWidth + 46)
     }
 
+    // 🚀 强化感知：纵向适度扩充至 58~72px
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
-        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 68 : 52
+        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 72 : 58
         return capsuleRoot.isCalling ? 38 : 36
     }
 
-    // 阻尼物理参数
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property int durExpandW: isJellyStyle ? 340 : 240
     readonly property int durExpandH: isJellyStyle ? 260 : 230
@@ -111,12 +110,12 @@ Rectangle {
 
     width: targetWidth
     height: targetHeight
-    radius: isExpanded ? 28 : (activeTransient === "ALERT" ? 26 : Math.min(height / 2, 27))
-    clip: true
+    radius: isExpanded ? 28 : (activeTransient === "ALERT" ? 22 : Math.min(height / 2, 27))
+    clip: false
     color: Theme.bgCapsule
-    border.color: (activeTransient === "ALERT") ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.6) :
+    border.color: (activeTransient === "ALERT") ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.75) :
                   ((capsuleMouseArea.containsMouse || isExpanded) ? Theme.borderFocus : Theme.borderSubtle)
-    border.width: activeTransient === "ALERT" ? 1.5 : 1
+    border.width: activeTransient === "ALERT" ? 1.8 : 1
 
     Behavior on width {
         NumberAnimation {
@@ -148,6 +147,26 @@ Rectangle {
     }
 
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
+
+    // 🚀 全岛外发光呼吸脉冲层 (Aura Glow Pulse)
+    Rectangle {
+        id: alertAuraGlow
+        anchors.fill: parent
+        anchors.margins: -4
+        radius: capsuleRoot.radius + 3
+        color: "transparent"
+        border.color: Theme.notification
+        border.width: 3
+        visible: capsuleRoot.activeTransient === "ALERT"
+        opacity: 0.0
+
+        SequentialAnimation on opacity {
+            running: capsuleRoot.activeTransient === "ALERT"
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.65; duration: 800; easing.type: Easing.InOutSine }
+            NumberAnimation { to: 0.15; duration: 800; easing.type: Easing.InOutSine }
+        }
+    }
 
     Timer {
         id: hoverDwellTimer
@@ -225,10 +244,9 @@ Rectangle {
         }
     }
 
-    // 常态小文字：收拢等待 150ms 后柔光呼吸点亮
     CompactCapsuleView {
         id: compactCapsuleView
-        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+        anchors.fill: parent
         opacity: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1 : 0
         scale: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 1.0 : 0.94
         visible: opacity > 0.01
@@ -245,24 +263,17 @@ Rectangle {
         Behavior on opacity {
             SequentialAnimation {
                 PauseAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 150 : 0 }
-                NumberAnimation {
-                    duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 120 : 0
-                    easing.type: Easing.OutCubic
-                }
+                NumberAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 120 : 0; easing.type: Easing.OutCubic }
             }
         }
         Behavior on scale {
             SequentialAnimation {
                 PauseAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 150 : 0 }
-                NumberAnimation {
-                    duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 160 : 0
-                    easing.type: Easing.OutBack; easing.overshoot: 1.05
-                }
+                NumberAnimation { duration: (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 160 : 0; easing.type: Easing.OutBack; easing.overshoot: 1.05 }
             }
         }
     }
 
-    // 大卡片内容：收起时 0ms 瞬间蒸发隐形
     ExpandedCardView {
         id: expandedCardView
         width: 398; height: 208
@@ -289,10 +300,7 @@ Rectangle {
         Behavior on opacity {
             SequentialAnimation {
                 PauseAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? (capsuleRoot.isJellyStyle ? 80 : 50) : 0 }
-                NumberAnimation {
-                    duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 0
-                    easing.type: Easing.OutQuad
-                }
+                NumberAnimation { duration: (capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) ? 140 : 0; easing.type: Easing.OutQuad }
             }
         }
         Behavior on scale {

@@ -40,7 +40,7 @@ Item {
         if (compactRoot.activeTransient !== "ALERT") return false
         var tLen = (compactRoot.alertTitle || "").length
         var sLen = (compactRoot.alertSubtitle || "").length
-        return (tLen + sLen > 18) || (compactRoot.alertSubtitle || "").indexOf("\n") !== -1
+        return (tLen + sLen > 20) || (compactRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
     readonly property int textRowImplicitWidth: compactTimeRow.implicitWidth
@@ -145,26 +145,19 @@ Item {
                 Rectangle {
                     readonly property int dotIndex: index + 1
                     readonly property bool isCurrent: dotIndex === compactRoot.wsCurrent
-                    width: isCurrent ? 15 : (dotMouse.containsMouse ? 7 : 4.5)
+                    width: isCurrent ? 15 : (dotMouse.hovered ? 7 : 4.5)
                     height: 4.5
                     radius: 2.25
-                    color: isCurrent ? "#ffffff" : (dotMouse.containsMouse ? Theme.workspace : Qt.rgba(1, 1, 1, 0.24))
-                    scale: isCurrent ? 1.0 : (dotMouse.containsMouse ? 1.2 : 0.85)
+                    color: isCurrent ? "#ffffff" : (dotMouse.hovered ? Theme.workspace : Qt.rgba(1, 1, 1, 0.24))
+                    scale: isCurrent ? 1.0 : (dotMouse.hovered ? 1.2 : 0.85)
 
                     Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack } }
                     Behavior on color { ColorAnimation { duration: Theme.animFast } }
                     Behavior on scale { NumberAnimation { duration: 160 } }
 
-                    MouseArea {
-                        id: dotMouse
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: (mouse) => {
-                            mouse.accepted = true
-                            if (typeof Bridge !== "undefined") Bridge.switchWorkspace(dotIndex)
-                        }
+                    HoverHandler { id: dotMouse; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: if (typeof Bridge !== "undefined") Bridge.switchWorkspace(dotIndex)
                     }
                 }
             }
@@ -196,36 +189,30 @@ Item {
         }
     }
 
-    // 3. 消息提醒
+    // 3. 强化感知版消息提醒
     Item {
         id: alertContainer
         anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
+        anchors.leftMargin: 14
+        anchors.rightMargin: 14
 
         opacity: compactRoot.activeTransient === "ALERT" ? 1.0 : 0.0
         visible: opacity > 0.01
         scale: compactRoot.activeTransient === "ALERT" ? 1.0 : 0.88
 
-        Behavior on opacity { NumberAnimation { duration: compactRoot.activeTransient === "ALERT" ? Theme.animNormal : Theme.animInstant; easing.type: Easing.OutQuad } }
-        Behavior on scale {
-            NumberAnimation {
-                duration: compactRoot.activeTransient === "ALERT" ? Theme.animSlow : Theme.animFast
-                easing.type: compactRoot.activeTransient === "ALERT" ? Easing.OutBack : Easing.InQuad
-                easing.overshoot: Theme.springOvershoot
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
         Item {
             id: avatarItem
-            width: 36; height: 36
+            width: 40; height: 40
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
 
             Rectangle {
                 id: avatarBg
                 anchors.fill: parent
-                radius: 18
+                radius: 12
                 color: avatarImg.visible ? "transparent" : "#4338ca"
                 clip: true
 
@@ -235,8 +222,8 @@ Item {
                     source: (compactRoot.alertAvatar && compactRoot.alertAvatar.length > 5) ? compactRoot.alertAvatar : ""
                     fillMode: Image.PreserveAspectCrop
                     visible: status === Image.Ready
-                    sourceSize.width: 72
-                    sourceSize.height: 72
+                    sourceSize.width: 80
+                    sourceSize.height: 80
                     asynchronous: true
                     cache: true
                     onStatusChanged: if (status === Image.Error) source = ""
@@ -254,7 +241,7 @@ Item {
                     }
                     color: "white"
                     font.family: compactRoot.chosenFont
-                    font.pixelSize: 13
+                    font.pixelSize: 15
                     font.weight: Font.Black
                     visible: !avatarImg.visible
                 }
@@ -262,75 +249,99 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                radius: 18
+                radius: 12
                 color: "transparent"
-                border.color: Theme.borderFocus
+                border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.4)
                 border.width: 1.5
             }
         }
 
         Rectangle {
             id: actionBtn
-            width: 26; height: 26; radius: 13
+            width: 28; height: 28; radius: 14
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            color: alertActionHover.containsMouse ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35) : Qt.rgba(1, 1, 1, 0.1)
-            border.color: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.45)
+            color: alertActionTap.pressed ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.4) : (alertActionHover.hovered ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.28) : Qt.rgba(1, 1, 1, 0.1))
+            border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.5)
             border.width: 1
+            scale: alertActionTap.pressed ? 0.92 : (alertActionHover.hovered ? 1.05 : 1.0)
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+            Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
             Text {
                 anchors.centerIn: parent
                 text: "↗"
                 color: "white"
-                font.pixelSize: 11
+                font.pixelSize: 12
                 font.weight: Font.Bold
             }
-            HoverHandler { id: alertActionHover }
+            HoverHandler { id: alertActionHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler { id: alertActionTap }
         }
 
         Column {
             id: textColumn
             anchors.left: avatarItem.right
-            anchors.leftMargin: 10
+            anchors.leftMargin: 12
             anchors.right: actionBtn.left
-            anchors.rightMargin: 10
+            anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
             spacing: compactRoot.isLongAlert ? 3 : 2
 
             Row {
                 id: metaRow
                 width: parent.width
-                spacing: 6
+                spacing: 7
 
                 Text {
                     id: titleText
                     text: compactRoot.alertTitle
                     color: "white"
                     font.family: compactRoot.chosenFont
-                    font.pixelSize: 12
+                    font.pixelSize: 13
                     font.weight: Font.Black
                     elide: Text.ElideRight
-                    width: Math.min(implicitWidth, metaRow.width - badgeRect.width - timeText.implicitWidth - 16)
+                    width: Math.min(implicitWidth, metaRow.width - badgeRect.width - timeText.implicitWidth - 20)
                 }
 
                 Rectangle {
                     id: badgeRect
-                    height: 15
+                    height: 16
                     radius: 4
-                    width: sourceTagText.implicitWidth + 8
-                    color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.2)
-                    border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.5)
+                    width: badgeInnerRow.implicitWidth + 10
+                    color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.22)
+                    border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.55)
                     border.width: 1
                     anchors.verticalCenter: parent.verticalCenter
 
-                    Text {
-                        id: sourceTagText
+                    Row {
+                        id: badgeInnerRow
                         anchors.centerIn: parent
-                        text: compactRoot.alertSourceTag
-                        color: compactRoot.alertThemeColor
-                        font.family: compactRoot.chosenFont
-                        font.pixelSize: 9
-                        font.weight: Font.Bold
+                        spacing: 4
+
+                        Rectangle {
+                            width: 5; height: 5; radius: 2.5
+                            color: compactRoot.alertThemeColor
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            SequentialAnimation on opacity {
+                                running: compactRoot.activeTransient === "ALERT"
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.25; duration: 700; easing.type: Easing.InOutQuad }
+                                NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                            }
+                        }
+
+                        Text {
+                            id: sourceTagText
+                            text: compactRoot.alertSourceTag
+                            color: compactRoot.alertThemeColor
+                            font.family: compactRoot.chosenFont
+                            // 🚀 修复为合法的整型
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                 }
 
@@ -339,7 +350,8 @@ Item {
                     text: "刚刚"
                     color: Theme.textMuted
                     font.family: compactRoot.chosenFont
-                    font.pixelSize: 9
+                    // 🚀 修复为合法的整型
+                    font.pixelSize: 10
                     font.weight: Font.Bold
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -348,8 +360,9 @@ Item {
             Text {
                 id: subText
                 text: compactRoot.alertSubtitle
-                color: Theme.textSecondary
+                color: Qt.rgba(1, 1, 1, 0.88)
                 font.family: compactRoot.chosenFont
+                // 🚀 修复为合法的整型
                 font.pixelSize: 11
                 font.weight: Font.Medium
                 lineHeight: 1.15
