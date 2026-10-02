@@ -152,7 +152,7 @@ Rectangle {
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
 
     // ========================================================
-    // 🚀 核心状态机：严格错峰显隐，彻底杜绝浮空残影与双重曝光
+    // 🚀 时序状态机：展开 130ms 后淡入内容；收缩第 0ms 瞬间灭灯
     // ========================================================
     property bool contentReady: false
     property bool clockReady: true
@@ -171,13 +171,11 @@ Rectangle {
 
     onIsExpandedChanged: {
         if (isExpanded) {
-            // 展开开始：小时间立即灭灯（0ms），卡片内容暂不开启，等黑底撑开 130ms 后再优雅浮现
             clockReady = false
             clockRevealTimer.stop()
             contentReady = false
             contentRevealTimer.restart()
         } else {
-            // 收缩开始：大卡片内容已在 startCollapse 瞬间掐灭，启动定时器等黑壳缩回后淡入时钟
             contentRevealTimer.stop()
             contentReady = false
             clockReady = false
@@ -208,7 +206,9 @@ Rectangle {
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
-                if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
+                // 🚀 来电时优先锁定通话大卡片，不被通知页夺焦
+                if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
+                else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
                 else capsuleRoot.requestExpand("workspace")
             }
         }
@@ -244,7 +244,6 @@ Rectangle {
 
     function startCollapse() {
         if (!isExpanded) return
-        // 🚀 核心关键：收拢第一帧（0ms）瞬间灭灯！绝不在收缩过程中产生任何浮空拖影
         contentRevealTimer.stop()
         contentReady = false
         isCollapsing = true
@@ -305,7 +304,7 @@ Rectangle {
         }
     }
 
-    // 1. 紧凑时钟视图（干净利落的单向淡出/淡入，彻底杜绝与大卡片重影）
+    // 1. 紧凑时钟视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
@@ -328,10 +327,10 @@ Rectangle {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开大卡片（🚀 物理裁剪安全容器 + 错峰显隐，彻底消除收放双向残影）
+    // 2. 展开大卡片（安全容器物理裁剪，内容绝不越界漏头）
     Item {
         anchors.fill: parent
-        clip: true // 物理底线：内容尺寸哪怕有半个像素超出当前黑底药丸，立刻被剪切，绝对无法在桌面上悬空裸露！
+        clip: true
 
         ExpandedCardView {
             id: expandedCardView
@@ -341,7 +340,6 @@ Rectangle {
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
 
-            // 展开时等待 130ms 黑底撑大后才变为 true；收缩时第 0 毫秒瞬间变为 false
             visible: capsuleRoot.contentReady && capsuleRoot.isExpanded
             opacity: visible ? 1.0 : 0.0
             scale: visible ? 1.0 : 0.95
@@ -361,7 +359,6 @@ Rectangle {
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
             onTabSelected: (key) => capsuleRoot.expandedTab = key
 
-            // 单向纯粹的展开淡入动画，不再有任何 QML 引擎未定义行为
             Behavior on opacity {
                 NumberAnimation { duration: 110; easing.type: Easing.OutQuad }
             }

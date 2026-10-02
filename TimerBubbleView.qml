@@ -17,6 +17,8 @@ Rectangle {
     signal clicked()
     signal wheelAdjust(int deltaSec)
 
+    transformOrigin: Item.Left
+
     readonly property color urgencyColor: {
         if (isCountUp) return Theme.stopwatch
         if (!active) return Theme.timer
@@ -35,13 +37,26 @@ Rectangle {
     border.color: timerBubbleRoot.isHovered ? Qt.rgba(urgencyColor.r, urgencyColor.g, urgencyColor.b, 0.5) : Theme.borderSubtle
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
 
+    // 🚀 核心：非 active 瞬间直接 visible = false，立刻彻底隐藏，0ms 无缩小动画
+    visible: active
     opacity: active ? 1.0 : 0.0
-    scale: active ? 1.0 : 0.2
-    visible: opacity > 0.01
+    scale: active ? 1.0 : 0.0
 
     Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: timerBubbleRoot.active ? 160 : 0
+            easing.type: Easing.OutQuad
+        }
+    }
+    Behavior on scale {
+        NumberAnimation {
+            duration: timerBubbleRoot.active ? 220 : 0
+            easing.type: Easing.OutBack
+            easing.overshoot: Theme.springOvershoot
+        }
+    }
 
     onProgressChanged: progressCanvas.requestPaint()
     onUrgencyColorChanged: progressCanvas.requestPaint()

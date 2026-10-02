@@ -65,7 +65,6 @@ Item {
 
             readonly property int dynamicTabWidth: (cardRoot.enabledTabs && cardRoot.enabledTabs.length > 5) ? 42 : 48
 
-            // 空白区滚轮统一直接切桌面
             MouseArea {
                 anchors.left: parent.left
                 anchors.right: tabSliderContainer.left
@@ -74,14 +73,13 @@ Item {
                 hoverEnabled: true
                 onWheel: (wheel) => {
                     wheel.accepted = true
-                    if (cardRoot.expandedTab === "workspace" && typeof Bridge !== "undefined") {
+                    if (!cardRoot.isCalling && cardRoot.expandedTab === "workspace" && typeof Bridge !== "undefined") {
                         if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
                         else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
                     }
                 }
             }
 
-            // 🚀 核心修复：纯粹、灵敏、标准的点击 Tab 切换栏，绝不自作主张悬停乱跳
             Rectangle {
                 id: tabSliderContainer
                 anchors.right: parent.right
@@ -152,19 +150,13 @@ Item {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 acceptedButtons: Qt.LeftButton
-
-                                onEntered: cardRoot.cancelCollapse()
-                                onClicked: {
-                                    cardRoot.cancelCollapse()
-                                    cardRoot.selectTabByIndex(index)
-                                }
+                                onClicked: cardRoot.selectTabByIndex(index)
                             }
                         }
                     }
                 }
             }
 
-            // 顶部标题与当前桌面名称动态联动
             Text {
                 anchors.left: parent.left
                 anchors.right: tabSliderContainer.visible ? tabSliderContainer.left : parent.right
@@ -172,7 +164,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 elide: Text.ElideRight
 
-                text: cardRoot.isCalling ? "● INCOMING CALL" :
+                text: cardRoot.isCalling ? "● INCOMING CALL · TEAMS" :
                       (cardRoot.expandedTab === "notification" ? "● NOTIFICATION" :
                       (cardRoot.expandedTab === "calendar" ? "● CALENDAR" :
                       (cardRoot.expandedTab === "workspace" ? ("● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))) :
@@ -203,44 +195,201 @@ Item {
             width: parent.width
             height: parent.height - 38
 
-            WorkspacePage {
-                id: workspacePage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
-                opacity: (cardRoot.expandedTab === "workspace" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+            // =================================================================
+            // 🚀 专属于呼叫的接听大面板（正圆形头像 + 一键直接接听）
+            // =================================================================
+            Item {
+                id: incomingCallCard
+                anchors.fill: parent
+                visible: cardRoot.isCalling
+
+                Column {
+                    anchors.centerIn: parent
+                    width: parent.width
+                    spacing: 14
+
+                    // 头像与呼叫信息
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 16
+
+                        Item {
+                            width: 60; height: 60
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            // 绿色声波脉冲光环
+                            Rectangle {
+                                id: cardPulse
+                                anchors.centerIn: parent
+                                width: 60; height: 60; radius: 30
+                                color: "transparent"
+                                border.color: Theme.media
+                                border.width: 1.5
+
+                                SequentialAnimation {
+                                    running: cardRoot.isCalling
+                                    loops: Animation.Infinite
+                                    ParallelAnimation {
+                                        NumberAnimation { target: cardPulse; property: "scale"; from: 0.9; to: 1.35; duration: 1200; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: cardPulse; property: "opacity"; from: 0.8; to: 0.0; duration: 1200; easing.type: Easing.OutQuad }
+                                    }
+                                }
+                            }
+
+                            // 🚀 正圆形头像容器
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 30
+                                color: cardAvatarImg.visible ? "transparent" : "#4F46E5"
+                                border.color: Qt.rgba(255, 255, 255, 0.15)
+                                border.width: 1.5
+                                clip: true
+
+                                Image {
+                                    id: cardAvatarImg
+                                    anchors.fill: parent
+                                    source: cardRoot.callAvatar
+                                    fillMode: Image.PreserveAspectCrop
+                                    visible: cardRoot.callAvatar !== "" && status === Image.Ready
+                                    sourceSize.width: 120; sourceSize.height: 120
+                                    asynchronous: true; cache: true
+                                    smooth: true
+                                }
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: {
+                                        if (cardAvatarImg.visible) return ""
+                                        if (cardRoot.callTitle && cardRoot.callTitle.length > 0) {
+                                            var parts = cardRoot.callTitle.trim().split(" ")
+                                            return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : cardRoot.callTitle.trim().charAt(0).toUpperCase()
+                                        }
+                                        return "📞"
+                                    }
+                                    color: "white"
+                                    font.family: cardRoot.chosenFont
+                                    font.pixelSize: 22
+                                    font.weight: Font.Black
+                                    visible: !cardAvatarImg.visible
+                                }
+                            }
+                        }
+
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 4
+                            width: 280
+
+                            Text {
+                                text: cardRoot.callTitle || "Teams 来电"
+                                color: "white"
+                                font.family: cardRoot.chosenFont
+                                font.pixelSize: 19
+                                font.weight: Font.Black
+                                elide: Text.ElideRight
+                                width: parent.width
+                            }
+
+                            Text {
+                                text: (cardRoot.callSubtitle || "正在呼叫...") + " · Microsoft Teams 语音通话"
+                                color: Theme.media
+                                font.family: cardRoot.chosenFont
+                                font.pixelSize: 11
+                                font.weight: Font.Bold
+                                elide: Text.ElideRight
+                                width: parent.width
+                            }
+                        }
+                    }
+
+                    // 呼叫操作双按钮区
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 12
+
+                        // 拒接按钮（调用 rejectTeamsCall）
+                        Rectangle {
+                            width: 110; height: 40; radius: 20
+                            color: rejectArea.pressed ? Qt.rgba(239, 68, 68, 0.45) : (rejectArea.containsMouse ? Qt.rgba(239, 68, 68, 0.3) : Qt.rgba(239, 68, 68, 0.16))
+                            border.color: Theme.danger; border.width: 1
+                            scale: rejectArea.pressed ? 0.96 : 1.0
+
+                            Row {
+                                anchors.centerIn: parent; spacing: 6
+                                Text { text: "✕"; color: Theme.danger; font.pixelSize: 14; font.weight: Font.Black }
+                                Text { text: "拒接"; color: "white"; font.family: cardRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Bold }
+                            }
+
+                            MouseArea {
+                                id: rejectArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof Bridge !== "undefined") {
+                                        Bridge.rejectTeamsCall()
+                                        cardRoot.startCollapse()
+                                    }
+                                }
+                            }
+                        }
+
+                        // 🚀 直接接听按钮（调用 answerTeamsCall 自动唤起 + 快捷键接通）
+                        Rectangle {
+                            width: 240; height: 40; radius: 20
+                            color: answerArea.pressed ? "#15803d" : (answerArea.containsMouse ? "#16a34a" : Theme.media)
+                            scale: answerArea.pressed ? 0.98 : 1.0
+
+                            Row {
+                                anchors.centerIn: parent; spacing: 8
+                                Text { text: "📞"; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "直接接听呼叫"; color: "white"; font.family: cardRoot.chosenFont; font.pixelSize: 13; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "✓"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 13; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
+                            }
+
+                            MouseArea {
+                                id: answerArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof Bridge !== "undefined") {
+                                        Bridge.answerTeamsCall()
+                                        cardRoot.startCollapse()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "💡 点击一键接通电话并自动聚焦 Teams 窗口"
+                        color: Theme.textMuted; font.family: cardRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Bold
+                        anchors.horizontalCenter: parent.horizontalCenter
+                    }
+                }
             }
 
+            // 常规模块
             MediaPage {
                 id: mediaPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                isCalling: cardRoot.isCalling; callTitle: cardRoot.callTitle; callSubtitle: cardRoot.callSubtitle; callAvatar: cardRoot.callAvatar
+                isCalling: false
                 title: cardRoot.title; artist: cardRoot.artist; status: cardRoot.status; artUrl: cardRoot.artUrl
                 position: cardRoot.position; duration: cardRoot.duration
                 onCancelCollapse: cardRoot.cancelCollapse(); onRequestCollapse: cardRoot.requestCollapse(); onStartCollapse: cardRoot.startCollapse()
-                opacity: (cardRoot.expandedTab === "media" || cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "media")
+            }
+
+            WorkspacePage {
+                id: workspacePage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "workspace")
             }
 
             TimerPage {
                 id: persistentTimerPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                opacity: (cardRoot.expandedTab === "timer" && !cardRoot.isCalling) ? 1.0 : 0.0
-                visible: opacity > 0.01
-                onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
-            }
-
-            Loader {
-                id: calendarLoader
-                anchors.fill: parent
-                active: cardRoot.expandedTab === "calendar"
-                visible: active
-                sourceComponent: Component {
-                    CalendarPage { chosenFont: cardRoot.chosenFont }
-                }
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "timer")
+                onTimerCompleted: (t, msg) => cardRoot.timerAlert(t, msg)
             }
 
             Loader {
                 id: notifLoader
                 anchors.fill: parent
-                active: cardRoot.expandedTab === "notification"
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "notification")
                 visible: active
                 sourceComponent: Component {
                     NotificationPage { chosenFont: cardRoot.chosenFont }
@@ -248,9 +397,19 @@ Item {
             }
 
             Loader {
+                id: calendarLoader
+                anchors.fill: parent
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "calendar")
+                visible: active
+                sourceComponent: Component {
+                    CalendarPage { chosenFont: cardRoot.chosenFont }
+                }
+            }
+
+            Loader {
                 id: bluetoothLoader
                 anchors.fill: parent
-                active: cardRoot.expandedTab === "bluetooth"
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "bluetooth")
                 visible: active
                 sourceComponent: Component {
                     BluetoothPage { chosenFont: cardRoot.chosenFont }
@@ -260,7 +419,7 @@ Item {
             Loader {
                 id: networkLoader
                 anchors.fill: parent
-                active: cardRoot.expandedTab === "network"
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "network")
                 visible: active
                 sourceComponent: Component {
                     NetworkPage {
@@ -273,7 +432,7 @@ Item {
             Loader {
                 id: clockLoader
                 anchors.fill: parent
-                active: cardRoot.expandedTab === "clock"
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "clock")
                 visible: active
                 sourceComponent: Component {
                     WorldClockPage {

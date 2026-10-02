@@ -6,7 +6,6 @@ Item {
 
     property string chosenFont: ""
     
-    // 直接绑定 Bridge 导出的高性能 C++ / Python 模型
     readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
     readonly property int unreadCount: notifModel ? notifModel.unreadCount : 0
 
@@ -99,7 +98,7 @@ Item {
             }
         }
 
-        // 2. 消息流列表：行级细粒度复用
+        // 2. 消息流列表
         ListView {
             id: notifListView
             width: parent.width
@@ -132,7 +131,6 @@ Item {
                 height: 52
                 radius: 10
                 
-                // 直接使用 model.* 提取角色字段
                 color: notifCardHover.hovered ? Theme.bgCardHover : (model.read ? Qt.rgba(1, 1, 1, 0.03) : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.08))
                 border.color: model.read ? Theme.borderSubtle : Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.35)
                 border.width: 1
@@ -145,8 +143,9 @@ Item {
                     anchors.margins: 8
                     spacing: 10
 
+                    // 🚀 正圆形通知头像（radius: 18）
                     Rectangle {
-                        width: 36; height: 36; radius: 10
+                        width: 36; height: 36; radius: 18
                         color: itemAvatar.visible ? "transparent" : "#4F46E5"
                         anchors.verticalCenter: parent.verticalCenter
                         clip: true

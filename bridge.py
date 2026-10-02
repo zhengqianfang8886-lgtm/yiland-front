@@ -21,6 +21,7 @@ AVATAR_CACHE_DIR = os.path.expanduser("~/.local/state/alcove_island/avatar_cache
 
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
+    """提取头像并使用 Pillow 强制裁剪为抗锯齿透明正圆 PNG，彻底解决直角残留"""
     if not raw_avatar_url:
         return ""
     try:
@@ -35,11 +36,28 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
         os.makedirs(AVATAR_CACHE_DIR, exist_ok=True)
         mtime = os.path.getmtime(clean_path)
         file_hash = hashlib.md5(f"{clean_path}_{mtime}".encode("utf-8")).hexdigest()[:12]
-        ext = os.path.splitext(clean_path)[1] or ".png"
-        cached_filename = f"avatar_{file_hash}{ext}"
+        cached_filename = f"avatar_circle_{file_hash}.png"
         cached_path = os.path.join(AVATAR_CACHE_DIR, cached_filename)
+        
         if not os.path.exists(cached_path):
-            shutil.copy2(clean_path, cached_path)
+            try:
+                from PIL import Image, ImageDraw
+                im = Image.open(clean_path).convert("RGBA")
+                size = min(im.size)
+                left = (im.width - size) // 2
+                top = (im.height - size) // 2
+                im = im.crop((left, top, left + size, top + size))
+                
+                # 制作带抗锯齿的正圆 Alpha 蒙版
+                mask = Image.new("L", (size, size), 0)
+                draw = ImageDraw.Draw(mask)
+                draw.ellipse((0, 0, size, size), fill=255)
+                im.putalpha(mask)
+                im.save(cached_path, "PNG")
+            except Exception as pe:
+                app_logger.warning(f"PIL 圆形裁剪降级: {pe}")
+                shutil.copy2(clean_path, cached_path)
+                
         return f"file://{cached_path}"
     except Exception as e:
         app_logger.warning(f"处理头像缓存异常: {e}")
@@ -317,10 +335,8 @@ class IslandBridge(QObject):
         except Exception:
             return None
 
-    # ========================== 核心遮罩修复：坚决不乘 DPR ==========================
     @Slot(int, int, int, int)
     def updateMask(self, x, y, width, height):
-        """Qt 6 QWindow::setMask 严格使用逻辑 DIP 坐标，不能乘 dpr"""
         if width > 0 and height > 0:
             vw = self.view.width()
             vh = self.view.height()
@@ -333,7 +349,6 @@ class IslandBridge(QObject):
 
     @Slot("QVariantList")
     def updateCompositeMask(self, rects):
-        """多区域复合遮罩：纯逻辑坐标裁剪，消除切边错位"""
         if not rects:
             return
         composite = QRegion()
@@ -389,14 +404,17 @@ class IslandBridge(QObject):
     def switchWorkspaceNext(self):
         self.sendIpcCmd("WORKSPACE_NEXT")
 
+    # 🚀 一键接听 Teams 来电
     @Slot()
     def answerTeamsCall(self):
         self.sendIpcCmd("TEAMS_ANSWER")
 
+    # 🚀 拒接/挂断 Teams 来电
     @Slot()
     def rejectTeamsCall(self):
         self.sendIpcCmd("TEAMS_REJECT")
 
+    # 🚀 激活聚焦 Teams 窗口
     @Slot()
     def focusTeamsWindow(self):
         self.sendIpcCmd("TEAMS_FOCUS")

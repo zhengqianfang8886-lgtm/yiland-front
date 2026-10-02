@@ -65,7 +65,6 @@ Item {
         return Theme.notification
     }
 
-    // 🚀 核心修复：尊重系统的原始桌面编号，0 始终如实显示为 0，不再强行加 1 或取 max(1, n)
     readonly property int displayWsNumber: {
         var n = Number(compactRoot.wsCurrent)
         if (isNaN(n)) return 0
@@ -73,7 +72,6 @@ Item {
             var trimmedName = compactRoot.wsName.trim()
             if (/^\d+$/.test(trimmedName)) return Number(trimmedName)
             if (trimmedName.indexOf(String(n)) !== -1) return n
-            // 仅当名称明确表明偏移（如名字是 "Desktop 2" 而 n 是 1）时才做对齐，若为 0 则维持 0
             if (n !== 0 && trimmedName.indexOf(String(n + 1)) !== -1) return n + 1
         }
         return n
@@ -81,49 +79,25 @@ Item {
 
     readonly property bool hasZeroWs: (compactRoot.wsCurrent === 0 || compactRoot.displayWsNumber === 0)
 
-    // 🚀 确保槽位索引与桌面系统（0-based / 1-based）精准匹配
     readonly property int activeSlotIndex: {
         var n = compactRoot.displayWsNumber
         var tot = Math.max(1, compactRoot.wsTotal)
         if (isNaN(n)) return 0
-        if (hasZeroWs) {
-            return Math.max(0, Math.min(n, tot - 1))
-        }
+        if (hasZeroWs) return Math.max(0, Math.min(n, tot - 1))
         return Math.max(0, Math.min(n - 1, tot - 1))
     }
 
-    onWsCurrentChanged: {
-        if (compactRoot.activeTransient === "WORKSPACE") {
-            var dir = wsCurrent >= previousWsCurrent ? 1 : -1
-            previousWsCurrent = wsCurrent
-            wsChangeAnim.direction = dir
-            wsChangeAnim.restart()
-        } else {
-            previousWsCurrent = wsCurrent
-        }
-    }
-
-    onWsNameChanged: {
-        if (compactRoot.activeTransient === "WORKSPACE" && !wsChangeAnim.running) {
-            wsChangeAnim.direction = 1
-            wsChangeAnim.restart()
-        }
-    }
-
-    // 1. 切换桌面时的动画展示栏
+    // 1. 桌面切换动画展示栏
     Row {
         id: wsLayoutRow
         anchors.centerIn: parent
         spacing: 9
-        
-        visible: compactRoot.activeTransient === "WORKSPACE"
+        visible: compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.90
-
         Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
 
-        // 桌面编号小徽章
         Rectangle {
             width: 20; height: 20; radius: 6
             anchors.verticalCenter: parent.verticalCenter
@@ -134,19 +108,11 @@ Item {
             Text {
                 id: badgeNumText
                 anchors.centerIn: parent
-                // 0 会直接输出 "0"
                 text: compactRoot.displayWsNumber
                 color: "white"
                 font.pixelSize: 11
                 font.weight: Font.Black
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
-
-                Behavior on text {
-                    SequentialAnimation {
-                        NumberAnimation { target: badgeNumText; property: "scale"; to: 0.8; duration: 50 }
-                        NumberAnimation { target: badgeNumText; property: "scale"; to: 1.0; duration: 120; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
-                    }
-                }
             }
         }
 
@@ -168,29 +134,9 @@ Item {
                 font.letterSpacing: 0.4
                 elide: Text.ElideRight
                 width: parent.width
-
-                transform: [
-                    Translate { id: wsTextTrans; y: 0 }
-                ]
-            }
-
-            SequentialAnimation {
-                id: wsChangeAnim
-                property int direction: 1
-
-                ParallelAnimation {
-                    NumberAnimation { target: wsTextTrans; property: "y"; to: -8 * wsChangeAnim.direction; duration: 60; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: wsNameText; property: "opacity"; to: 0.2; duration: 60 }
-                }
-                ScriptAction { script: { wsTextTrans.y = 8 * wsChangeAnim.direction } }
-                ParallelAnimation {
-                    NumberAnimation { target: wsTextTrans; property: "y"; to: 0; duration: 140; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
-                    NumberAnimation { target: wsNameText; property: "opacity"; to: 1.0; duration: 130 }
-                }
             }
         }
 
-        // 桌面小圆点轨道
         Rectangle {
             id: wsTrackContainer
             height: 16
@@ -210,7 +156,6 @@ Item {
                     model: Math.min(8, Math.max(2, compactRoot.wsTotal))
                     Rectangle {
                         readonly property bool isCurrent: (index === compactRoot.activeSlotIndex)
-                        
                         width: isCurrent ? 14 : 4
                         height: 4
                         radius: 2
@@ -240,7 +185,7 @@ Item {
     Row {
         anchors.centerIn: parent
         spacing: 7
-        visible: compactRoot.activeTransient === "OSD"
+        visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 100 } }
 
@@ -261,13 +206,13 @@ Item {
         }
     }
 
-    // 3. 消息提醒卡片
+    // 3. 消息提醒卡片（🚀 正圆形通知头像改造）
     Item {
         id: alertContainer
         anchors.fill: parent
         anchors.leftMargin: 14
         anchors.rightMargin: 14
-        visible: compactRoot.activeTransient === "ALERT"
+        visible: compactRoot.activeTransient === "ALERT" && !compactRoot.isCalling
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.88
 
@@ -276,14 +221,15 @@ Item {
 
         Item {
             id: avatarItem
-            width: 40; height: 40
+            width: 38; height: 38
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
 
+            // 🚀 正圆形背景与图片裁剪（radius: 19）
             Rectangle {
                 id: avatarBg
                 anchors.fill: parent
-                radius: 12
+                radius: 19
                 color: avatarImg.visible ? "transparent" : "#4338ca"
                 clip: true
 
@@ -293,11 +239,10 @@ Item {
                     source: (compactRoot.alertAvatar && compactRoot.alertAvatar.length > 5) ? compactRoot.alertAvatar : ""
                     fillMode: Image.PreserveAspectCrop
                     visible: status === Image.Ready
-                    sourceSize.width: 80
-                    sourceSize.height: 80
+                    sourceSize.width: 76
+                    sourceSize.height: 76
                     asynchronous: true
                     cache: true
-                    onStatusChanged: if (status === Image.Error) source = ""
                 }
 
                 Text {
@@ -318,140 +263,218 @@ Item {
                 }
             }
 
+            // 🚀 正圆形边框
             Rectangle {
                 anchors.fill: parent
-                radius: 12
+                radius: 19
                 color: "transparent"
                 border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.4)
                 border.width: 1.5
             }
         }
 
-        Rectangle {
-            id: actionBtn
-            width: 28; height: 28; radius: 14
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            color: alertActionTap.pressed ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.4) : (alertActionHover.hovered ? Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.28) : Qt.rgba(1, 1, 1, 0.1))
-            border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.5)
-            border.width: 1
-
-            Text { anchors.centerIn: parent; text: "↗"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold }
-            HoverHandler { id: alertActionHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler { id: alertActionTap }
-        }
-
         Column {
-            id: textColumn
             anchors.left: avatarItem.right; anchors.leftMargin: 12
-            anchors.right: actionBtn.left; anchors.rightMargin: 12
+            anchors.right: parent.right; anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
-            spacing: compactRoot.isLongAlert ? 3 : 2
-
-            Row {
-                id: metaRow
-                width: parent.width; spacing: 7
-
-                Text {
-                    id: titleText
-                    text: compactRoot.alertTitle
-                    color: "white"
-                    font.family: compactRoot.chosenFont
-                    font.pixelSize: 13
-                    font.weight: Font.Black
-                    elide: Text.ElideRight
-                    width: Math.min(implicitWidth, metaRow.width - badgeRect.width - timeText.implicitWidth - 20)
-                }
-
-                Rectangle {
-                    id: badgeRect
-                    height: 16; radius: 4
-                    width: badgeInnerRow.implicitWidth + 10
-                    color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.22)
-                    border.color: Qt.rgba(compactRoot.alertThemeColor.r, compactRoot.alertThemeColor.g, compactRoot.alertThemeColor.b, 0.55)
-                    border.width: 1
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    Row {
-                        id: badgeInnerRow
-                        anchors.centerIn: parent; spacing: 4
-
-                        Rectangle {
-                            width: 5; height: 5; radius: 2.5
-                            color: compactRoot.alertThemeColor
-                            anchors.verticalCenter: parent.verticalCenter
-                            SequentialAnimation on opacity {
-                                running: compactRoot.activeTransient === "ALERT"
-                                loops: Animation.Infinite
-                                NumberAnimation { to: 0.25; duration: 700; easing.type: Easing.InOutQuad }
-                                NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
-                            }
-                        }
-
-                        Text {
-                            id: sourceTagText
-                            text: compactRoot.alertSourceTag
-                            color: compactRoot.alertThemeColor
-                            font.family: compactRoot.chosenFont
-                            font.pixelSize: 10; font.weight: Font.Bold
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                }
-
-                Text {
-                    id: timeText
-                    text: "刚刚"
-                    color: Theme.textMuted
-                    font.family: compactRoot.chosenFont
-                    font.pixelSize: 10; font.weight: Font.Bold
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
+            spacing: 2
 
             Text {
-                id: subText
+                text: compactRoot.alertTitle
+                color: "white"
+                font.family: compactRoot.chosenFont
+                font.pixelSize: 13
+                font.weight: Font.Black
+                elide: Text.ElideRight
+                width: parent.width
+            }
+            Text {
                 text: compactRoot.alertSubtitle
                 color: Qt.rgba(1, 1, 1, 0.88)
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 11
-                font.weight: Font.Medium
-                lineHeight: 1.15
-                wrapMode: Text.WrapAnywhere
-                maximumLineCount: compactRoot.isLongAlert ? 2 : 1
                 elide: Text.ElideRight
                 width: parent.width
             }
         }
     }
 
-    // 4. 通话中
-    Row {
-        anchors.fill: parent; spacing: 10
-        visible: compactRoot.isCalling && compactRoot.activeTransient === ""
+    // 4. 来电模式专属条
+    Item {
+        id: callCapsuleItem
+        anchors.fill: parent
+        visible: compactRoot.isCalling
 
-        Rectangle {
-            width: 26; height: 26; radius: 13
-            color: callAvatarImg.visible ? "transparent" : Theme.media
+        Item {
+            id: callAvatarArea
+            width: 32; height: 32
+            anchors.left: parent.left
+            anchors.leftMargin: 4
             anchors.verticalCenter: parent.verticalCenter
-            clip: true
-            Image {
-                id: callAvatarImg; anchors.fill: parent; source: compactRoot.callAvatar
-                fillMode: Image.PreserveAspectCrop
-                visible: compactRoot.callAvatar !== "" && status === Image.Ready
-                sourceSize.width: 52; sourceSize.height: 52
-                asynchronous: true; cache: true
-            }
-            Text {
+
+            Rectangle {
+                id: pulseRing
                 anchors.centerIn: parent
-                text: (compactRoot.callTitle && compactRoot.callTitle.length > 0) ? compactRoot.callTitle.trim().charAt(0).toUpperCase() : "📞"
-                color: "white"; font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Black; visible: !callAvatarImg.visible
+                width: 32; height: 32; radius: 16
+                color: "transparent"
+                border.color: Theme.media
+                border.width: 1.5
+
+                SequentialAnimation {
+                    running: compactRoot.isCalling
+                    loops: Animation.Infinite
+                    ParallelAnimation {
+                        NumberAnimation { target: pulseRing; property: "scale"; from: 0.85; to: 1.35; duration: 1100; easing.type: Easing.OutQuad }
+                        NumberAnimation { target: pulseRing; property: "opacity"; from: 0.85; to: 0.0; duration: 1100; easing.type: Easing.OutQuad }
+                    }
+                    PauseAnimation { duration: 150 }
+                }
+            }
+
+            // 正圆形通话头像
+            Rectangle {
+                anchors.fill: parent
+                radius: 16
+                color: callAvatarImg.visible ? "transparent" : "#4338ca"
+                clip: true
+
+                Image {
+                    id: callAvatarImg
+                    anchors.fill: parent
+                    source: compactRoot.callAvatar
+                    fillMode: Image.PreserveAspectCrop
+                    visible: compactRoot.callAvatar !== "" && status === Image.Ready
+                    sourceSize.width: 64; sourceSize.height: 64
+                    asynchronous: true; cache: true
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: {
+                        if (callAvatarImg.visible) return ""
+                        if (compactRoot.callTitle && compactRoot.callTitle.length > 0) {
+                            var parts = compactRoot.callTitle.trim().split(" ")
+                            return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : compactRoot.callTitle.trim().charAt(0).toUpperCase()
+                        }
+                        return "📞"
+                    }
+                    color: "white"
+                    font.family: compactRoot.chosenFont
+                    font.pixelSize: 11
+                    font.weight: Font.Black
+                    visible: !callAvatarImg.visible
+                }
+            }
+
+            Rectangle {
+                width: 13; height: 13; radius: 6.5
+                color: Theme.media
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.rightMargin: -2
+                anchors.bottomMargin: -2
+
+                Text {
+                    id: phoneRingIcon
+                    anchors.centerIn: parent
+                    text: "📞"
+                    font.pixelSize: 7
+                    transformOrigin: Item.Center
+
+                    SequentialAnimation {
+                        running: compactRoot.isCalling
+                        loops: Animation.Infinite
+                        NumberAnimation { target: phoneRingIcon; property: "rotation"; from: -18; to: 18; duration: 90; easing.type: Easing.InOutQuad }
+                        NumberAnimation { target: phoneRingIcon; property: "rotation"; from: 18; to: -18; duration: 90; easing.type: Easing.InOutQuad }
+                        NumberAnimation { target: phoneRingIcon; property: "rotation"; from: -18; to: 18; duration: 90; easing.type: Easing.InOutQuad }
+                        NumberAnimation { target: phoneRingIcon; property: "rotation"; from: 18; to: 0; duration: 90; easing.type: Easing.InOutQuad }
+                        PauseAnimation { duration: 900 }
+                    }
+                }
             }
         }
+
         Column {
-            anchors.verticalCenter: parent.verticalCenter; spacing: 1; width: parent.width - 36
-            Text { text: compactRoot.callTitle; color: "white"; font.family: compactRoot.chosenFont; font.pixelSize: 12; font.weight: Font.Black; elide: Text.ElideRight; width: parent.width }
-            Text { text: compactRoot.callSubtitle + "  ➔ 点击直达"; color: Theme.media; font.family: compactRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Bold; elide: Text.ElideRight; width: parent.width }
+            anchors.left: callAvatarArea.right; anchors.leftMargin: 8
+            anchors.right: callDirectBtn.left; anchors.rightMargin: 6
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Text {
+                text: compactRoot.callTitle || "Teams 来电"
+                color: "white"
+                font.family: compactRoot.chosenFont
+                font.pixelSize: 12
+                font.weight: Font.Black
+                elide: Text.ElideRight
+                width: parent.width
+            }
+
+            Row {
+                spacing: 5
+                anchors.left: parent.left
+
+                Row {
+                    spacing: 2
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Rectangle {
+                        width: 2.2; height: 8; radius: 1; color: Theme.media
+                        SequentialAnimation on height {
+                            running: compactRoot.isCalling; loops: Animation.Infinite
+                            NumberAnimation { to: 11; duration: 240; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 4; duration: 240; easing.type: Easing.InOutSine }
+                        }
+                    }
+                    Rectangle {
+                        width: 2.2; height: 5; radius: 1; color: Theme.media
+                        SequentialAnimation on height {
+                            running: compactRoot.isCalling; loops: Animation.Infinite
+                            NumberAnimation { to: 12; duration: 310; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 3; duration: 270; easing.type: Easing.InOutSine }
+                        }
+                    }
+                    Rectangle {
+                        width: 2.2; height: 9; radius: 1; color: Theme.media
+                        SequentialAnimation on height {
+                            running: compactRoot.isCalling; loops: Animation.Infinite
+                            NumberAnimation { to: 4; duration: 260; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 10; duration: 260; easing.type: Easing.InOutSine }
+                        }
+                    }
+                }
+
+                Text {
+                    text: compactRoot.callSubtitle || "正在呼叫..."
+                    color: Theme.media
+                    font.family: compactRoot.chosenFont
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+
+        // 找到 CompactCapsuleView.qml 中右侧的小接听按钮区域，确认其直接调用 answerTeamsCall：
+        Rectangle {
+            id: callDirectBtn
+            width: 44; height: 20; radius: 10
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            color: directBtnTap.pressed ? Qt.rgba(34, 197, 94, 0.4) : Qt.rgba(34, 197, 94, 0.22)
+            border.color: Theme.media
+            border.width: 1
+
+            Row {
+                anchors.centerIn: parent; spacing: 2
+                Text { text: "接听"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: compactRoot.chosenFont }
+                Text { text: "↗"; color: Theme.media; font.pixelSize: 9; font.weight: Font.Bold }
+            }
+
+            TapHandler {
+                id: directBtnTap
+                onTapped: if (typeof Bridge !== "undefined") Bridge.answerTeamsCall()
+            }
         }
     }
 
@@ -460,7 +483,6 @@ Item {
         id: compactTimeRow
         anchors.centerIn: parent
         spacing: 9
-
         visible: (compactRoot.activeTransient === "" && !compactRoot.isCalling)
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.92
@@ -477,9 +499,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
 
             Column {
-                anchors.fill: parent
-                spacing: 1
-
+                anchors.fill: parent; spacing: 1
                 Row {
                     spacing: 2; anchors.left: parent.left
                     Text { text: "↓"; font.pixelSize: 8; color: Theme.calendar; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }

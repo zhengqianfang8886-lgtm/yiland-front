@@ -19,15 +19,22 @@ Rectangle {
     border.color: musicBubbleRoot.isHovered ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.8) : Theme.borderSubtle
     border.width: 1
 
+    // 🚀 核心：非 active 瞬间直接 visible = false，立刻彻底隐藏，0ms 无缩小动画
+    visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
-    visible: opacity > 0.01
 
-    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+    // 进场保留萌出动效；退场 duration 为 0，绝对不播放缩小动画
+    Behavior on opacity {
+        NumberAnimation {
+            duration: musicBubbleRoot.active ? 160 : 0
+            easing.type: Easing.OutQuad
+        }
+    }
     Behavior on scale {
         NumberAnimation {
-            duration: Theme.animSlow
-            easing.type: musicBubbleRoot.active ? Easing.OutBack : Easing.InQuad
+            duration: musicBubbleRoot.active ? 220 : 0
+            easing.type: Easing.OutBack
             easing.overshoot: Theme.springOvershoot
         }
     }
@@ -39,7 +46,7 @@ Rectangle {
         Behavior on color { ColorAnimation { duration: Theme.animFast } }
     }
 
-    readonly property bool isActuallyRendering: musicBubbleRoot.active && musicBubbleRoot.opacity > 0.05
+    readonly property bool isActuallyRendering: musicBubbleRoot.active && musicBubbleRoot.visible
 
     Row {
         id: waveRow

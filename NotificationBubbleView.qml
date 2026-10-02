@@ -14,6 +14,8 @@ Rectangle {
     signal clicked()
     signal rightClicked()
 
+    transformOrigin: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? Item.Right : Item.Left
+
     width: 48
     height: 36
     radius: height / 2
@@ -25,13 +27,27 @@ Rectangle {
     border.width: 1
 
     readonly property bool shouldShow: active && (unreadCount > 0)
+
+    // 🚀 核心：一旦不应显示，瞬间直接 visible = false，立刻彻底隐藏，0ms 无缩小动画
+    visible: shouldShow
     opacity: shouldShow ? 1.0 : 0.0
-    scale: shouldShow ? 1.0 : 0.2
-    visible: opacity > 0.01
+    scale: shouldShow ? 1.0 : 0.0
 
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
-    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: notifBubbleRoot.shouldShow ? 160 : 0
+            easing.type: Easing.OutQuad
+        }
+    }
+    Behavior on scale {
+        NumberAnimation {
+            duration: notifBubbleRoot.shouldShow ? 220 : 0
+            easing.type: Easing.OutBack
+            easing.overshoot: Theme.springOvershoot
+        }
+    }
 
     Rectangle {
         anchors.centerIn: parent
