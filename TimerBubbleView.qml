@@ -37,7 +37,6 @@ Rectangle {
     border.color: timerBubbleRoot.isHovered ? Qt.rgba(urgencyColor.r, urgencyColor.g, urgencyColor.b, 0.5) : Theme.borderSubtle
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
 
-    // 🚀 核心：非 active 瞬间直接 visible = false，立刻彻底隐藏，0ms 无缩小动画
     visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
@@ -103,14 +102,15 @@ Rectangle {
             }
         }
 
+        // 🚀 核心优化：计时器副岛文字全面采用 Font.Black
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: timerBubbleRoot.timerText
             color: "white"
             font.family: (timerBubbleRoot.chosenFont !== "") ? timerBubbleRoot.chosenFont : "Monospace"
-            font.pixelSize: timerBubbleRoot.hasHours ? 13 : 14
-            font.weight: Font.Bold
-            font.letterSpacing: 0.6
+            font.pixelSize: timerBubbleRoot.hasHours ? 13 : 15
+            font.weight: Font.Black
+            font.letterSpacing: 0.5
         }
     }
 

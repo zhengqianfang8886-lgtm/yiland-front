@@ -28,7 +28,6 @@ Rectangle {
 
     readonly property bool shouldShow: active && (unreadCount > 0)
 
-    // 🚀 核心：一旦不应显示，瞬间直接 visible = false，立刻彻底隐藏，0ms 无缩小动画
     visible: shouldShow
     opacity: shouldShow ? 1.0 : 0.0
     scale: shouldShow ? 1.0 : 0.0
@@ -102,6 +101,7 @@ Rectangle {
         }
     }
 
+    // 🚀 核心优化：未读角标数字粗体强化
     Rectangle {
         anchors.top: parent.top; anchors.topMargin: -2
         anchors.right: parent.right; anchors.rightMargin: -2
@@ -117,7 +117,7 @@ Rectangle {
             anchors.centerIn: parent
             text: notifBubbleRoot.unreadCount > 99 ? "99+" : notifBubbleRoot.unreadCount
             color: "white"
-            font.pixelSize: 9
+            font.pixelSize: 10
             font.weight: Font.Black
             font.family: "Monospace"
         }

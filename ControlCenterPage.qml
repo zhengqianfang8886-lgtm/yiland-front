@@ -11,6 +11,9 @@ Item {
     property string upSpeedStr: "0.0 B/s"
     property string localIp: "127.0.0.1"
 
+    // =========================================================================
+    // 🚀 核心对齐信号：被 ExpandedCardView.qml 的 onOpenDetail 监听并执行路由下钻
+    // =========================================================================
     signal openDetail(string pageKey)
 
     readonly property var savedClocks: (typeof Config !== "undefined" && Config.savedClocks) ? Config.savedClocks : []
@@ -78,7 +81,7 @@ Item {
                     }
                 }
 
-                // 🚀 双城横向并排（高度仅需 16px，释放海量空间）
+                // 双城横向并排
                 Row {
                     width: parent.width; height: 18
                     spacing: 8
@@ -163,10 +166,9 @@ Item {
                     }
                 }
 
-                // 🚀 左右双栏结构（左时间+进度，右按钮组）
+                // 左右双栏结构
                 Row {
                     width: parent.width; height: 42
-                    anchors.verticalCenter: undefined
                     spacing: 6
 
                     // 左栏：时间大字 + 进度条
@@ -195,7 +197,7 @@ Item {
                         }
                     }
 
-                    // 右栏：两颗紧凑操作微胶囊（纵向高度 18px，留白充沛）
+                    // 右栏：两颗紧凑操作微胶囊
                     Column {
                         width: 70
                         anchors.verticalCenter: parent.verticalCenter
@@ -241,7 +243,6 @@ Item {
                 }
             }
 
-            // 点击卡片上半部直接进入计时详情
             MouseArea {
                 id: timerHeaderArea
                 anchors.left: parent.left; anchors.right: parent.right
@@ -252,7 +253,7 @@ Item {
         }
 
         // =================================================================
-        // 瓦片 3：网络监控（下行/上行/IP 分布合理，呼吸留白充裕）
+        // 瓦片 3：网络监控
         // =================================================================
         Rectangle {
             width: (bentoRoot.width - 8) / 2
@@ -313,7 +314,7 @@ Item {
         }
 
         // =================================================================
-        // 瓦片 4：蓝牙外设（状态清晰、居中呼吸）
+        // 瓦片 4：蓝牙外设
         // =================================================================
         Rectangle {
             width: (bentoRoot.width - 8) / 2

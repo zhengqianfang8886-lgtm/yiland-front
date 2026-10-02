@@ -11,19 +11,24 @@ Item {
     property bool isCompactTrayMode: false
     property bool dropdownOpen: false
 
-    // 交互提示复位定时器
     Timer {
         id: resetFeedbackTimer
         interval: 2400
-        onTriggered: {
-            powerRoot.activeActionName = ""
-        }
+        onTriggered: powerRoot.activeActionName = ""
     }
 
     function triggerAction(actionName, actionColor) {
         powerRoot.activeActionName = actionName
         powerRoot.activeActionColor = actionColor
         resetFeedbackTimer.restart()
+    }
+
+    // 🚀 防御层：拦截电源页背景空白处的未捕获点击，杜绝事件向底层冒泡
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: (mouse) => mouse.accepted = true
     }
 
     // =========================================================================
@@ -40,7 +45,6 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
-            // 动态呼吸状态指示灯
             Rectangle {
                 width: 6; height: 6; radius: 3
                 color: powerRoot.activeActionName !== "" ? powerRoot.activeActionColor : "#22c55e"
@@ -54,7 +58,6 @@ Item {
                 }
             }
 
-            // 状态文字：未操作时展示标题，点击后高光呈现指令反馈
             Text {
                 text: powerRoot.activeActionName !== "" ?
                       ("⚡ [ " + powerRoot.activeActionName + " ] 指令触发 · 前端交互已就绪") :
@@ -108,7 +111,7 @@ Item {
     }
 
     // =========================================================================
-    // 2. 形态一：Bento 豪华全功能矩阵视图（已修复所有 anchors 与作用域问题）
+    // 2. 形态一：Bento 豪华全功能矩阵视图（零遮挡，全视野通透）
     // =========================================================================
     Grid {
         id: bentoGrid
@@ -136,18 +139,15 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row 作为顶层两端对齐容器
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                         width: 22; height: 22; radius: 6; color: Qt.rgba(129, 140, 248, 0.16)
                         Text { anchors.centerIn: parent; text: "🌙"; font.pixelSize: 12 }
                     }
                     Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                         text: "SUSPEND"; font.pixelSize: 8; font.weight: Font.Black; color: "#818cf8"; font.letterSpacing: 0.5
                     }
                 }
@@ -183,17 +183,14 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                         width: 22; height: 22; radius: 6; color: Qt.rgba(245, 158, 11, 0.16)
                         Text {
                             id: rebootIcon
                             anchors.centerIn: parent; text: "⟳"; font.pixelSize: 14; font.weight: Font.Black; color: "#f59e0b"
-                            // 🚀 核心修复：直接使用 rebootCard.isHit，杜绝 undefined 赋值
                             RotationAnimator on rotation {
                                 running: rebootArea.containsMouse || rebootCard.isHit
                                 loops: Animation.Infinite; from: 0; to: 360; duration: 800
@@ -201,8 +198,7 @@ Item {
                         }
                     }
                     Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                         text: "REBOOT"; font.pixelSize: 8; font.weight: Font.Black; color: "#f59e0b"; font.letterSpacing: 0.5
                     }
                 }
@@ -238,18 +234,15 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                         width: 22; height: 22; radius: 6; color: Qt.rgba(239, 68, 68, 0.2)
                         Text { anchors.centerIn: parent; text: "⏻"; font.pixelSize: 13; font.weight: Font.Black; color: "#ef4444" }
                     }
                     Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                         text: "POWER OFF"; font.pixelSize: 8; font.weight: Font.Black; color: "#ef4444"; font.letterSpacing: 0.5
                     }
                 }
@@ -285,18 +278,15 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                         width: 22; height: 22; radius: 6; color: Qt.rgba(56, 189, 248, 0.16)
                         Text { anchors.centerIn: parent; text: "🔒"; font.pixelSize: 12 }
                     }
                     Text {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                         text: "LOCK"; font.pixelSize: 8; font.weight: Font.Black; color: "#38bdf8"; font.letterSpacing: 0.5
                     }
                 }
@@ -332,7 +322,6 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
@@ -379,7 +368,6 @@ Item {
             Column {
                 anchors.fill: parent; anchors.margins: 8; spacing: 2
 
-                // 🚀 核心修复：用 Item 替代 Row
                 Item {
                     width: parent.width; height: 22
                     Rectangle {
@@ -412,7 +400,7 @@ Item {
     }
 
     // =========================================================================
-    // 3. 形态二：截图同款【水平托盘栏 + 深色暗灰下拉菜单】模式
+    // 3. 形态二：水平托盘栏 + 下拉菜单模式
     // =========================================================================
     Item {
         id: trayBarModeContainer

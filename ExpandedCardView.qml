@@ -5,11 +5,14 @@ Item {
     id: cardRoot
 
     property string chosenFont: ""
-    property string expandedTab: "workspace"
-    property var enabledTabs: []
 
-    // 🚀 二级下钻状态："" 表示主面板，非空（如 "power", "clock", "timer" 等）表示进入全量详情页
+    // =========================================================================
+    // 🚀 全局唯一单真理源路由状态
+    // =========================================================================
+    property string expandedTab: "workspace"
+    property string previousTab: "workspace"
     property string drillDownPage: ""
+    property var enabledTabs: []
 
     property bool isCalling: false
     property string callTitle: ""
@@ -32,13 +35,25 @@ Item {
     property string localIp: ""
     property string activeTransient: ""
 
+    // 暴露计时器常驻引用给外部副岛（确保倒计时在后台切页时不中断）
     readonly property alias timerPageRef: persistentTimerPage
 
-    signal tabSelected(string key)
     signal cancelCollapse()
     signal requestCollapse()
     signal startCollapse()
     signal timerCompleted(string title, string message)
+
+    // =========================================================================
+    // 🚀 全局直达路由：直接切换到独立页面，无需中转
+    // =========================================================================
+    function switchRoute(targetTab, targetSubPage) {
+        cardRoot.cancelCollapse()
+        if (targetTab !== "power" && cardRoot.expandedTab !== "power") {
+            cardRoot.previousTab = cardRoot.expandedTab
+        }
+        cardRoot.drillDownPage = targetSubPage || ""
+        cardRoot.expandedTab = targetTab
+    }
 
     readonly property int activeTabIndex: {
         if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return 0
@@ -48,13 +63,39 @@ Item {
         return 0
     }
 
-    function selectTabByIndex(idx) {
-        if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length === 0) return
-        var safeIdx = (idx + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
-        var targetKey = cardRoot.enabledTabs[safeIdx].key
-        cardRoot.drillDownPage = "" // 切换顶层 Tab 时自动退出下钻模式
-        cardRoot.cancelCollapse()
-        cardRoot.tabSelected(targetKey)
+    // =========================================================================
+    // 🚀 滚轮防抖切页引擎（双轴自适应）
+    // =========================================================================
+    property real tabWheelAccum: 0
+    Timer {
+        id: tabWheelResetTimer
+        interval: 260
+        onTriggered: cardRoot.tabWheelAccum = 0
+    }
+
+    function handleTabWheel(wheel) {
+        wheel.accepted = true
+        tabWheelResetTimer.restart()
+
+        var delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y
+        cardRoot.tabWheelAccum += delta
+
+        if (Math.abs(cardRoot.tabWheelAccum) >= 70) {
+            if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length <= 1) return
+            var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1
+            var nextIndex = (cardRoot.activeTabIndex + dir + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
+            var targetKey = cardRoot.enabledTabs[nextIndex].key
+            cardRoot.switchRoute(targetKey, "")
+            cardRoot.tabWheelAccum = 0
+        }
+    }
+
+    // 底层遮罩吸收未捕获点击，杜绝事件击穿
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: (mouse) => mouse.accepted = true
     }
 
     Column {
@@ -69,9 +110,7 @@ Item {
             width: parent.width
             height: 26
 
-            readonly property int dynamicTabWidth: 44
-
-            // 桌面滚轮支持（仅在处于桌面 Tab 且未通话时生效）
+            // 左侧桌面滚轮支持
             MouseArea {
                 anchors.left: parent.left
                 anchors.right: powerQuickBtn.left
@@ -87,7 +126,7 @@ Item {
                 }
             }
 
-            // 左侧状态指示 / 下钻【‹ 返回控制台】按钮
+            // 左侧状态指示与独立模块面包屑标题
             Item {
                 anchors.left: parent.left
                 anchors.right: powerQuickBtn.left
@@ -95,9 +134,9 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 height: 24
 
-                // 下钻返回按键
+                // 电源状态下的快捷返回键
                 Rectangle {
-                    visible: cardRoot.drillDownPage !== "" && !cardRoot.isCalling
+                    visible: cardRoot.expandedTab === "power" && !cardRoot.isCalling
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: backRow.implicitWidth + 14
@@ -111,17 +150,9 @@ Item {
                         id: backRow
                         anchors.centerIn: parent
                         spacing: 4
-                        Text { text: "‹"; color: Theme.clock; font.pixelSize: 13; font.weight: Font.Black }
+                        Text { text: "‹"; color: "#ef4444"; font.pixelSize: 13; font.weight: Font.Black }
                         Text {
-                            text: {
-                                if (cardRoot.drillDownPage === "power") return "返回 · 电源会话"
-                                if (cardRoot.drillDownPage === "clock") return "返回 · 日历时钟"
-                                if (cardRoot.drillDownPage === "timer") return "返回 · 专注计时"
-                                if (cardRoot.drillDownPage === "network") return "返回 · 网络监控"
-                                if (cardRoot.drillDownPage === "bluetooth") return "返回 · 蓝牙外设"
-                                if (cardRoot.drillDownPage === "notification") return "返回 · 消息中心"
-                                return "返回控制台"
-                            }
+                            text: "返回工作台"
                             color: "white"
                             font.pixelSize: 10
                             font.weight: Font.Bold
@@ -132,29 +163,43 @@ Item {
                     HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
                         id: backTap
-                        onTapped: {
-                            cardRoot.drillDownPage = ""
-                            cardRoot.expandedTab = "control"
-                        }
+                        onTapped: cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
                     }
                 }
 
-                // 常规状态标签
+                // 各独立页面专属面包屑标题
                 Text {
-                    visible: cardRoot.drillDownPage === "" || cardRoot.isCalling
+                    visible: cardRoot.expandedTab !== "power" || cardRoot.isCalling
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     elide: Text.ElideRight
 
-                    text: cardRoot.isCalling ? "● INCOMING CALL · TEAMS" :
-                          (cardRoot.expandedTab === "workspace" ? ("● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))) :
-                          (cardRoot.expandedTab === "media" ? (cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED") :
-                          (cardRoot.expandedTab === "calendar" ? "● CALENDAR" : "● CONTROL CENTER · 控制中心")))
+                    text: {
+                        if (cardRoot.isCalling) return "● INCOMING CALL · TEAMS"
+                        if (cardRoot.expandedTab === "workspace") return "● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))
+                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"
+                        if (cardRoot.expandedTab === "calendar") return "● CALENDAR · 日历"
+                        if (cardRoot.expandedTab === "timer") return "● TIMER · 专注计时"
+                        if (cardRoot.expandedTab === "clock") return "● WORLD CLOCK · 世界时钟"
+                        if (cardRoot.expandedTab === "network") return "● NETWORK · 网络监控"
+                        if (cardRoot.expandedTab === "bluetooth") return "● BLUETOOTH · 蓝牙外设"
+                        if (cardRoot.expandedTab === "notification") return "● NOTIFICATIONS · 消息归档"
+                        return "● ALCOVE ISLAND"
+                    }
 
-                    color: cardRoot.isCalling ? Theme.media :
-                           (cardRoot.expandedTab === "workspace" ? Theme.workspace :
-                           (cardRoot.expandedTab === "media" ? (cardRoot.status === "Playing" ? Theme.media : Theme.textMuted) :
-                           (cardRoot.expandedTab === "calendar" ? Theme.calendar : Theme.clock)))
+                    color: {
+                        if (cardRoot.isCalling) return Theme.media
+                        if (cardRoot.expandedTab === "workspace") return Theme.workspace
+                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? Theme.media : Theme.textMuted
+                        if (cardRoot.expandedTab === "calendar") return Theme.calendar
+                        if (cardRoot.expandedTab === "timer") return Theme.timer
+                        if (cardRoot.expandedTab === "clock") return Theme.clock
+                        if (cardRoot.expandedTab === "network") return Theme.network
+                        if (cardRoot.expandedTab === "bluetooth") return Theme.bluetooth
+                        if (cardRoot.expandedTab === "notification") return Theme.notification
+                        return Theme.textSecondary
+                    }
+
                     font.family: cardRoot.chosenFont
                     font.pixelSize: 10
                     font.weight: Font.Black
@@ -162,17 +207,18 @@ Item {
                 }
             }
 
-            // 🚀 独立电源中心快捷按钮（高质感呼吸红微光）
+            // 独立电源快捷键
             Rectangle {
                 id: powerQuickBtn
-                anchors.right: tabSliderContainer.left
+                anchors.right: tabTrackContainer.left
                 anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 width: 24
                 height: 24
                 radius: 12
-                color: powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.25) : Qt.rgba(1, 1, 1, 0.08)
-                border.color: powerBtnHover.hovered ? "#ef4444" : Theme.borderSubtle
+                readonly property bool isPowerActive: (cardRoot.expandedTab === "power")
+                color: isPowerActive ? Qt.rgba(239, 68, 68, 0.35) : (powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.22) : Qt.rgba(1, 1, 1, 0.08))
+                border.color: isPowerActive || powerBtnHover.hovered ? "#ef4444" : Theme.borderSubtle
                 border.width: 1
                 scale: powerBtnTap.pressed ? 0.92 : (powerBtnHover.hovered ? 1.05 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 100 } }
@@ -184,86 +230,91 @@ Item {
                     text: "⏻"
                     font.pixelSize: 11
                     font.weight: Font.Black
-                    color: powerBtnHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.75)
+                    color: parent.isPowerActive || powerBtnHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.75)
                 }
 
                 HoverHandler { id: powerBtnHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
                     id: powerBtnTap
                     onTapped: {
-                        cardRoot.expandedTab = "control"
-                        cardRoot.drillDownPage = "power"
+                        if (cardRoot.expandedTab === "power") {
+                            cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
+                        } else {
+                            cardRoot.switchRoute("power", "")
+                        }
                     }
                 }
             }
 
-            // 右侧紧凑 Tab 滑块容器（3个核心 Tab + 1个纵向三点 ⋮）
+            // =================================================================
+            // 🚀 图 2 风格流体点条指示轨（Dots & Pill Track）
+            // 消除汉字，选中项拉伸为专属色药丸，未选中项为微圆点
+            // =================================================================
             Rectangle {
-                id: tabSliderContainer
+                id: tabTrackContainer
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: (cardRoot.enabledTabs ? cardRoot.enabledTabs.length : 0) * headerArea.dynamicTabWidth
-                height: 24
-                radius: 12
+                width: dotsLayoutRow.implicitWidth + 14
+                height: 18
+                radius: 9
                 color: Qt.rgba(1, 1, 1, 0.08)
+                border.color: Qt.rgba(1, 1, 1, 0.12)
+                border.width: 1
                 visible: !cardRoot.isCalling && cardRoot.enabledTabs && cardRoot.enabledTabs.length > 1
                 z: 5
 
-                Rectangle {
-                    z: 1; y: 2
-                    x: cardRoot.activeTabIndex * headerArea.dynamicTabWidth + 2
-                    width: headerArea.dynamicTabWidth - 4
-                    height: 20
-                    radius: 10
-                    color: {
-                        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return Qt.rgba(1, 1, 1, 0.18)
-                        var curr = cardRoot.enabledTabs[cardRoot.activeTabIndex]
-                        return curr && curr.activeColor ? curr.activeColor : Qt.rgba(1, 1, 1, 0.18)
-                    }
-                    border.color: {
-                        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return Theme.borderFocus
-                        var curr = cardRoot.enabledTabs[cardRoot.activeTabIndex]
-                        return curr && curr.color ? curr.color : Theme.borderFocus
-                    }
-                    border.width: 1
-                    Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
-                    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
+                MouseArea {
+                    anchors.fill: parent
+                    z: 0
+                    acceptedButtons: Qt.NoButton
+                    onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
                 }
 
                 Row {
-                    z: 2
-                    anchors.fill: parent
+                    id: dotsLayoutRow
+                    anchors.centerIn: parent
+                    spacing: 5
+                    z: 1
 
                     Repeater {
                         model: cardRoot.enabledTabs || []
 
                         Item {
-                            width: headerArea.dynamicTabWidth
-                            height: parent.height
-                            readonly property bool isCurrent: cardRoot.expandedTab === modelData.key
+                            id: tabSlotItem
+                            readonly property bool isCurrent: (cardRoot.expandedTab === modelData.key)
+                            width: isCurrent ? 18 : 5
+                            height: 18
 
-                            Rectangle {
-                                anchors.fill: parent; anchors.margins: 2; radius: 10
-                                color: tabMouseArea.containsMouse && !isCurrent ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
-                                Behavior on color { ColorAnimation { duration: Theme.animFast } }
+                            Behavior on width {
+                                NumberAnimation {
+                                    duration: 200
+                                    easing.type: Easing.OutBack
+                                    easing.overshoot: 1.15
+                                }
                             }
 
-                            // 🚀 针对纵向三点 ⋮ 进行专用字号与居中微调
-                            Text {
+                            Rectangle {
                                 anchors.centerIn: parent
-                                text: modelData.name || ""
-                                color: isCurrent ? (modelData.key === "media" ? Theme.textPrimary : modelData.color) :
-                                       (tabMouseArea.containsMouse ? Theme.textPrimary : Theme.textMuted)
-                                font.pixelSize: modelData.name === "⋮" ? 15 : 11
-                                font.family: cardRoot.chosenFont
-                                font.weight: Font.Black
-                                anchors.verticalCenterOffset: modelData.name === "⋮" ? -1 : 0
+                                width: parent.width
+                                height: 5
+                                radius: 2.5
+                                color: tabSlotItem.isCurrent ?
+                                       (modelData.color ? modelData.color : Theme.workspace) :
+                                       (tabMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(1, 1, 1, 0.35))
+
+                                scale: tabSlotItem.isCurrent ? 1.0 : (tabMouseArea.containsMouse ? 1.35 : 1.0)
+
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
                             }
 
                             MouseArea {
-                                id: tabMouseArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: cardRoot.selectTabByIndex(index)
+                                id: tabMouseArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: cardRoot.switchRoute(modelData.key, "")
+                                onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
                             }
                         }
                     }
@@ -272,15 +323,13 @@ Item {
         }
 
         // =====================================================================
-        // 2. 页面容器（核心页面 + Bento 控制中心 + 全量下钻页面）
+        // 2. 独立业务页面展示区（全量一等公民直达页面）
         // =====================================================================
         Item {
             width: parent.width
             height: parent.height - 38
 
-            // -------------------------------------------------------------
-            // 通话全屏呼叫面板
-            // -------------------------------------------------------------
+            // 1. 来电特权级呼叫面板
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -441,15 +490,14 @@ Item {
                 }
             }
 
-            // -------------------------------------------------------------
-            // 常规核心页面
-            // -------------------------------------------------------------
+            // 2. 桌面工作区独立页
             WorkspacePage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "workspace")
             }
 
+            // 3. 媒体控制独立页
             MediaPage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont; isCalling: false
                 title: cardRoot.title; artist: cardRoot.artist; status: cardRoot.status; artUrl: cardRoot.artUrl
@@ -458,35 +506,23 @@ Item {
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "media")
             }
 
+            // 4. 日历独立页
             CalendarPage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "calendar")
             }
 
-            // -------------------------------------------------------------
-            // 控制中心 Bento 主页面
-            // -------------------------------------------------------------
-            ControlCenterPage {
-                id: controlCenterView
-                anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                timerPageRef: persistentTimerPage
-                downSpeedStr: cardRoot.downSpeedStr; upSpeedStr: cardRoot.upSpeedStr; localIp: cardRoot.localIp
-                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "control") && (cardRoot.drillDownPage === "")
-                onOpenDetail: (key) => cardRoot.drillDownPage = key
-            }
-
-            // -------------------------------------------------------------
-            // 全量下钻页面集合
-            // -------------------------------------------------------------
+            // 5. 专注倒计时/秒表独立页（状态常驻，防止切页中断）
             TimerPage {
                 id: persistentTimerPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                visible: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "timer") || cardRoot.expandedTab === "timer")
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "timer")
                 onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
             }
 
+            // 6. 世界时钟独立页
             Loader {
                 id: clockLoader; anchors.fill: parent
-                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "clock") || cardRoot.expandedTab === "clock")
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "clock")
                 visible: active
                 sourceComponent: Component {
                     WorldClockPage {
@@ -496,9 +532,10 @@ Item {
                 }
             }
 
+            // 7. 实时网络监控独立页
             Loader {
                 id: networkLoader; anchors.fill: parent
-                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "network") || cardRoot.expandedTab === "network")
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "network")
                 visible: active
                 sourceComponent: Component {
                     NetworkPage {
@@ -508,28 +545,30 @@ Item {
                 }
             }
 
+            // 8. 蓝牙外设管理独立页
             Loader {
                 id: bluetoothLoader; anchors.fill: parent
-                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "bluetooth") || cardRoot.expandedTab === "bluetooth")
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "bluetooth")
                 visible: active
                 sourceComponent: Component {
                     BluetoothPage { chosenFont: cardRoot.chosenFont }
                 }
             }
 
+            // 9. 消息归档中心独立页
             Loader {
                 id: notifLoader; anchors.fill: parent
-                active: !cardRoot.isCalling && ((cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "notification") || cardRoot.expandedTab === "notification")
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "notification")
                 visible: active
                 sourceComponent: Component {
                     NotificationPage { chosenFont: cardRoot.chosenFont }
                 }
             }
 
-            // 🚀 全新系统电源与会话管理下钻界面
+            // 10. 系统电源会话独立页
             Loader {
                 id: powerLoader; anchors.fill: parent
-                active: !cardRoot.isCalling && (cardRoot.expandedTab === "control" && cardRoot.drillDownPage === "power")
+                active: !cardRoot.isCalling && (cardRoot.expandedTab === "power")
                 visible: active
                 sourceComponent: Component {
                     PowerPage { chosenFont: cardRoot.chosenFont }

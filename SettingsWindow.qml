@@ -5,8 +5,8 @@ import QtQuick.Window
 Window {
     id: settingsWin
     title: "Alcove Island 偏好设置"
-    width: 400
-    height: 720
+    width: 420
+    height: 760
     minimumWidth: 400
     minimumHeight: 600
     color: "#18181b"
@@ -50,7 +50,7 @@ Window {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.top
             anchors.topMargin: 20
-            spacing: 12
+            spacing: 14
 
             Text {
                 text: "⚙️ 灵动岛模块与偏好设置"
@@ -554,76 +554,147 @@ Window {
             }
 
             // ==========================================
-            // 分组 3：展开大卡片模块
+            // 🚀 分组 3：重构后的 8 大独立界面直达开关列表
             // ==========================================
             Rectangle {
                 width: parent.width
-                height: 240
+                height: tabSwitchesCol.implicitHeight + 24
                 radius: 12
                 color: Qt.rgba(1, 1, 1, 0.05)
                 border.color: Qt.rgba(1, 1, 1, 0.1)
 
                 Column {
+                    id: tabSwitchesCol
                     anchors.fill: parent
                     anchors.margins: 12
                     spacing: 2
 
-                    Text { text: "展开卡片模块 (Tab 栏)"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
+                    Text { text: "独立界面管理 (点条轨道直达项)"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
 
+                    // 1. 桌面
                     Item {
                         width: parent.width; height: 32
-                        Text { text: "🎵 媒体卡片 (播放/播控)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.workspace; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "⊞ 桌面工作区 (多桌面切页)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.showWorkspaceTab !== undefined) ? Config.showWorkspaceTab : true
+                            onToggled: if (typeof Config !== "undefined") Config.showWorkspaceTab = checked
+                        }
+                    }
+
+                    // 2. 媒体
+                    Item {
+                        width: parent.width; height: 32
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.media; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "🎵 媒体播放器 (播放与播控)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showMediaTab !== undefined) ? Config.showMediaTab : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showMediaTab !== undefined) Config.showMediaTab = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showMediaTab = checked
                         }
                     }
 
+                    // 3. 日历
                     Item {
                         width: parent.width; height: 32
-                        Text { text: "📅 日历卡片 (Bento 风格)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "📅 本地日历 (Bento 风格)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showCalendarTab !== undefined) ? Config.showCalendarTab : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showCalendarTab !== undefined) Config.showCalendarTab = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showCalendarTab = checked
                         }
                     }
 
+                    // 4. 计时器
                     Item {
                         width: parent.width; height: 32
-                        Text { text: "🎧 蓝牙卡片 (设备/电量/连接)"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.timer; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "⏱️ 专注计时与秒表 (独立直达)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            checked: (typeof Config !== "undefined" && Config.showBluetoothTab !== undefined) ? Config.showBluetoothTab : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showBluetoothTab !== undefined) Config.showBluetoothTab = checked
+                            checked: (typeof Config !== "undefined" && Config.showTimerTab !== undefined) ? Config.showTimerTab : true
+                            onToggled: if (typeof Config !== "undefined") Config.showTimerTab = checked
                         }
                     }
 
+                    // 5. 世界时钟
                     Item {
                         width: parent.width; height: 32
-                        Text { text: "📶 实时网络详情面板"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
-                        Switch {
-                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            checked: (typeof Config !== "undefined" && Config.showNetworkTab !== undefined) ? Config.showNetworkTab : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showNetworkTab !== undefined) Config.showNetworkTab = checked
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.clock; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "🌍 世界时钟 (跨时区换算)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                         }
-                    }
-
-                    Item {
-                        width: parent.width; height: 32
-                        Text { text: "🌍 世界时钟面板"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showClockTab !== undefined) ? Config.showClockTab : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showClockTab !== undefined) Config.showClockTab = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showClockTab = checked
+                        }
+                    }
+
+                    // 6. 网络监控
+                    Item {
+                        width: parent.width; height: 32
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.network; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "📶 实时网络监控 (上下行与IP)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.showNetworkTab !== undefined) ? Config.showNetworkTab : true
+                            onToggled: if (typeof Config !== "undefined") Config.showNetworkTab = checked
+                        }
+                    }
+
+                    // 7. 蓝牙管理
+                    Item {
+                        width: parent.width; height: 32
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.bluetooth; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "🎧 蓝牙外设管理 (电量与连接)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.showBluetoothTab !== undefined) ? Config.showBluetoothTab : true
+                            onToggled: if (typeof Config !== "undefined") Config.showBluetoothTab = checked
+                        }
+                    }
+
+                    // 8. 消息归档
+                    Item {
+                        width: parent.width; height: 32
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Rectangle { width: 4; height: 12; radius: 2; color: Theme.notification; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "💬 消息归档中心 (未读与历史)"; color: "white"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.showNotificationTab !== undefined) ? Config.showNotificationTab : true
+                            onToggled: if (typeof Config !== "undefined") Config.showNotificationTab = checked
                         }
                     }
                 }
             }
 
             Text {
-                text: "💡 提示：动效与设置点击实时生效，自动保存。"
+                text: "💡 提示：所有配置点击即刻生效，并在灵动岛顶部自动增减微药丸指示点。"
                 color: Qt.rgba(1, 1, 1, 0.45)
                 font.pixelSize: 11
                 anchors.horizontalCenter: parent.horizontalCenter

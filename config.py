@@ -24,18 +24,23 @@ class ConfigManager(QObject):
     multiIslandExpandDirectionChanged = Signal(str)
     splitGapChanged = Signal(int)
     animStyleChanged = Signal(str)
-    
+
     hoverDwellTimeChanged = Signal(int)
     expandedTopMarginChanged = Signal(int)
     capsuleTopMarginChanged = Signal(int)
 
     showNetSpeedChanged = Signal(bool)
+
+    # 🚀 全量 8 个独立界面的独立开关信号
+    showWorkspaceTabChanged = Signal(bool)
     showMediaTabChanged = Signal(bool)
     showCalendarTabChanged = Signal(bool)
-    showWorkspaceTabChanged = Signal(bool)
-    showNetworkTabChanged = Signal(bool)
+    showTimerTabChanged = Signal(bool)
     showClockTabChanged = Signal(bool)
+    showNetworkTabChanged = Signal(bool)
     showBluetoothTabChanged = Signal(bool)
+    showNotificationTabChanged = Signal(bool)
+
     savedClocksChanged = Signal(list)
 
     def __init__(self):
@@ -50,19 +55,23 @@ class ConfigManager(QObject):
         self._multiIslandExpandDirection = "right"
         self._splitGap = 8
         self._animStyle = "precision"
-        
-        # 🚀 默认悬停触发时间 240ms，大卡片距顶 16px，胶囊距顶 6px
+
         self._hoverDwellTime = 240
         self._expandedTopMargin = 16
         self._capsuleTopMargin = 6
 
         self._showNetSpeed = True
+
+        # 🚀 默认全量独立界面状态
+        self._showWorkspaceTab = True
         self._showMediaTab = True
         self._showCalendarTab = True
-        self._showWorkspaceTab = True
-        self._showNetworkTab = True
+        self._showTimerTab = True
         self._showClockTab = True
+        self._showNetworkTab = True
         self._showBluetoothTab = True
+        self._showNotificationTab = True
+
         self._savedClocks = list(DEFAULT_SAVED_CLOCKS)
 
         self._system_fonts = None
@@ -76,7 +85,7 @@ class ConfigManager(QObject):
             if os.path.exists(json_path):
                 with open(json_path, "r", encoding="utf-8") as f:
                     return json.load(f)
-        except Exception as e:
+        except Exception:
             pass
         return []
 
@@ -88,7 +97,7 @@ class ConfigManager(QObject):
                 families = QFontDatabase.families(QFontDatabase.WritingSystem.Any)
             families = sorted(list(set(families)))
             return ["系统默认 (Default)"] + families
-        except Exception as e:
+        except Exception:
             return ["系统默认 (Default)"]
 
     def _migrate_clock_items(self, clock_list):
@@ -120,43 +129,63 @@ class ConfigManager(QObject):
                 self._multiIslandExpandDirection = data.get("multiIslandExpandDirection", "right")
                 self._splitGap = data.get("splitGap", 8)
                 self._animStyle = data.get("animStyle", "precision")
-                
+
                 self._hoverDwellTime = data.get("hoverDwellTime", 240)
                 self._expandedTopMargin = data.get("expandedTopMargin", 16)
                 self._capsuleTopMargin = data.get("capsuleTopMargin", 6)
 
                 self._showNetSpeed = data.get("showNetSpeed", True)
+
+                # 独立界面读入
+                self._showWorkspaceTab = data.get("showWorkspaceTab", True)
                 self._showMediaTab = data.get("showMediaTab", True)
                 self._showCalendarTab = data.get("showCalendarTab", True)
-                self._showWorkspaceTab = data.get("showWorkspaceTab", True)
-                self._showNetworkTab = data.get("showNetworkTab", True)
+                self._showTimerTab = data.get("showTimerTab", True)
                 self._showClockTab = data.get("showClockTab", True)
+                self._showNetworkTab = data.get("showNetworkTab", True)
                 self._showBluetoothTab = data.get("showBluetoothTab", True)
+                self._showNotificationTab = data.get("showNotificationTab", True)
+
                 self._savedClocks = self._migrate_clock_items(data.get("savedClocks", DEFAULT_SAVED_CLOCKS))
         except Exception as e:
-            pass
+            app_logger.warning(f"读取配置失败: {e}")
 
     def save(self):
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump({
-                    "timeFormat": self._timeFormat, "showSeconds": self._showSeconds, "showDate": self._showDate,
-                    "topMargin": self._topMargin, "offsetX": self._offsetX, "anchorMode": self._anchorMode,
-                    "fontFamily": self._fontFamily, "multiIslandExpandDirection": self._multiIslandExpandDirection,
-                    "splitGap": self._splitGap, "animStyle": self._animStyle,
+                    "timeFormat": self._timeFormat,
+                    "showSeconds": self._showSeconds,
+                    "showDate": self._showDate,
+                    "topMargin": self._topMargin,
+                    "offsetX": self._offsetX,
+                    "anchorMode": self._anchorMode,
+                    "fontFamily": self._fontFamily,
+                    "multiIslandExpandDirection": self._multiIslandExpandDirection,
+                    "splitGap": self._splitGap,
+                    "animStyle": self._animStyle,
                     "hoverDwellTime": self._hoverDwellTime,
                     "expandedTopMargin": self._expandedTopMargin,
                     "capsuleTopMargin": self._capsuleTopMargin,
                     "showNetSpeed": self._showNetSpeed,
-                    "showMediaTab": self._showMediaTab, "showCalendarTab": self._showCalendarTab,
-                    "showWorkspaceTab": self._showWorkspaceTab, "showNetworkTab": self._showNetworkTab,
-                    "showClockTab": self._showClockTab, "showBluetoothTab": self._showBluetoothTab,
+
+                    # 独立界面持久化保存
+                    "showWorkspaceTab": self._showWorkspaceTab,
+                    "showMediaTab": self._showMediaTab,
+                    "showCalendarTab": self._showCalendarTab,
+                    "showTimerTab": self._showTimerTab,
+                    "showClockTab": self._showClockTab,
+                    "showNetworkTab": self._showNetworkTab,
+                    "showBluetoothTab": self._showBluetoothTab,
+                    "showNotificationTab": self._showNotificationTab,
+
                     "savedClocks": self._savedClocks
                 }, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            pass
+            app_logger.warning(f"保存配置失败: {e}")
 
+    # ================= 属性访问器定义 =================
     @Property(int, notify=hoverDwellTimeChanged)
     def hoverDwellTime(self): return self._hoverDwellTime
     @hoverDwellTime.setter
@@ -216,6 +245,14 @@ class ConfigManager(QObject):
         if self._showNetSpeed != val:
             self._showNetSpeed = val; self.save(); self.showNetSpeedChanged.emit(val)
 
+    # 🚀 全量 8 个独立界面的属性绑定
+    @Property(bool, notify=showWorkspaceTabChanged)
+    def showWorkspaceTab(self): return self._showWorkspaceTab
+    @showWorkspaceTab.setter
+    def showWorkspaceTab(self, val):
+        if self._showWorkspaceTab != val:
+            self._showWorkspaceTab = val; self.save(); self.showWorkspaceTabChanged.emit(val)
+
     @Property(bool, notify=showMediaTabChanged)
     def showMediaTab(self): return self._showMediaTab
     @showMediaTab.setter
@@ -230,19 +267,12 @@ class ConfigManager(QObject):
         if self._showCalendarTab != val:
             self._showCalendarTab = val; self.save(); self.showCalendarTabChanged.emit(val)
 
-    @Property(bool, notify=showWorkspaceTabChanged)
-    def showWorkspaceTab(self): return self._showWorkspaceTab
-    @showWorkspaceTab.setter
-    def showWorkspaceTab(self, val):
-        if self._showWorkspaceTab != val:
-            self._showWorkspaceTab = val; self.save(); self.showWorkspaceTabChanged.emit(val)
-
-    @Property(bool, notify=showNetworkTabChanged)
-    def showNetworkTab(self): return self._showNetworkTab
-    @showNetworkTab.setter
-    def showNetworkTab(self, val):
-        if self._showNetworkTab != val:
-            self._showNetworkTab = val; self.save(); self.showNetworkTabChanged.emit(val)
+    @Property(bool, notify=showTimerTabChanged)
+    def showTimerTab(self): return self._showTimerTab
+    @showTimerTab.setter
+    def showTimerTab(self, val):
+        if self._showTimerTab != val:
+            self._showTimerTab = val; self.save(); self.showTimerTabChanged.emit(val)
 
     @Property(bool, notify=showClockTabChanged)
     def showClockTab(self): return self._showClockTab
@@ -251,12 +281,26 @@ class ConfigManager(QObject):
         if self._showClockTab != val:
             self._showClockTab = val; self.save(); self.showClockTabChanged.emit(val)
 
+    @Property(bool, notify=showNetworkTabChanged)
+    def showNetworkTab(self): return self._showNetworkTab
+    @showNetworkTab.setter
+    def showNetworkTab(self, val):
+        if self._showNetworkTab != val:
+            self._showNetworkTab = val; self.save(); self.showNetworkTabChanged.emit(val)
+
     @Property(bool, notify=showBluetoothTabChanged)
     def showBluetoothTab(self): return self._showBluetoothTab
     @showBluetoothTab.setter
     def showBluetoothTab(self, val):
         if self._showBluetoothTab != val:
             self._showBluetoothTab = val; self.save(); self.showBluetoothTabChanged.emit(val)
+
+    @Property(bool, notify=showNotificationTabChanged)
+    def showNotificationTab(self): return self._showNotificationTab
+    @showNotificationTab.setter
+    def showNotificationTab(self, val):
+        if self._showNotificationTab != val:
+            self._showNotificationTab = val; self.save(); self.showNotificationTabChanged.emit(val)
 
     @Property(int, notify=splitGapChanged)
     def splitGap(self): return self._splitGap
@@ -294,18 +338,14 @@ class ConfigManager(QObject):
     @multiIslandExpandDirection.setter
     def multiIslandExpandDirection(self, val):
         if self._multiIslandExpandDirection != val:
-            self._multiIslandExpandDirection = val
-            self.save()
-            self.multiIslandExpandDirectionChanged.emit(val)
+            self._multiIslandExpandDirection = val; self.save(); self.multiIslandExpandDirectionChanged.emit(val)
 
     @Property(list, notify=savedClocksChanged)
     def savedClocks(self): return self._savedClocks
     @savedClocks.setter
     def savedClocks(self, val):
         if self._savedClocks != val:
-            self._savedClocks = list(val)
-            self.save()
-            self.savedClocksChanged.emit(self._savedClocks)
+            self._savedClocks = list(val); self.save(); self.savedClocksChanged.emit(self._savedClocks)
 
     @Property(list, constant=True)
     def systemFonts(self):
@@ -315,6 +355,7 @@ class ConfigManager(QObject):
 
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
+
     @Property(str, notify=fontFamilyChanged)
     def fontFamily(self): return self._fontFamily
     @fontFamily.setter

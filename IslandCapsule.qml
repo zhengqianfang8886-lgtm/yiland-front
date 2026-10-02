@@ -8,10 +8,13 @@ Rectangle {
     property bool isExpanded: false
     property bool isCollapsing: false
     property bool isMorphing: false
-    property string expandedTab: "workspace"
     property var enabledTabs: []
 
-    // 🚀 双向直通二级下钻状态属性
+    // =========================================================================
+    // 🚀 核心架构治理：Layer 2 不持有独立状态，直接 alias 直通 Layer 3 真实源！
+    // 彻底解决命令式赋值打碎 QML 响应式绑定的致命顽疾
+    // =========================================================================
+    property alias expandedTab: expandedCardView.expandedTab
     property alias drillDownPage: expandedCardView.drillDownPage
 
     // 业务数据属性
@@ -153,7 +156,6 @@ Rectangle {
 
     Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
 
-    // 时序状态机
     property bool contentReady: false
     property bool clockReady: true
 
@@ -201,14 +203,21 @@ Rectangle {
         }
     }
 
+    // =========================================================================
+    // 🚀 核心逻辑恢复：鼠标移入悬停无条件进入桌面工作区，彻底消除下钻残留
+    // =========================================================================
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
-                if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
-                else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
-                else capsuleRoot.requestExpand("workspace")
+                if (capsuleRoot.isCalling) {
+                    capsuleRoot.requestExpand("media")
+                } else if (capsuleRoot.activeTransient === "ALERT") {
+                    capsuleRoot.requestExpand("notification")
+                } else {
+                    capsuleRoot.requestExpand("workspace")
+                }
             }
         }
     }
@@ -253,7 +262,6 @@ Rectangle {
         capsuleRoot.maskCommitRequested()
     }
 
-    // 🔒 滚轮切换逻辑：只有在胶囊状态或展开在桌面界面时才允许切换
     function handleWheelAction(deltaY) {
         if (capsuleRoot.isCalling) return
         if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") {
@@ -272,14 +280,18 @@ Rectangle {
         }
     }
 
+    // =========================================================================
+    // 胶囊主传感区：展开态下严禁响应点击，杜绝事件向底层冒泡击穿
+    // =========================================================================
     MouseArea {
         id: hitSensorArea
         anchors.fill: parent
         anchors.topMargin: -(typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined ? Config.capsuleTopMargin : 6) - 2
         z: capsuleRoot.isExpanded ? -1 : 10
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        cursorShape: Qt.PointingHandCursor
+
+        acceptedButtons: capsuleRoot.isExpanded ? Qt.NoButton : (Qt.LeftButton | Qt.RightButton)
+        cursorShape: capsuleRoot.isExpanded ? Qt.ArrowCursor : Qt.PointingHandCursor
 
         onEntered: {
             capsuleRoot.cancelCollapse()
@@ -300,6 +312,8 @@ Rectangle {
             }
         }
         onClicked: (mouse) => {
+            if (capsuleRoot.isExpanded) return
+
             hoverDwellTimer.stop()
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
@@ -334,7 +348,7 @@ Rectangle {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开大卡片
+    // 2. 展开大卡片（挂载 Layer 3 路由中枢）
     Item {
         anchors.fill: parent
         clip: true
@@ -352,7 +366,6 @@ Rectangle {
             scale: visible ? 1.0 : 0.95
             chosenFont: capsuleRoot.chosenFont
 
-            expandedTab: capsuleRoot.expandedTab
             enabledTabs: capsuleRoot.enabledTabs
 
             isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
@@ -363,9 +376,7 @@ Rectangle {
             onCancelCollapse: capsuleRoot.cancelCollapse()
             onRequestCollapse: capsuleRoot.requestCollapse()
             onStartCollapse: capsuleRoot.startCollapse()
-            // 🚀 这里绑定的 onTimerCompleted 与 ExpandedCardView 中的 signal 完美对应
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
-            onTabSelected: (key) => capsuleRoot.expandedTab = key
 
             Behavior on opacity {
                 NumberAnimation { duration: 110; easing.type: Easing.OutQuad }

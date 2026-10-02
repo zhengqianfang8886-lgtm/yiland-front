@@ -119,7 +119,7 @@ Item {
         Item {
             id: wsNameWrapper
             height: 20
-            width: Math.min(80, wsNameText.implicitWidth)
+            width: Math.min(84, wsNameText.implicitWidth)
             clip: true
             anchors.verticalCenter: parent.verticalCenter
 
@@ -131,7 +131,7 @@ Item {
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 13
                 font.weight: Font.Black
-                font.letterSpacing: 0.4
+                font.letterSpacing: 0.5
                 elide: Text.ElideRight
                 width: parent.width
             }
@@ -201,12 +201,13 @@ Item {
         Text {
             text: compactRoot.osdValue + "%"; color: "white"
             font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
-            font.pixelSize: 11; font.weight: Font.Black
+            font.pixelSize: 12
+            font.weight: Font.Black
             anchors.verticalCenter: parent.verticalCenter
         }
     }
 
-    // 3. 消息提醒卡片（🚀 正圆形通知头像改造）
+    // 3. 消息提醒卡片
     Item {
         id: alertContainer
         anchors.fill: parent
@@ -225,7 +226,6 @@ Item {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
 
-            // 🚀 正圆形背景与图片裁剪（radius: 19）
             Rectangle {
                 id: avatarBg
                 anchors.fill: parent
@@ -263,7 +263,6 @@ Item {
                 }
             }
 
-            // 🚀 正圆形边框
             Rectangle {
                 anchors.fill: parent
                 radius: 19
@@ -290,9 +289,10 @@ Item {
             }
             Text {
                 text: compactRoot.alertSubtitle
-                color: Qt.rgba(1, 1, 1, 0.88)
+                color: Qt.rgba(1, 1, 1, 0.95)
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 11
+                font.weight: Font.Bold
                 elide: Text.ElideRight
                 width: parent.width
             }
@@ -331,7 +331,6 @@ Item {
                 }
             }
 
-            // 正圆形通话头像
             Rectangle {
                 anchors.fill: parent
                 radius: 16
@@ -449,13 +448,12 @@ Item {
                     color: Theme.media
                     font.family: compactRoot.chosenFont
                     font.pixelSize: 10
-                    font.weight: Font.Bold
+                    font.weight: Font.Black
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
         }
 
-        // 找到 CompactCapsuleView.qml 中右侧的小接听按钮区域，确认其直接调用 answerTeamsCall：
         Rectangle {
             id: callDirectBtn
             width: 44; height: 20; radius: 10
@@ -467,8 +465,8 @@ Item {
 
             Row {
                 anchors.centerIn: parent; spacing: 2
-                Text { text: "接听"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: compactRoot.chosenFont }
-                Text { text: "↗"; color: Theme.media; font.pixelSize: 9; font.weight: Font.Bold }
+                Text { text: "接听"; color: "white"; font.pixelSize: 9; font.weight: Font.Black; font.family: compactRoot.chosenFont }
+                Text { text: "↗"; color: Theme.media; font.pixelSize: 9; font.weight: Font.Black }
             }
 
             TapHandler {
@@ -478,7 +476,7 @@ Item {
         }
     }
 
-    // 5. 常态时钟
+    // 5. 常态时钟与网络（纯整数像素尺寸，杜绝类型异常）
     Row {
         id: compactTimeRow
         anchors.centerIn: parent
@@ -492,7 +490,7 @@ Item {
 
         Item {
             id: netSpeedItem
-            width: compactRoot.showNetSpeed ? 44 : 0
+            width: compactRoot.showNetSpeed ? 46 : 0
             height: 22
             visible: compactRoot.showNetSpeed
             clip: true
@@ -505,10 +503,10 @@ Item {
                     Text { text: "↓"; font.pixelSize: 8; color: Theme.calendar; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.downCompact
-                        color: Theme.textSecondary
-                        font.pixelSize: 9
+                        color: "white"
+                        font.pixelSize: 10
                         font.family: "Monospace"
-                        font.weight: Font.Bold
+                        font.weight: Font.Black
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
@@ -517,10 +515,10 @@ Item {
                     Text { text: "↑"; font.pixelSize: 8; color: Theme.network; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
                     Text {
                         text: compactRoot.upCompact
-                        color: Theme.textSecondary
-                        font.pixelSize: 9
+                        color: "white"
+                        font.pixelSize: 10
                         font.family: "Monospace"
-                        font.weight: Font.Bold
+                        font.weight: Font.Black
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
@@ -530,10 +528,11 @@ Item {
         Text {
             id: dateText
             text: compactRoot.displayDate
-            color: Qt.rgba(1, 1, 1, 0.65)
+            color: Qt.rgba(1, 1, 1, 0.82)
             font.family: compactRoot.chosenFont
-            font.pixelSize: 10
-            font.weight: Font.Bold
+            font.pixelSize: 11
+            font.weight: Font.Black
+            font.letterSpacing: 0.3
             visible: (typeof Config !== "undefined" && Config.showDate) && compactRoot.displayDate !== ""
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -557,7 +556,7 @@ Item {
                 color: Theme.network
                 font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
                 font.pixelSize: 13
-                font.weight: Font.ExtraBold
+                font.weight: Font.Black
                 visible: (typeof Config !== "undefined" && Config.showSeconds) && compactRoot.displaySeconds !== ""
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 1
@@ -565,7 +564,7 @@ Item {
 
             Text {
                 text: compactRoot.displayPeriod
-                color: Qt.rgba(1, 1, 1, 0.5)
+                color: Qt.rgba(1, 1, 1, 0.65)
                 font.family: compactRoot.chosenFont
                 font.pixelSize: 10
                 font.weight: Font.Black
