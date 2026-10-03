@@ -16,12 +16,22 @@ from PySide6.QtCore import (
     QObject, Signal, Slot, Property, QRect, QTimer,
     QDateTime, QTimeZone, QByteArray, Qt
 )
-from PySide6.QtGui import QRegion, QPainterPath, QGuiApplication, QImage
+from PySide6.QtGui import QRegion, QPainterPath, QGuiApplication
 from logger import app_logger
 from models import NotificationListModel, BluetoothListModel
 
 AVATAR_CACHE_DIR = os.path.expanduser("~/.local/state/alcove_island/avatar_cache")
 CAVA_CONFIG_PATH = f"/tmp/alcove_cava_{os.getuid()}_config"
+
+CONCEAL_MIME_TYPES = {
+    "application/x-vnd.passwordmanager-conceal",
+    "x-kde-passwordManagerHint",
+    "application/x-1password-conceal",
+    "application/x-keepassxc-conceal",
+    "application/x-encpass",
+    "text/x-private",
+    "application/x-moz-url-priv"
+}
 
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
@@ -66,25 +76,24 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
 
 
 def to_compact_speed(speed_str: str) -> str:
+    """输出标准、美观、带明确单位的紧凑网速 (如 0.0 KB/s, 128 KB/s, 2.4 MB/s)"""
     if not speed_str:
-        return "0K"
+        return "0.0 KB/s"
     parts = speed_str.strip().split()
     if len(parts) >= 2:
         val, unit = parts[0], parts[1].upper()
-        if "M" in unit:
-            try:
-                return f"{float(val):.1f}M"
-            except ValueError:
-                return f"{val}M"
-        elif "K" in unit:
-            try:
-                f = float(val)
-                return f"{int(f)}K" if f >= 10 else f"{f:.1f}K"
-            except ValueError:
-                return f"{val}K"
-        elif "B" in unit:
-            return "0K"
-    return "0K"
+        try:
+            f = float(val)
+            if "M" in unit:
+                return f"{f:.1f} MB/s"
+            elif "K" in unit:
+                # 超过 100K 采用整数，小于 100K 保留一位小数增强灵敏感知
+                return f"{int(f)} KB/s" if f >= 100 else f"{f:.1f} KB/s"
+            elif "B" in unit:
+                return f"{int(f)} B/s" if f > 0 else "0.0 KB/s"
+        except ValueError:
+            pass
+    return speed_str if speed_str else "0.0 KB/s"
 
 
 def get_local_ip() -> str:
@@ -117,11 +126,14 @@ class IslandBridge(QObject):
     bluetoothStateChanged = Signal(bool)
     unreadCountChanged = Signal(int)
 
+    hardwareMuteStateChanged = Signal(bool, bool)
+
     _sig_daemon_payload = Signal(str, str)
 
-    def __init__(self, view):
+    def __init__(self, view, config=None):
         super().__init__()
         self.view = view
+        self.config = config
 
         self._curr_title = ""
         self._curr_artist = ""
@@ -131,8 +143,18 @@ class IslandBridge(QObject):
         self._curr_art = ""
         self._curr_dominant_color = "#22c55e"
 
-        # 本地音量乐观预测缓存
+        # 硬件三通道数值缓存（严格限制 0 ~ 100）
         self._cached_volume = 50
+        self._vol_muted = False
+        self._cached_brightness = 70
+        self._prev_brightness = 70
+        self._cached_mic = 80
+        self._mic_muted = False
+
+        # 🚀 核心状态机：用户主动调控保护锁（阻断后台旧回声报文覆盖）
+        self._last_user_vol_adjust_time = 0.0
+        self._last_user_bright_adjust_time = 0.0
+        self._last_user_mic_adjust_time = 0.0
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
@@ -155,10 +177,18 @@ class IslandBridge(QObject):
         self._memory_timer.timeout.connect(self._poll_memory_usage)
         self._memory_timer.start()
 
+        # 🚀 硬件执行汇聚定时器（将极速滚动操作合并，防止子进程乱序竞争）
+        self._vol_flush_timer = QTimer(self)
+        self._vol_flush_timer.setSingleShot(True)
+        self._vol_flush_timer.setInterval(25)
+        self._vol_flush_timer.timeout.connect(self._flush_volume_to_hardware)
+
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
 
-        self._last_clip_text = ""
+        self._last_clip_hash = ""
         self._setup_clipboard_listener()
+
+        self._last_applied_mask = QRegion()
 
         self._cava_proc = None
         self._start_cava_spectrum_monitor()
@@ -233,17 +263,159 @@ class IslandBridge(QObject):
 
         self._pool.submit(_cava_worker)
 
-    # 🚀【核心架构重构】：0ms 乐观本地更新 + 统一 IPC 提交，消除前端所有阻塞子进程
+    # =========================================================================
+    # 🚀 核心控制：乐观 UI 立即反馈 + 回声静默防护 + 汇聚执行
+    # =========================================================================
+    @Slot(int, int)
+    def adjustHardware(self, mode: int, delta: int):
+        now = time.monotonic()
+
+        if mode == 0:
+            self._last_user_vol_adjust_time = now
+
+            # 🚀 状态机规则 1：若当前处于静音态，用户向上滚动滚轮直接【自动唤醒并解除静音】
+            if self._vol_muted:
+                self._vol_muted = False
+                self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
+                self._execute_local_volume_mute(False)
+                # 若原本记忆音量为 0%，唤醒时基准音量提升至 15%
+                if self._cached_volume == 0:
+                    self._cached_volume = 15
+
+            # 封顶限制
+            if delta > 0 and self._cached_volume >= 100:
+                self.osdTriggered.emit("🔊", "Volume", 100)
+                return
+            if delta < 0 and self._cached_volume <= 0:
+                # 🚀 状态机规则 2：纯零音量态，明确显示 🔈 0%，而非静音
+                self.osdTriggered.emit("🔈", "Volume", 0)
+                return
+
+            new_val = max(0, min(100, self._cached_volume + delta))
+            self._cached_volume = new_val
+
+            icon = "🔈" if new_val == 0 else "🔊"
+            self.osdTriggered.emit(icon, "Volume", new_val)
+            self._vol_flush_timer.start()
+
+        elif mode == 1:
+            self._last_user_bright_adjust_time = now
+            new_val = max(5, min(100, self._cached_brightness + delta))
+            self._cached_brightness = new_val
+            self.osdTriggered.emit("☀️", "Display", new_val)
+            self.sendIpcCmd("BRIGHTNESS_DELTA", delta=delta)
+            self._execute_local_brightness(new_val)
+
+        elif mode == 2:
+            self._last_user_mic_adjust_time = now
+            if self._mic_muted:
+                self._mic_muted = False
+                self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
+                self._execute_local_mic_mute(False)
+
+            new_val = max(0, min(100, self._cached_mic + delta))
+            self._cached_mic = new_val
+            self.osdTriggered.emit("🎙️", "Microphone", new_val)
+            self.sendIpcCmd("MIC_DELTA", delta=delta)
+            self._execute_local_mic_volume(new_val)
+
+    @Slot(int)
+    def toggleHardwareMute(self, mode: int):
+        now = time.monotonic()
+        if mode == 0:
+            self._last_user_vol_adjust_time = now
+            self._vol_muted = not self._vol_muted
+            self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
+
+            if self._vol_muted:
+                # 🚀 状态机规则 3：静音态，主岛 OSD 明确发射 🔇 图标与 0，QML 自动呈现红字“静音”
+                self.osdTriggered.emit("🔇", "Volume", 0)
+                self.sendIpcCmd("VOLUME_MUTE_TOGGLE")
+                self._execute_local_volume_mute(True)
+            else:
+                # 🚀 状态机规则 4：取消静音，满血恢复原记忆音量；若此前是 0% 则智能保护到 20%
+                if self._cached_volume == 0:
+                    self._cached_volume = 20
+                self.osdTriggered.emit("🔊", "Volume", self._cached_volume)
+                self.sendIpcCmd("VOLUME_MUTE_TOGGLE")
+                self._execute_local_volume_mute(False)
+                self._execute_local_volume(self._cached_volume)
+
+        elif mode == 1:
+            self._last_user_bright_adjust_time = now
+            if self._cached_brightness > 15:
+                self._prev_brightness = self._cached_brightness
+                self._cached_brightness = 5
+            else:
+                self._cached_brightness = max(20, min(100, self._prev_brightness))
+            self.osdTriggered.emit("☀️", "Display", self._cached_brightness)
+            self.sendIpcCmd("BRIGHTNESS_SET", value=self._cached_brightness)
+            self._execute_local_brightness(self._cached_brightness)
+
+        elif mode == 2:
+            self._last_user_mic_adjust_time = now
+            self._mic_muted = not self._mic_muted
+            self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
+            disp_val = 0 if self._mic_muted else min(100, max(0, self._cached_mic))
+            self.osdTriggered.emit("🚫" if self._mic_muted else "🎙️", "Microphone", disp_val)
+            self.sendIpcCmd("MIC_MUTE_TOGGLE")
+            self._execute_local_mic_mute(self._mic_muted)
+    def _flush_volume_to_hardware(self):
+        """汇聚完成后的单次最终执行，彻底解决并发线程颠倒问题"""
+        final_val = self._cached_volume
+        self.sendIpcCmd("VOLUME_SET", value=final_val)
+        self._execute_local_volume(final_val)
+
+    
     @Slot(int)
     def adjustVolume(self, delta_pct: int):
-        new_val = max(0, min(100, self._cached_volume + delta_pct))
-        self._cached_volume = new_val
+        self.adjustHardware(0, delta_pct)
 
-        # 1. 0 毫秒立即驱动 QML 展现 OSD，绝对跟手
-        self.osdTriggered.emit("🔊", "Volume", new_val)
+    def _execute_local_volume(self, val: int):
+        val = max(0, min(100, val))
+        def _run():
+            if shutil.which("wpctl"):
+                subprocess.run(
+                    ["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", f"{val/100.0:.2f}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+            elif shutil.which("pamixer"):
+                subprocess.run(["pamixer", "--set-volume", str(val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("amixer"):
+                subprocess.run(["amixer", "-D", "pulse", "sset", "Master", f"{val}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
 
-        # 2. 异步派发至后端 Daemon 统一处理，前端零等待
-        self.sendIpcCmd("VOLUME_DELTA", delta=delta_pct)
+    def _execute_local_brightness(self, val: int):
+        val = max(5, min(100, val))
+        def _run():
+            if shutil.which("brightnessctl"):
+                subprocess.run(["brightnessctl", "set", f"{val}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
+
+    def _execute_local_volume_mute(self, is_mute: bool):
+        def _run():
+            if shutil.which("wpctl"):
+                subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if is_mute else "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("pamixer"):
+                subprocess.run(["pamixer", "-m" if is_mute else "-u"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
+
+    def _execute_local_mic_volume(self, val: int):
+        val = max(0, min(100, val))
+        def _run():
+            if shutil.which("wpctl"):
+                subprocess.run(["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SOURCE@", f"{val/100.0:.2f}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("pamixer"):
+                subprocess.run(["pamixer", "--default-source", "--set-volume", str(val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
+
+    def _execute_local_mic_mute(self, is_mute: bool):
+        def _run():
+            if shutil.which("wpctl"):
+                subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "1" if is_mute else "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("pamixer"):
+                subprocess.run(["pamixer", "--default-source", "-m" if is_mute else "-u"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
 
     def _extract_cover_color(self, art_url: str):
         if not art_url:
@@ -307,9 +479,18 @@ class IslandBridge(QObject):
         clipboard.dataChanged.connect(self._on_clipboard_changed)
 
     def _on_clipboard_changed(self):
+        if self.config and not self.config.clipboardMonitorEnabled:
+            return
+
         clipboard = QGuiApplication.clipboard()
         mime = clipboard.mimeData()
         if not mime:
+            return
+
+        formats = set(mime.formats())
+        if formats.intersection(CONCEAL_MIME_TYPES):
+            app_logger.info("捕获到受密码管理器保护的剪贴板更新，已触发隐私掩码。")
+            self.clipboardTriggered.emit("🔐", "密码凭据", "已安全复制保密数据 · [已脱敏]", 1400)
             return
 
         if mime.hasImage():
@@ -317,14 +498,24 @@ class IslandBridge(QObject):
             return
 
         if mime.hasText():
-            text = clipboard.text().strip()
-            if not text or text == self._last_clip_text:
+            raw_text = clipboard.text()
+            if not raw_text:
                 return
-            self._last_clip_text = text
-            count = len(text)
-            preview = text.replace("\n", " ").strip()
-            if len(preview) > 18:
-                preview = preview[:16] + "..."
+
+            content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
+            if content_hash == self._last_clip_hash:
+                return
+            self._last_clip_hash = content_hash
+
+            clean_text = raw_text.strip()
+            count = len(clean_text)
+            if count == 0:
+                return
+
+            preview = clean_text.replace("\n", " ").replace("\r", " ").strip()
+            if len(preview) > 16:
+                preview = preview[:14] + "..."
+
             detail_str = f"已复制 {count} 字符 · \"{preview}\""
             self.clipboardTriggered.emit("📋", "剪贴板", detail_str, 1300)
 
@@ -378,6 +569,8 @@ class IslandBridge(QObject):
             app_logger.error(f"解析报文异常: {e}")
             return
 
+        now = time.monotonic()
+
         if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
             m = data["media"]
             self._apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))
@@ -412,20 +605,28 @@ class IslandBridge(QObject):
             if "list" in ws_info:
                 self.workspaceListUpdated.emit(ws_info.get("list", []))
 
-        # 🚀 音量静默校准与更新
+        # =====================================================================
+        # 🚀 关键修复：主动调控保护期内，严禁后台旧报文回弹覆盖
+        # =====================================================================
         if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
             sys_info = data["system"]
-            real_vol = int(sys_info.get("volume", 50))
-            self._cached_volume = real_vol
-            if m_type == "VOLUME_UPDATE":
-                self.osdTriggered.emit(
-                    "🔇" if sys_info.get("muted", False) else "🔊",
-                    "Volume",
-                    real_vol,
-                )
+            raw_vol = int(sys_info.get("volume", self._cached_volume))
+            real_vol = max(0, min(100, raw_vol))
+            is_muted = bool(sys_info.get("muted", False))
+
+            # 如果用户在最近 600ms 内滚动过滚轮，判定此报文为陈旧延迟回声，直接忽略！
+            if (now - self._last_user_vol_adjust_time) > 0.6:
+                self._cached_volume = real_vol
+                self._vol_muted = is_muted
+                self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
+                if m_type == "VOLUME_UPDATE":
+                    self.osdTriggered.emit("🔇" if is_muted else "🔊", "Volume", real_vol)
 
         elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
-            self.osdTriggered.emit("☀️", "Display", int(data["system"].get("brightness", 50)))
+            if (now - self._last_user_bright_adjust_time) > 0.6:
+                b_val = max(5, min(100, int(data["system"].get("brightness", self._cached_brightness))))
+                self._cached_brightness = b_val
+                self.osdTriggered.emit("☀️", "Display", b_val)
 
         if "bluetooth" in data:
             b_info = data["bluetooth"]
@@ -561,40 +762,35 @@ class IslandBridge(QObject):
         except Exception:
             return None
 
-    @Slot(int, int, int, int)
-    def updateMask(self, x, y, width, height):
-        if width > 0 and height > 0:
-            vw = self.view.width()
-            vh = self.view.height()
-            safe_x = max(0, int(x))
-            safe_y = max(0, int(y))
-            safe_w = min(vw - safe_x, int(width))
-            safe_h = min(vh - safe_y, int(height))
-            if safe_w > 0 and safe_h > 0:
-                self.view.setMask(QRegion(QRect(safe_x, safe_y, safe_w, safe_h)))
-
     @Slot("QVariantList")
     def updateCompositeMask(self, rects):
         if not rects:
             return
+
         composite = QRegion()
         vw = self.view.width()
         vh = self.view.height()
+
         for r in rects:
             rx = max(0, int(r.get("x", 0)))
             ry = max(0, int(r.get("y", 0)))
             rw = min(vw - rx, int(r.get("w", 0)))
             rh = min(vh - ry, int(r.get("h", 0)))
             radius = int(r.get("r", 0))
-            if rw > 0 and rh > 0:
-                if radius > 0:
-                    path = QPainterPath()
-                    path.addRoundedRect(rx, ry, rw, rh, radius, radius)
-                    poly = path.toFillPolygon().toPolygon()
-                    composite = composite.united(QRegion(poly))
-                else:
-                    composite = composite.united(QRect(rx, ry, rw, rh))
-        if not composite.isEmpty():
+
+            if rw <= 0 or rh <= 0:
+                continue
+
+            if radius <= 0:
+                composite = composite.united(QRect(rx, ry, rw, rh))
+            else:
+                path = QPainterPath()
+                path.addRoundedRect(rx, ry, rw, rh, radius, radius)
+                poly = path.toFillPolygon().toPolygon()
+                composite = composite.united(QRegion(poly))
+
+        if not composite.isEmpty() and composite != self._last_applied_mask:
+            self._last_applied_mask = composite
             self.view.setMask(composite)
 
     @Slot(result=str)
@@ -664,20 +860,12 @@ class IslandBridge(QObject):
                         res = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
                         if res.returncode == 0:
                             return
-                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
-                        if res.returncode == 0:
-                            return
                     if shutil.which("hyprctl"):
                         res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
                         if res.returncode == 0:
                             return
-                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
-                        if res.returncode == 0:
-                            return
                     if shutil.which("swaymsg"):
                         if subprocess.run(["swaymsg", f'[class="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
-                            return
-                        if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
                             return
                 except subprocess.TimeoutExpired:
                     continue

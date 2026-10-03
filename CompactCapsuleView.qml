@@ -545,65 +545,69 @@ Item {
     }
 
     // =========================================================================
-    // 3. 🚀【极速流体音量 OSD】：零延迟触发 + 90ms OutCubic 水银丝滑滑动
+    // 3. 🚀【极速原位流体音量/静音 OSD】：精确区分“0%”与“静音”状态机
     // =========================================================================
     Row {
         id: osdLayoutRow
         anchors.centerIn: parent
-        spacing: 9
+        spacing: 8
         visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling
         opacity: visible ? 1.0 : 0.0
         scale: opacity > 0.4 ? 1.0 : 0.94
 
-        // 柔和灵动的进退场
-        Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: 1.06 } }
+        readonly property bool isHardwareMuted: (compactRoot.osdIcon === "🔇" || compactRoot.osdIcon === "🚫")
 
-        // 滑轨槽底（圆润细腻胶囊底）
+        Behavior on opacity { NumberAnimation { duration: 100; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack; easing.overshoot: 1.04 } }
+
+        // 滑轨槽底
         Rectangle {
             id: osdTrack
-            width: 100
+            width: Math.max(54, Math.min(94, compactRoot.width - 64))
             height: 5
             radius: 2.5
             color: Qt.rgba(1, 1, 1, 0.16)
             anchors.verticalCenter: parent.verticalCenter
             clip: true
 
-            // 高亮滑块填充层（液态水银连续滑动）
             Rectangle {
                 id: osdFillBar
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 height: parent.height
                 radius: parent.radius
-                color: "white"
+                // 静音态滑块收束归零
+                color: osdLayoutRow.isHardwareMuted ? Theme.danger : "white"
 
-                // 目标填充宽度（0 ~ 100% 精确映射）
-                width: Math.round(parent.width * Math.min(1.0, Math.max(0.0, compactRoot.osdValue / 100.0)))
+                width: osdLayoutRow.isHardwareMuted ?
+                       0 :
+                       Math.round(parent.width * Math.min(1.0, Math.max(0.0, compactRoot.osdValue / 100.0)))
 
-                // 🚀【核心动力学】：90ms OutCubic 阻尼曲线
-                // - t=0 瞬时初速度最大（感官绝对零延迟，滚轮一碰立即响应）
-                // - 末端 20% 平滑收束缓冲
-                // - 连滚时多段目标无缝融合为一条连贯加速的水银流动，彻底告别僵硬与卡钝
                 Behavior on width {
                     NumberAnimation {
                         duration: 90
                         easing.type: Easing.OutCubic
                     }
                 }
+                Behavior on color { ColorAnimation { duration: 120 } }
             }
         }
 
-        // 读数百分比（等宽字体排版，杜绝宽度震荡微抖）
+        // 读数百分比：静音态明确显示红字“静音”，0% 状态显示正常“0%”
         Text {
             id: osdValText
-            text: compactRoot.osdValue + "%"
-            color: "white"
-            font.family: "Monospace"
+            text: osdLayoutRow.isHardwareMuted ?
+                  "静音" :
+                  (Math.min(100, Math.max(0, compactRoot.osdValue)) + "%")
+
+            color: osdLayoutRow.isHardwareMuted ? Theme.danger : "white"
+            font.family: osdLayoutRow.isHardwareMuted ? compactRoot.chosenFont : "Monospace"
             font.pixelSize: 12
             font.weight: Font.Black
             font.letterSpacing: 0.3
             anchors.verticalCenter: parent.verticalCenter
+
+            Behavior on color { ColorAnimation { duration: 120 } }
         }
     }
 
@@ -730,37 +734,69 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
-        Item {
+        // =====================================================================
+        // 🚀 核心重构：专业级微型网速胶囊卡片（带独立微槽与标准 KB/s 单位）
+        // =====================================================================
+        Rectangle {
             id: netSpeedItem
-            width: compactRoot.showNetSpeed ? 44 : 0
-            height: 22
             visible: compactRoot.showNetSpeed
-            clip: true
+            width: compactRoot.showNetSpeed ? (speedCol.implicitWidth + 10) : 0
+            height: 24
+            radius: 5
             anchors.verticalCenter: parent.verticalCenter
 
+            // 极简微槽背景，彻底告别文字裸奔悬空
+            color: Qt.rgba(1, 1, 1, 0.06)
+            border.color: Qt.rgba(1, 1, 1, 0.1)
+            border.width: 1
+
             Column {
-                anchors.fill: parent; spacing: 1
+                id: speedCol
+                anchors.centerIn: parent
+                spacing: 1
+
+                // 1. 下行速率 (绿色)
                 Row {
-                    spacing: 2; anchors.left: parent.left
-                    Text { text: "↓"; font.pixelSize: 8; color: Theme.calendar; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+                    spacing: 3
+                    anchors.left: parent.left
+
+                    Text {
+                        text: "↓"
+                        font.pixelSize: 8
+                        font.weight: Font.Black
+                        color: Theme.network
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
                     Text {
                         text: compactRoot.downCompact
                         color: "white"
-                        font.pixelSize: 10
-                        font.family: "Monospace"
+                        font.pixelSize: 9
                         font.weight: Font.Black
+                        font.family: "Monospace"
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
+
+                // 2. 上行速率 (蓝色)
                 Row {
-                    spacing: 2; anchors.left: parent.left
-                    Text { text: "↑"; font.pixelSize: 8; color: Theme.network; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+                    spacing: 3
+                    anchors.left: parent.left
+
+                    Text {
+                        text: "↑"
+                        font.pixelSize: 8
+                        font.weight: Font.Black
+                        color: Theme.calendar
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
                     Text {
                         text: compactRoot.upCompact
                         color: "white"
-                        font.pixelSize: 10
-                        font.family: "Monospace"
+                        font.pixelSize: 9
                         font.weight: Font.Black
+                        font.family: "Monospace"
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }

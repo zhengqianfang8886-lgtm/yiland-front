@@ -30,10 +30,14 @@ class ConfigManager(QObject):
     capsuleTopMarginChanged = Signal(int)
 
     showNetSpeedChanged = Signal(bool)
+    clipboardMonitorEnabledChanged = Signal(bool)
+
+    # 硬件多模态微岛开关
+    showHardwareBubbleChanged = Signal(bool)
 
     # 内存小岛与久坐关怀专用信号
     showMemoryBubbleChanged = Signal(bool)
-    memoryThresholdChanged = Signal(int)  # 🚀 内存弹出阈值信号
+    memoryThresholdChanged = Signal(int)
     sedentaryReminderEnabledChanged = Signal(bool)
     sedentaryIntervalMinutesChanged = Signal(int)
     sedentarySnoozeMinutesChanged = Signal(int)
@@ -70,15 +74,18 @@ class ConfigManager(QObject):
         self._capsuleTopMargin = 6
 
         self._showNetSpeed = True
+        self._clipboardMonitorEnabled = True
+        self._showHardwareBubble = True
 
         self._showMemoryBubble = True
-        self._memoryThreshold = 75  # 🚀 默认超过 75% 占用才弹出小岛（0 为常驻显示）
+        self._memoryThreshold = 75
         self._sedentaryReminderEnabled = True
         self._sedentaryIntervalMinutes = 45
         self._sedentarySnoozeMinutes = 5
 
         self._subIslandsLeft = ["memory", "music"]
-        self._subIslandsRight = ["timer", "notification"]
+        # 🚀 默认将 hardware 硬件调节小岛排在右侧首位（紧贴主胶囊）
+        self._subIslandsRight = ["hardware", "timer", "notification"]
 
         self._showWorkspaceTab = True
         self._showMediaTab = True
@@ -152,6 +159,8 @@ class ConfigManager(QObject):
                 self._capsuleTopMargin = data.get("capsuleTopMargin", 6)
 
                 self._showNetSpeed = data.get("showNetSpeed", True)
+                self._clipboardMonitorEnabled = data.get("clipboardMonitorEnabled", True)
+                self._showHardwareBubble = data.get("showHardwareBubble", True)
 
                 self._showMemoryBubble = data.get("showMemoryBubble", True)
                 self._memoryThreshold = data.get("memoryThreshold", 75)
@@ -160,7 +169,9 @@ class ConfigManager(QObject):
                 self._sedentarySnoozeMinutes = data.get("sedentarySnoozeMinutes", 5)
 
                 self._subIslandsLeft = data.get("subIslandsLeft", ["memory", "music"])
-                self._subIslandsRight = data.get("subIslandsRight", ["timer", "notification"])
+                self._subIslandsRight = data.get("subIslandsRight", ["hardware", "timer", "notification"])
+                if "hardware" not in self._subIslandsRight and "hardware" not in self._subIslandsLeft:
+                    self._subIslandsRight.insert(0, "hardware")
 
                 self._showWorkspaceTab = data.get("showWorkspaceTab", True)
                 self._showMediaTab = data.get("showMediaTab", True)
@@ -195,6 +206,8 @@ class ConfigManager(QObject):
                     "expandedTopMargin": self._expandedTopMargin,
                     "capsuleTopMargin": self._capsuleTopMargin,
                     "showNetSpeed": self._showNetSpeed,
+                    "clipboardMonitorEnabled": self._clipboardMonitorEnabled,
+                    "showHardwareBubble": self._showHardwareBubble,
 
                     "showMemoryBubble": self._showMemoryBubble,
                     "memoryThreshold": self._memoryThreshold,
@@ -220,7 +233,24 @@ class ConfigManager(QObject):
         except Exception as e:
             app_logger.warning(f"保存配置失败: {e}")
 
-    # ================= 属性访问器 =================
+    @Property(bool, notify=showHardwareBubbleChanged)
+    def showHardwareBubble(self): return self._showHardwareBubble
+    @showHardwareBubble.setter
+    def showHardwareBubble(self, val):
+        if self._showHardwareBubble != val:
+            self._showHardwareBubble = bool(val)
+            self.save()
+            self.showHardwareBubbleChanged.emit(self._showHardwareBubble)
+
+    @Property(bool, notify=clipboardMonitorEnabledChanged)
+    def clipboardMonitorEnabled(self): return self._clipboardMonitorEnabled
+    @clipboardMonitorEnabled.setter
+    def clipboardMonitorEnabled(self, val):
+        if self._clipboardMonitorEnabled != val:
+            self._clipboardMonitorEnabled = bool(val)
+            self.save()
+            self.clipboardMonitorEnabledChanged.emit(self._clipboardMonitorEnabled)
+
     @Property(int, notify=memoryThresholdChanged)
     def memoryThreshold(self): return self._memoryThreshold
     @memoryThreshold.setter

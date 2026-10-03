@@ -25,7 +25,6 @@ Rectangle {
     property real position: 0
     property real duration: 0
 
-    // 主色调注入
     property color dominantColor: "#22c55e"
 
     property int wsCurrent: 1
@@ -55,7 +54,6 @@ Rectangle {
     signal sedentaryRested()
     signal sedentarySnooze()
 
-    // 复制时的硬件级纯光影脉冲
     property real clipGlowOpacity: 0.0
 
     SequentialAnimation {
@@ -68,7 +66,9 @@ Rectangle {
         clipGlowAnim.restart()
     }
 
+    // 🚀 计时器状态与直控暴露
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
+    readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
     readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
     readonly property bool timerHasHours: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.hasHours : false
     readonly property bool timerIsCountUp: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCountUp : false
@@ -76,12 +76,16 @@ Rectangle {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
-    // 🚀【核心修复】：严格区分主胶囊自身的悬停与副岛的悬停
+    function toggleTimerPause() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.togglePause()
+        }
+    }
+
     property bool anySubBubbleHovered: false
-    property bool subBubbleInteracting: false // 副岛正在进行滚轮等高优交互
+    property bool subBubbleInteracting: false
 
     readonly property bool isCapsuleDirectHovered: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse)
-    // 仅在展开时允许副岛维持卡片不收缩；常态下任何副岛的 hover 都绝不冒充主胶囊
     readonly property bool isMouseOver: isCapsuleDirectHovered || (isExpanded && anySubBubbleHovered)
 
     signal requestExpand(string tabName)
@@ -95,7 +99,6 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // 适配 3px 粗边框，宽度缓冲相应扩展为 +38，确保两端弧度与文字不贴脸
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -105,7 +108,6 @@ Rectangle {
             return Math.min(450, Math.max(260, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
-        if (capsuleRoot.activeTransient === "OSD") return 175
         return Math.max(130, compactCapsuleView.textRowImplicitWidth + 38)
     }
 
@@ -132,6 +134,9 @@ Rectangle {
     height: targetHeight
     radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 20 : Math.min(height / 2, 27))))
     clip: false
+
+    antialiasing: true
+    smooth: true
 
     color: Theme.bgCapsule
 
@@ -223,7 +228,6 @@ Rectangle {
         onHoveredChanged: {
             if (hovered) {
                 capsuleRoot.cancelCollapse()
-                // 🚀【核心修复】：副岛正在交互时，严禁启动主胶囊展开定时器
                 if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
                     hoverDwellTimer.restart()
                 }
@@ -235,7 +239,6 @@ Rectangle {
         }
     }
 
-    // 🚀【核心修复】：必须且仅当鼠标真正停留在主胶囊自身上，且无副岛锁定时，才允许展开
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
@@ -351,7 +354,9 @@ Rectangle {
 
             if (mouse.button === Qt.RightButton) { capsuleRoot.requestSettings(); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
-            capsuleRoot.requestExpand("workspace")
+
+            // 🚀 单击常态灵动岛胶囊，直接秒级展开专属“时间仪表盘”！
+            capsuleRoot.requestExpand("time")
         }
     }
 
@@ -417,4 +422,4 @@ Rectangle {
             }
         }
     }
-}   
+}

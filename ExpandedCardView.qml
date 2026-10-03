@@ -21,7 +21,6 @@ Item {
     property real position: 0
     property real duration: 0
 
-    // 主色调注入
     property color dominantColor: "#22c55e"
 
     property int wsCurrent: 1
@@ -161,6 +160,7 @@ Item {
                     text: {
                         if (cardRoot.isCalling) return "● INCOMING CALL · TEAMS"
                         if (cardRoot.expandedTab === "power") return "● SYSTEM POWER · 电源与会话"
+                        if (cardRoot.expandedTab === "time") return "● LOCAL TIME · 时间与节律"
                         if (cardRoot.expandedTab === "workspace") return "● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))
                         if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"
                         if (cardRoot.expandedTab === "calendar") return "● CALENDAR · 日历"
@@ -174,6 +174,7 @@ Item {
 
                     color: {
                         if (cardRoot.isCalling) return Theme.media
+                        if (cardRoot.expandedTab === "time") return Theme.calendar
                         if (cardRoot.expandedTab === "workspace") return Theme.workspace
                         if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted
                         if (cardRoot.expandedTab === "calendar") return Theme.calendar
@@ -306,6 +307,7 @@ Item {
             width: parent.width
             height: parent.height - 38
 
+            // 1. 来电全屏专属卡片
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -466,6 +468,13 @@ Item {
                 }
             }
 
+            // 2. 🚀 新增全能时间详情页面 (TimeDetailPage)
+            TimeDetailPage {
+                anchors.fill: parent
+                chosenFont: cardRoot.chosenFont
+                visible: !cardRoot.isCalling && (cardRoot.expandedTab === "time")
+            }
+
             WorkspacePage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
@@ -525,7 +534,6 @@ Item {
                 }
             }
 
-            // 🚀 核心修复：改用安全 Connections 监听，即使子页面缺少声明也绝不报错
             Loader {
                 id: notifLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "notification")
@@ -542,7 +550,6 @@ Item {
                 }
             }
 
-            // 🚀 核心修复：改用安全 Connections 监听，彻底解耦子页面
             Loader {
                 id: powerLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "power")

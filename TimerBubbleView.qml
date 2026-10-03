@@ -5,21 +5,25 @@ Rectangle {
 
     property string chosenFont: ""
     property bool active: false
-    readonly property bool isHovered: timerBubbleHover.hovered
+    readonly property bool isHovered: bubbleHover.hovered
 
     property string timerText: "25:00"
     property bool hasHours: false
     property bool isCountUp: false
+    property bool isRunning: false
+    property bool isPaused: false
     property real progress: 1.0
     property int remainingSeconds: 0
     property int totalSeconds: 0
 
-    signal clicked()
+    signal togglePause()
+    signal requestExpand()
     signal wheelAdjust(int deltaSec)
 
     transformOrigin: Item.Left
 
     readonly property color urgencyColor: {
+        if (isPaused) return "#f59e0b" // 暂停态暖金黄
         if (isCountUp) return Theme.stopwatch
         if (!active) return Theme.timer
         if (remainingSeconds <= 60) return "#ef4444"
@@ -34,7 +38,9 @@ Rectangle {
 
     color: Theme.bgCapsule
     border.width: 1
-    border.color: timerBubbleRoot.isHovered ? Qt.rgba(urgencyColor.r, urgencyColor.g, urgencyColor.b, 0.5) : Theme.borderSubtle
+    border.color: timerBubbleRoot.isHovered ?
+                  Qt.rgba(urgencyColor.r, urgencyColor.g, urgencyColor.b, 0.85) :
+                  (isPaused ? Qt.rgba(245, 158, 11, 0.6) : Theme.borderSubtle)
     Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
 
     visible: active
@@ -42,27 +48,24 @@ Rectangle {
     scale: active ? 1.0 : 0.0
 
     Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
-
-    Behavior on opacity {
-        NumberAnimation {
-            duration: timerBubbleRoot.active ? 160 : 0
-            easing.type: Easing.OutQuad
-        }
-    }
-    Behavior on scale {
-        NumberAnimation {
-            duration: timerBubbleRoot.active ? 220 : 0
-            easing.type: Easing.OutBack
-            easing.overshoot: Theme.springOvershoot
-        }
-    }
+    Behavior on opacity { NumberAnimation { duration: timerBubbleRoot.active ? 160 : 0; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: timerBubbleRoot.active ? 220 : 0; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
     onProgressChanged: progressCanvas.requestPaint()
     onUrgencyColorChanged: progressCanvas.requestPaint()
 
     Row {
+        id: contentRow
         anchors.centerIn: parent
-        spacing: 7
+        spacing: 6
+
+        // 暂停时柔和呼吸慢闪动效
+        SequentialAnimation on opacity {
+            running: timerBubbleRoot.isPaused
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.4; duration: 800; easing.type: Easing.InOutSine }
+            NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+        }
 
         Canvas {
             id: progressCanvas
@@ -102,11 +105,10 @@ Rectangle {
             }
         }
 
-        // 🚀 核心优化：计时器副岛文字全面采用 Font.Black
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: timerBubbleRoot.timerText
-            color: "white"
+            color: timerBubbleRoot.isPaused ? "#fcd34d" : "white"
             font.family: (timerBubbleRoot.chosenFont !== "") ? timerBubbleRoot.chosenFont : "Monospace"
             font.pixelSize: timerBubbleRoot.hasHours ? 13 : 15
             font.weight: Font.Black
@@ -114,10 +116,20 @@ Rectangle {
         }
     }
 
-    HoverHandler { id: timerBubbleHover; cursorShape: Qt.PointingHandCursor }
+    HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
+
+    // 🚀 左键单击：切换 暂停/继续
     TapHandler {
-        onTapped: timerBubbleRoot.clicked()
+        acceptedButtons: Qt.LeftButton
+        onTapped: timerBubbleRoot.togglePause()
     }
+
+    // 🚀 右键单击：展开完整计时器大面板
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: timerBubbleRoot.requestExpand()
+    }
+
     WheelHandler {
         onWheel: (event) => {
             if (timerBubbleRoot.active && !timerBubbleRoot.isCountUp) {

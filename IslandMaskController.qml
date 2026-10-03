@@ -7,6 +7,7 @@ Item {
     property var capsuleItem: null
     property var leftMemoryBubble: null
     property var leftBubble: null
+    property var hwBubble: null
     property var rightBubble: null
     property var notifBubble: null
 
@@ -22,7 +23,6 @@ Item {
     onIsExpandedChanged: commit()
     onIsCollapsingChanged: commit()
 
-    // 🚀【核心修复】：在物理形变期间以 60fps 实时刷新输入遮罩，确保点击穿透绝无滞后
     onIsMorphingChanged: {
         if (isMorphing) {
             morphFrameTracker.start()
@@ -53,47 +53,50 @@ Item {
 
         var isLargeCard = isExpanded || isCollapsing || (capsuleItem.height > 60) || (targetH > 60)
 
+        // 🚀 核心黑科技：四周各外扩 2px，彻底避开抗锯齿羽化边缘被 1-bit 遮罩切成狗牙
+        var margin = 2
+
         if (isLargeCard) {
-            // 大卡片展开或久坐大弹窗时，按实际几何体生成圆角遮罩
             var effH = Math.max(capsuleItem.height, targetH)
             var effW = Math.max(capsuleItem.width, targetW)
             var pX = Math.max(0, Math.round((rootItem.width - effW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0))
             var pY = Math.round(capsuleItem.y)
             var rList = [{
-                x: pX,
-                y: pY,
-                w: Math.round(effW),
-                h: Math.round(effH),
-                r: Math.round(capsuleItem.radius)
+                x: pX - margin,
+                y: pY - margin,
+                w: Math.round(effW) + margin * 2,
+                h: Math.round(effH) + margin * 2,
+                r: Math.round(capsuleItem.radius) + margin
             }]
             Bridge.updateCompositeMask(rList)
             return
         }
 
-        // 常态紧凑态：1:1 严格贴合真实几何曲率，零多余外扩
+        // 常态紧凑态：同样留出 2px 的安全外扩羽化区
         var rectList = []
 
         rectList.push({
-            x: Math.round(capsuleItem.x),
-            y: Math.round(capsuleItem.y),
-            w: Math.round(capsuleItem.width),
-            h: Math.round(capsuleItem.height),
-            r: Math.round(capsuleItem.radius)
+            x: Math.round(capsuleItem.x) - margin,
+            y: Math.round(capsuleItem.y) - margin,
+            w: Math.round(capsuleItem.width) + margin * 2,
+            h: Math.round(capsuleItem.height) + margin * 2,
+            r: Math.round(capsuleItem.radius) + margin
         })
 
         function addBubble(bubble) {
             if (!bubble || !bubble.active || bubble.opacity <= 0.02) return
             rectList.push({
-                x: Math.round(bubble.x),
-                y: Math.round(bubble.y),
-                w: Math.round(bubble.width),
-                h: Math.round(bubble.height),
-                r: Math.round(bubble.radius)
+                x: Math.round(bubble.x) - margin,
+                y: Math.round(bubble.y) - margin,
+                w: Math.round(bubble.width) + margin * 2,
+                h: Math.round(bubble.height) + margin * 2,
+                r: Math.round(bubble.radius) + margin
             })
         }
 
         addBubble(leftMemoryBubble)
         addBubble(leftBubble)
+        addBubble(hwBubble)
         addBubble(rightBubble)
         addBubble(notifBubble)
 

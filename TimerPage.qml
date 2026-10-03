@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 
 Item {
     id: timerRoot
@@ -270,7 +271,7 @@ Item {
             height: parent.height
             spacing: 8
 
-            // 🚀 带 180ms 悬停意图识别引擎的高级分段选择器
+            // 🚀 高级分段选择器（完全采用微像素级矢量图形）
             Rectangle {
                 id: segContainer
                 width: parent.width
@@ -279,7 +280,6 @@ Item {
                 color: Qt.rgba(1, 1, 1, 0.06)
                 border.color: Qt.rgba(1, 1, 1, 0.1)
 
-                // 悬停驻留意图识别定时器 (180ms)
                 Timer {
                     id: segDwellTimer
                     property string pendingType: ""
@@ -310,7 +310,7 @@ Item {
                 Row {
                     anchors.fill: parent
 
-                    // 倒计时 Tab
+                    // 1. 倒计时 Tab（精密矢量沙漏）
                     Item {
                         width: parent.width / 2; height: parent.height
 
@@ -322,14 +322,43 @@ Item {
                             Behavior on color { ColorAnimation { duration: 120 } }
                         }
 
-                        Text {
+                        Row {
                             anchors.centerIn: parent
-                            text: "⏳ 倒计时"
-                            color: !timerRoot.isCountUp ? "white" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.5))
-                            font.pixelSize: 11
-                            font.weight: !timerRoot.isCountUp ? Font.Black : Font.Bold
-                            font.family: timerRoot.chosenFont
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                            spacing: 6
+
+                            // 纯矢量精细沙漏
+                            Shape {
+                                width: 11; height: 12
+                                anchors.verticalCenter: parent.verticalCenter
+                                ShapePath {
+                                    strokeColor: !timerRoot.isCountUp ? "#f97316" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.45))
+                                    strokeWidth: 1.3
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+
+                                    startX: 1.5; startY: 1.2
+                                    PathLine { x: 9.5; y: 1.2 }
+                                    PathLine { x: 6.2; y: 5.5 }
+                                    PathLine { x: 6.2; y: 6.5 }
+                                    PathLine { x: 9.5; y: 10.8 }
+                                    PathLine { x: 1.5; y: 10.8 }
+                                    PathLine { x: 4.8; y: 6.5 }
+                                    PathLine { x: 4.8; y: 5.5 }
+                                    PathLine { x: 1.5; y: 1.2 }
+                                }
+                                Behavior on opacity { NumberAnimation { duration: 120 } }
+                            }
+
+                            Text {
+                                text: "倒计时"
+                                color: !timerRoot.isCountUp ? "white" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.5))
+                                font.pixelSize: 11
+                                font.weight: !timerRoot.isCountUp ? Font.Black : Font.Bold
+                                font.family: timerRoot.chosenFont
+                                anchors.verticalCenter: parent.verticalCenter
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
                         }
 
                         HoverHandler {
@@ -354,7 +383,7 @@ Item {
                         }
                     }
 
-                    // 正向计时 Tab
+                    // 2. 正向计时 Tab（精密矢量秒表盘）
                     Item {
                         width: parent.width / 2; height: parent.height
 
@@ -366,14 +395,59 @@ Item {
                             Behavior on color { ColorAnimation { duration: 120 } }
                         }
 
-                        Text {
+                        Row {
                             anchors.centerIn: parent
-                            text: "⏱ 正向计时"
-                            color: timerRoot.isCountUp ? "white" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.5))
-                            font.pixelSize: 11
-                            font.weight: timerRoot.isCountUp ? Font.Black : Font.Bold
-                            font.family: timerRoot.chosenFont
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                            spacing: 6
+
+                            // 纯矢量精细秒表
+                            Shape {
+                                width: 12; height: 12
+                                anchors.verticalCenter: parent.verticalCenter
+
+                                // 表盘圆环
+                                ShapePath {
+                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
+                                    strokeWidth: 1.3
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+
+                                    startX: 6; startY: 2.8
+                                    PathArc { x: 6; y: 11.2; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
+                                    PathArc { x: 6; y: 2.8; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
+                                }
+
+                                // 顶部按键顶杆
+                                ShapePath {
+                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
+                                    strokeWidth: 1.3
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+
+                                    startX: 4.5; startY: 1.0
+                                    PathLine { x: 7.5; y: 1.0 }
+                                }
+
+                                // 表盘指针
+                                ShapePath {
+                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
+                                    strokeWidth: 1.2
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+
+                                    startX: 6; startY: 7.0
+                                    PathLine { x: 8.2; y: 5.0 }
+                                }
+                            }
+
+                            Text {
+                                text: "正向计时"
+                                color: timerRoot.isCountUp ? "white" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.5))
+                                font.pixelSize: 11
+                                font.weight: timerRoot.isCountUp ? Font.Black : Font.Bold
+                                font.family: timerRoot.chosenFont
+                                anchors.verticalCenter: parent.verticalCenter
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
                         }
 
                         HoverHandler {
@@ -478,7 +552,7 @@ Item {
                     spacing: 4
                     visible: timerRoot.laps.length === 0
 
-                    Text { text: "⏱ 正向连续计时"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold; font.family: timerRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                    Text { text: "正向连续计时"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold; font.family: timerRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
                     Text { text: "支持随时暂停、重置与打点标记"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; font.family: timerRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
                 }
 

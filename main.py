@@ -4,7 +4,7 @@ import signal
 import gc
 import ctypes
 
-os.environ["QSG_DISTANCEFIELD_ANTIALIASING"] = "subpixel"
+# os.environ["QSG_DISTANCEFIELD_ANTIALIASING"] = "subpixel"
 
 from logger import app_logger
 from config import ConfigManager
@@ -45,7 +45,7 @@ def main():
     view.setColor("transparent")
     view.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
 
-    bridge = IslandBridge(view)
+    bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
 
     window_width, window_height = 720, 270

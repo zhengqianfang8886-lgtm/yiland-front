@@ -15,6 +15,9 @@ Item {
 
     readonly property var enabledTabs: {
         var list = []
+        // 🚀 注入全能时间仪表盘选项
+        list.push({ key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
+
         if (typeof Config === "undefined" || Config.showWorkspaceTab !== false) {
             list.push({ key: "workspace", name: "桌面", color: Theme.workspace, activeColor: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22) })
         }
@@ -103,6 +106,7 @@ Item {
         rootItem: root; capsuleItem: capsule
         leftMemoryBubble: bubbleMemory
         leftBubble: bubbleMusic
+        hwBubble: bubbleHardware
         rightBubble: bubbleTimer
         notifBubble: bubbleNotif
         isExpanded: capsule.isExpanded; isCollapsing: capsule.isCollapsing; isMorphing: capsule.isMorphing
@@ -122,7 +126,6 @@ Item {
         maskController.commit()
     }
 
-    // 🚀【核心修复】：副岛操作互斥锁，在滚动音量/时间期间彻底阻止主岛自动展开
     Timer {
         id: subInteractingTimer
         interval: 700
@@ -139,7 +142,7 @@ Item {
         chosenFont: root.chosenFont
         enabledTabs: root.enabledTabs
         dominantColor: relay.dominantColor
-        anySubBubbleHovered: bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
+        anySubBubbleHovered: bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -165,6 +168,7 @@ Item {
     readonly property var islandItemMap: ({
         "memory": bubbleMemory,
         "music": bubbleMusic,
+        "hardware": bubbleHardware,
         "timer": bubbleTimer,
         "notification": bubbleNotif
     })
@@ -192,7 +196,7 @@ Item {
     }
 
     function getRightIslandX(key) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["timer", "notification"]
+        var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["hardware", "timer", "notification"]
         var currentEdge = capsule.x + capsule.width + root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
@@ -262,6 +266,49 @@ Item {
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
+    HardwareBubbleView {
+        id: bubbleHardware; z: 1
+        x: root.getIslandX("hardware", width)
+        y: capsule.y + Math.round((capsule.height - height) / 2)
+        transformOrigin: root.getIslandSide("hardware") === "left" ? Item.Right : Item.Left
+
+        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient &&
+                (typeof Config === "undefined" || Config.showHardwareBubble !== false)
+
+        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
+
+        onWheelAdjusted: (mode, delta) => {
+            root.handleSubBubbleInteracted()
+            if (typeof Bridge !== "undefined") {
+                Bridge.adjustHardware(mode, delta)
+            }
+        }
+
+        onToggleMuteTriggered: (mode) => {
+            root.handleSubBubbleInteracted()
+            if (typeof Bridge !== "undefined") {
+                Bridge.toggleHardwareMute(mode)
+            }
+        }
+
+        onModeChanged: (mode) => {
+            root.handleSubBubbleInteracted()
+        }
+    }
+
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+        function onHardwareMuteStateChanged(volMuted, micMuted) {
+            bubbleHardware.isVolMuted = volMuted
+            bubbleHardware.isMicMuted = micMuted
+        }
+    }
+
+    // =========================================================================
+    // 🚀 倒计时浮岛：接入暂停状态与左键一键暂停直控
+    // =========================================================================
     TimerBubbleView {
         id: bubbleTimer; z: 1
         x: root.getIslandX("timer", width)
@@ -273,10 +320,17 @@ Item {
         isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
         remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
 
+        // 绑定状态
+        isRunning: capsule.timerRunning
+        isPaused: capsule.timerIsPaused
+
         Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
-        onClicked: root.expandToTab("timer")
+
+        // 核心交互：左键单击切换暂停/继续，右键展开大面板
+        onTogglePause: capsule.toggleTimerPause()
+        onRequestExpand: root.expandToTab("timer")
         onWheelAdjust: root.handleSubBubbleInteracted()
     }
 
@@ -306,7 +360,7 @@ Item {
     }
 
     Component.onCompleted: {
-        capsule.expandedTab = relay.isCalling ? "media" : "workspace"
+        capsule.expandedTab = relay.isCalling ? "media" : "time"
         capsule.drillDownPage = ""
         startupMaskTimer.start()
     }

@@ -6,7 +6,7 @@ Window {
     id: settingsWin
     title: "Alcove Island 偏好设置"
     width: 420
-    height: 840
+    height: 860
     minimumWidth: 400
     minimumHeight: 600
     color: "#18181b"
@@ -18,6 +18,7 @@ Window {
     function getIslandName(key) {
         if (key === "memory") return "💾 内存监控"
         if (key === "music") return "🎵 媒体音乐"
+        if (key === "hardware") return "🔊 硬件控制"
         if (key === "timer") return "⏱️ 专注计时"
         if (key === "notification") return "💬 未读通知"
         return key
@@ -98,6 +99,108 @@ Window {
                 color: "white"
                 font.pixelSize: 16
                 font.bold: true
+            }
+
+            // ==========================================
+            // 🚀 核心新增：悬浮间距与手势灵敏度（即时生效）
+            // ==========================================
+            Rectangle {
+                width: parent.width
+                height: positionCol.implicitHeight + 24
+                radius: 12
+                color: Qt.rgba(1, 1, 1, 0.05)
+                border.color: Qt.rgba(56, 189, 248, 0.35)
+                border.width: 1
+
+                Column {
+                    id: positionCol
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 12
+
+                    Row {
+                        spacing: 6
+                        Text { text: "📐"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: "悬浮位置与手势灵敏度"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                    }
+
+                    // 1. 顶部下落距离滑块 (0 ~ 40px)
+                    Column {
+                        width: parent.width
+                        spacing: 4
+
+                        Item {
+                            width: parent.width; height: 16
+                            Text { text: "顶部距离 (Top Margin)"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; anchors.left: parent.left }
+                            Text {
+                                text: ((typeof Config !== "undefined") ? Config.topMargin : 0) + " px"
+                                color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Black; font.family: "Monospace"; anchors.right: parent.right
+                            }
+                        }
+
+                        Slider {
+                            id: topMarginSlider
+                            width: parent.width; height: 22
+                            from: 0; to: 40; stepSize: 1
+                            value: (typeof Config !== "undefined") ? Config.topMargin : 0
+                            // 🚀 即时双向响应
+                            onMoved: if (typeof Config !== "undefined") Config.topMargin = Math.round(value)
+
+                            background: Rectangle {
+                                x: topMarginSlider.leftPadding
+                                y: topMarginSlider.topPadding + topMarginSlider.availableHeight / 2 - height / 2
+                                width: topMarginSlider.availableWidth; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                                Rectangle { width: topMarginSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: "#38bdf8" }
+                            }
+                            handle: Rectangle {
+                                x: topMarginSlider.leftPadding + topMarginSlider.visualPosition * (topMarginSlider.availableWidth - width)
+                                y: topMarginSlider.topPadding + topMarginSlider.availableHeight / 2 - height / 2
+                                width: 14; height: 14; radius: 7; color: topMarginSlider.pressed ? "#7dd3fc" : "#38bdf8"; border.color: "#ffffff"; border.width: 1.5
+                            }
+                        }
+                    }
+
+                    // 2. 鼠标悬停展开延时滑块 (80ms ~ 600ms)
+                    Column {
+                        width: parent.width
+                        spacing: 4
+
+                        Item {
+                            width: parent.width; height: 16
+                            Text { text: "鼠标悬停展开延时 (Dwell Time)"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; anchors.left: parent.left }
+                            Text {
+                                text: ((typeof Config !== "undefined") ? Config.hoverDwellTime : 240) + " ms"
+                                color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Black; font.family: "Monospace"; anchors.right: parent.right
+                            }
+                        }
+
+                        Slider {
+                            id: dwellSlider
+                            width: parent.width; height: 22
+                            from: 80; to: 600; stepSize: 10
+                            value: (typeof Config !== "undefined") ? Config.hoverDwellTime : 240
+                            // 🚀 即时响应
+                            onMoved: if (typeof Config !== "undefined") Config.hoverDwellTime = Math.round(value)
+
+                            background: Rectangle {
+                                x: dwellSlider.leftPadding
+                                y: dwellSlider.topPadding + dwellSlider.availableHeight / 2 - height / 2
+                                width: dwellSlider.availableWidth; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                                Rectangle { width: dwellSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: "#38bdf8" }
+                            }
+                            handle: Rectangle {
+                                x: dwellSlider.leftPadding + dwellSlider.visualPosition * (dwellSlider.availableWidth - width)
+                                y: dwellSlider.topPadding + dwellSlider.availableHeight / 2 - height / 2
+                                width: 14; height: 14; radius: 7; color: dwellSlider.pressed ? "#7dd3fc" : "#38bdf8"; border.color: "#ffffff"; border.width: 1.5
+                            }
+                        }
+
+                        Text {
+                            text: "💡 较短延时反应极快；较长延时（如 300ms）可有效防止鼠标快速划过屏幕上方时误展开。"
+                            color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 9
+                        }
+                    }
+                }
             }
 
             // ==========================================
@@ -300,7 +403,7 @@ Window {
             }
 
             // ==========================================
-            // 分组 0.5：动效物理质感 (双流派切换)
+            // 分组 0.5：动效物理质感
             // ==========================================
             Rectangle {
                 width: parent.width
@@ -395,7 +498,7 @@ Window {
             }
 
             // ==========================================
-            // 🚀 分组 1：副岛排列、位置顺序与呼吸间距控制
+            // 分组 1：副岛排列、位置顺序与呼吸间距控制
             // ==========================================
             Rectangle {
                 width: parent.width
@@ -415,11 +518,6 @@ Window {
                         spacing: 6
                         Text { text: "🧩"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
                         Text { text: "副岛排列与间距控制"; color: "#818cf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
-                    }
-
-                    Text {
-                        text: "离胶囊越近越优先排布 · 支持点击 ⇄ 任意移至对侧"
-                        color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10
                     }
 
                     // 左侧副岛列表
@@ -532,7 +630,7 @@ Window {
                         }
                     }
 
-                    // 🚀 【全面补齐】主副岛呼吸间距设置滑块
+                    // 主副岛呼吸间距设置滑块
                     Column {
                         width: parent.width
                         spacing: 6
@@ -603,12 +701,11 @@ Window {
             }
 
             // ==========================================
-            // 分组 2：健康关怀与硬件监控 (含内存弹出阈值)
+            // 分组 2：健康关怀与硬件监控
             // ==========================================
             Rectangle {
                 id: healthCard
                 width: parent.width
-                // 高度根据内部内容自适应
                 height: healthSettingsCol.implicitHeight + 24
                 radius: 12
                 color: Qt.rgba(1, 1, 1, 0.05)
@@ -623,7 +720,6 @@ Window {
 
                     Text { text: "🌿 健康关怀与硬件监控"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
 
-                    // 1. 内存小岛总开关
                     Item {
                         width: parent.width; height: 30
                         Row {
@@ -638,7 +734,6 @@ Window {
                         }
                     }
 
-                    // 🚀 2. 内存小岛弹出阈值选择器 (常驻 / 60% / 70% / 75% / 80% / 85%)
                     Row {
                         width: parent.width
                         height: 26
@@ -683,7 +778,6 @@ Window {
 
                     Item { height: 2 }
 
-                    // 3. 久坐提醒总开关
                     Item {
                         width: parent.width; height: 30
                         Row {
@@ -698,7 +792,6 @@ Window {
                         }
                     }
 
-                    // 4. 久坐周期预设
                     Row {
                         width: parent.width
                         height: 26
@@ -737,7 +830,7 @@ Window {
             }
 
             // ==========================================
-            // 🚀 分组 3：胶囊常态显示项（含 24/12 小时制切换）
+            // 分组 3：胶囊常态显示项
             // ==========================================
             Rectangle {
                 width: parent.width
@@ -753,18 +846,13 @@ Window {
 
                     Text { text: "胶囊常态显示项"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true }
 
-                    // 🚀 【全面补齐】12小时 / 24小时制切换开关
                     Item {
                         width: parent.width; height: 32
                         Text { text: "使用 24 小时制时间格式"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.timeFormat === "24h")
-                            onToggled: {
-                                if (typeof Config !== "undefined") {
-                                    Config.timeFormat = checked ? "24h" : "12h"
-                                }
-                            }
+                            onToggled: if (typeof Config !== "undefined") Config.timeFormat = checked ? "24h" : "12h"
                         }
                     }
 
