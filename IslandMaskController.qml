@@ -5,6 +5,7 @@ Item {
 
     property var rootItem: null
     property var capsuleItem: null
+    property var leftMemoryBubble: null
     property var leftBubble: null
     property var rightBubble: null
     property var notifBubble: null
@@ -16,9 +17,15 @@ Item {
     property int targetW: 150
     property int targetH: 36
 
+    onTargetWChanged: commit()
+    onTargetHChanged: commit()
+    onIsExpandedChanged: commit()
+    onIsCollapsingChanged: commit()
+    onIsMorphingChanged: commit()
+
     Timer {
         id: retractTimer
-        interval: 220
+        interval: 160
         onTriggered: maskCtrl.commit()
     }
 
@@ -27,56 +34,55 @@ Item {
     function commit() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
 
-        var isLargeSize = (capsuleItem.height > 48) || (targetH > 50) || (capsuleItem.width > 220) || (targetW > 220)
-        if (isExpanded || isCollapsing || isMorphing || isLargeSize) {
-            // 🚀 核心修复：限制在实际窗口高度内（270px），避免溢出导致窗口系统丢弃事件
-            var fullW = Math.min(rootItem.width, 430 + 100)
-            var fullH = Math.min(rootItem.height, 240 + 24)
-            var pX = Math.max(0, Math.round((rootItem.width - fullW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0))
-            Bridge.updateMask(pX, 0, Math.round(fullW), Math.round(fullH))
+        var isLargeCard = isExpanded || isCollapsing || (capsuleItem.height > 60) || (targetH > 60)
+
+        if (isLargeCard) {
+            // 大卡片展开或久坐大弹窗时，按实际几何体生成圆角遮罩
+            var effH = Math.max(capsuleItem.height, targetH)
+            var effW = Math.max(capsuleItem.width, targetW)
+            var pX = Math.max(0, Math.round((rootItem.width - effW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0))
+            var pY = Math.round(capsuleItem.y)
+            var rList = [{
+                x: pX,
+                y: pY,
+                w: Math.round(effW),
+                h: Math.round(effH),
+                r: Math.round(capsuleItem.radius)
+            }]
+            Bridge.updateCompositeMask(rList)
             return
         }
 
+        // =====================================================================
+        // 常态紧凑态：1:1 严格贴合真实几何曲率，零多余外扩 (padX = 0, padY = 0)
+        // =====================================================================
         var rectList = []
-        var padX = 36, padY = 10
 
-        var effectiveW = Math.max(capsuleItem.width, targetW)
-        var effectiveH = Math.max(capsuleItem.height, targetH)
-        var effectiveX = Math.round((rootItem.width - effectiveW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0)
-
+        // 1. 主胶囊 (精准传入圆角)
         rectList.push({
-            x: Math.max(0, effectiveX - padX),
-            y: Math.max(0, Math.round(capsuleItem.y) - padY),
-            w: Math.round(effectiveW) + padX * 2,
-            h: Math.round(effectiveH) + padY * 2
+            x: Math.round(capsuleItem.x),
+            y: Math.round(capsuleItem.y),
+            w: Math.round(capsuleItem.width),
+            h: Math.round(capsuleItem.height),
+            r: Math.round(capsuleItem.radius)
         })
 
-        if (leftBubble && (leftBubble.active || leftBubble.opacity > 0.02)) {
+        // 辅助闭包：添加活跃副岛
+        function addBubble(bubble) {
+            if (!bubble || !bubble.active || bubble.opacity <= 0.02) return
             rectList.push({
-                x: Math.max(0, Math.round(leftBubble.x) - padX),
-                y: Math.max(0, Math.round(leftBubble.y) - padY),
-                w: Math.round(leftBubble.width) + padX * 2,
-                h: Math.round(leftBubble.height) + padY * 2
+                x: Math.round(bubble.x),
+                y: Math.round(bubble.y),
+                w: Math.round(bubble.width),
+                h: Math.round(bubble.height),
+                r: Math.round(bubble.radius)
             })
         }
 
-        if (rightBubble && (rightBubble.active || rightBubble.opacity > 0.02)) {
-            rectList.push({
-                x: Math.max(0, Math.round(rightBubble.x) - padX),
-                y: Math.max(0, Math.round(rightBubble.y) - padY),
-                w: Math.round(rightBubble.width) + padX * 2,
-                h: Math.round(rightBubble.height) + padY * 2
-            })
-        }
-
-        if (notifBubble && (notifBubble.active || notifBubble.opacity > 0.02)) {
-            rectList.push({
-                x: Math.max(0, Math.round(notifBubble.x) - padX),
-                y: Math.max(0, Math.round(notifBubble.y) - padY),
-                w: Math.round(notifBubble.width) + padX * 2,
-                h: Math.round(notifBubble.height) + padY * 2
-            })
-        }
+        addBubble(leftMemoryBubble)
+        addBubble(leftBubble)
+        addBubble(rightBubble)
+        addBubble(notifBubble)
 
         Bridge.updateCompositeMask(rectList)
     }

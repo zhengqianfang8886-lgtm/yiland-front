@@ -31,7 +31,16 @@ class ConfigManager(QObject):
 
     showNetSpeedChanged = Signal(bool)
 
-    # 🚀 全量 8 个独立界面的独立开关信号
+    # 内存小岛与久坐关怀专用信号
+    showMemoryBubbleChanged = Signal(bool)
+    memoryThresholdChanged = Signal(int)  # 🚀 内存弹出阈值信号
+    sedentaryReminderEnabledChanged = Signal(bool)
+    sedentaryIntervalMinutesChanged = Signal(int)
+    sedentarySnoozeMinutesChanged = Signal(int)
+
+    subIslandsLeftChanged = Signal(list)
+    subIslandsRightChanged = Signal(list)
+
     showWorkspaceTabChanged = Signal(bool)
     showMediaTabChanged = Signal(bool)
     showCalendarTabChanged = Signal(bool)
@@ -62,7 +71,15 @@ class ConfigManager(QObject):
 
         self._showNetSpeed = True
 
-        # 🚀 默认全量独立界面状态
+        self._showMemoryBubble = True
+        self._memoryThreshold = 75  # 🚀 默认超过 75% 占用才弹出小岛（0 为常驻显示）
+        self._sedentaryReminderEnabled = True
+        self._sedentaryIntervalMinutes = 45
+        self._sedentarySnoozeMinutes = 5
+
+        self._subIslandsLeft = ["memory", "music"]
+        self._subIslandsRight = ["timer", "notification"]
+
         self._showWorkspaceTab = True
         self._showMediaTab = True
         self._showCalendarTab = True
@@ -114,7 +131,7 @@ class ConfigManager(QObject):
         return migrated if migrated else list(DEFAULT_SAVED_CLOCKS)
 
     def load(self):
-        if not os.path.exists(CONFIG_FILE):
+        if not os.path.exists(CONFIG_FILE) or os.path.getsize(CONFIG_FILE) == 0:
             return
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -136,7 +153,15 @@ class ConfigManager(QObject):
 
                 self._showNetSpeed = data.get("showNetSpeed", True)
 
-                # 独立界面读入
+                self._showMemoryBubble = data.get("showMemoryBubble", True)
+                self._memoryThreshold = data.get("memoryThreshold", 75)
+                self._sedentaryReminderEnabled = data.get("sedentaryReminderEnabled", True)
+                self._sedentaryIntervalMinutes = data.get("sedentaryIntervalMinutes", 45)
+                self._sedentarySnoozeMinutes = data.get("sedentarySnoozeMinutes", 5)
+
+                self._subIslandsLeft = data.get("subIslandsLeft", ["memory", "music"])
+                self._subIslandsRight = data.get("subIslandsRight", ["timer", "notification"])
+
                 self._showWorkspaceTab = data.get("showWorkspaceTab", True)
                 self._showMediaTab = data.get("showMediaTab", True)
                 self._showCalendarTab = data.get("showCalendarTab", True)
@@ -153,7 +178,8 @@ class ConfigManager(QObject):
     def save(self):
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            tmp_file = CONFIG_FILE + ".tmp"
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump({
                     "timeFormat": self._timeFormat,
                     "showSeconds": self._showSeconds,
@@ -170,7 +196,15 @@ class ConfigManager(QObject):
                     "capsuleTopMargin": self._capsuleTopMargin,
                     "showNetSpeed": self._showNetSpeed,
 
-                    # 独立界面持久化保存
+                    "showMemoryBubble": self._showMemoryBubble,
+                    "memoryThreshold": self._memoryThreshold,
+                    "sedentaryReminderEnabled": self._sedentaryReminderEnabled,
+                    "sedentaryIntervalMinutes": self._sedentaryIntervalMinutes,
+                    "sedentarySnoozeMinutes": self._sedentarySnoozeMinutes,
+
+                    "subIslandsLeft": self._subIslandsLeft,
+                    "subIslandsRight": self._subIslandsRight,
+
                     "showWorkspaceTab": self._showWorkspaceTab,
                     "showMediaTab": self._showMediaTab,
                     "showCalendarTab": self._showCalendarTab,
@@ -182,10 +216,63 @@ class ConfigManager(QObject):
 
                     "savedClocks": self._savedClocks
                 }, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_file, CONFIG_FILE)
         except Exception as e:
             app_logger.warning(f"保存配置失败: {e}")
 
-    # ================= 属性访问器定义 =================
+    # ================= 属性访问器 =================
+    @Property(int, notify=memoryThresholdChanged)
+    def memoryThreshold(self): return self._memoryThreshold
+    @memoryThreshold.setter
+    def memoryThreshold(self, val):
+        val = max(0, min(95, int(val)))
+        if self._memoryThreshold != val:
+            self._memoryThreshold = val; self.save(); self.memoryThresholdChanged.emit(val)
+
+    @Property(list, notify=subIslandsLeftChanged)
+    def subIslandsLeft(self): return self._subIslandsLeft
+    @subIslandsLeft.setter
+    def subIslandsLeft(self, val):
+        if self._subIslandsLeft != val:
+            self._subIslandsLeft = list(val); self.save(); self.subIslandsLeftChanged.emit(self._subIslandsLeft)
+
+    @Property(list, notify=subIslandsRightChanged)
+    def subIslandsRight(self): return self._subIslandsRight
+    @subIslandsRight.setter
+    def subIslandsRight(self, val):
+        if self._subIslandsRight != val:
+            self._subIslandsRight = list(val); self.save(); self.subIslandsRightChanged.emit(self._subIslandsRight)
+
+    @Property(bool, notify=showMemoryBubbleChanged)
+    def showMemoryBubble(self): return self._showMemoryBubble
+    @showMemoryBubble.setter
+    def showMemoryBubble(self, val):
+        if self._showMemoryBubble != val:
+            self._showMemoryBubble = val; self.save(); self.showMemoryBubbleChanged.emit(val)
+
+    @Property(bool, notify=sedentaryReminderEnabledChanged)
+    def sedentaryReminderEnabled(self): return self._sedentaryReminderEnabled
+    @sedentaryReminderEnabled.setter
+    def sedentaryReminderEnabled(self, val):
+        if self._sedentaryReminderEnabled != val:
+            self._sedentaryReminderEnabled = val; self.save(); self.sedentaryReminderEnabledChanged.emit(val)
+
+    @Property(int, notify=sedentaryIntervalMinutesChanged)
+    def sedentaryIntervalMinutes(self): return self._sedentaryIntervalMinutes
+    @sedentaryIntervalMinutes.setter
+    def sedentaryIntervalMinutes(self, val):
+        val = max(5, min(180, int(val)))
+        if self._sedentaryIntervalMinutes != val:
+            self._sedentaryIntervalMinutes = val; self.save(); self.sedentaryIntervalMinutesChanged.emit(val)
+
+    @Property(int, notify=sedentarySnoozeMinutesChanged)
+    def sedentarySnoozeMinutes(self): return self._sedentarySnoozeMinutes
+    @sedentarySnoozeMinutes.setter
+    def sedentarySnoozeMinutes(self, val):
+        val = max(1, min(30, int(val)))
+        if self._sedentarySnoozeMinutes != val:
+            self._sedentarySnoozeMinutes = val; self.save(); self.sedentarySnoozeMinutesChanged.emit(val)
+
     @Property(int, notify=hoverDwellTimeChanged)
     def hoverDwellTime(self): return self._hoverDwellTime
     @hoverDwellTime.setter
@@ -245,7 +332,6 @@ class ConfigManager(QObject):
         if self._showNetSpeed != val:
             self._showNetSpeed = val; self.save(); self.showNetSpeedChanged.emit(val)
 
-    # 🚀 全量 8 个独立界面的属性绑定
     @Property(bool, notify=showWorkspaceTabChanged)
     def showWorkspaceTab(self): return self._showWorkspaceTab
     @showWorkspaceTab.setter

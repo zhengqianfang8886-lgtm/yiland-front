@@ -15,6 +15,19 @@ Item {
     property real position: 0
     property real duration: 0
 
+    property color dominantColor: "#22c55e"
+
+    property int mediaRevision: 0
+
+    // 🚀 核心优化：一旦歌名变动，先让旧封面退场重置，杜绝旧图悬挂在屏幕上
+    onTitleChanged: {
+        mediaRevision++
+        resetFadeAnim.restart()
+    }
+    onArtUrlChanged: {
+        mediaRevision++
+    }
+
     signal cancelCollapse()
     signal requestCollapse()
     signal startCollapse()
@@ -47,25 +60,45 @@ Item {
                 Rectangle {
                     width: 58; height: 58; radius: 14
                     color: mediaRoot.isCalling ? "#4F46E5" : "#242428"
-                    border.color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? Theme.borderFocus : Theme.borderSubtle
+                    border.color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? mediaRoot.dominantColor : Theme.borderSubtle
                     border.width: 1
                     clip: true
 
                     Image {
-                        id: coverImg; anchors.fill: parent
-                        source: mediaRoot.isCalling ? mediaRoot.callAvatar : (mediaRoot.artUrl ? (mediaRoot.artUrl.indexOf("://") !== -1 ? mediaRoot.artUrl : "file://" + mediaRoot.artUrl) : "")
+                        id: coverImg
+                        anchors.fill: parent
+                        source: {
+                            if (mediaRoot.isCalling) return mediaRoot.callAvatar
+                            if (!mediaRoot.artUrl) return ""
+                            var base = mediaRoot.artUrl.indexOf("://") !== -1 ? mediaRoot.artUrl : ("file://" + mediaRoot.artUrl)
+                            var sep = base.indexOf("?") !== -1 ? "&" : "?"
+                            return base + sep + "rev=" + mediaRoot.mediaRevision
+                        }
                         fillMode: Image.PreserveAspectCrop
                         sourceSize.width: 116
                         sourceSize.height: 116
                         asynchronous: true
-                        cache: true
+                        cache: false
+
+                        // 🚀 核心优化：带透明度平滑过渡，切歌不生硬
                         visible: status === Image.Ready
+                        opacity: visible ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
+
+                        NumberAnimation {
+                            id: resetFadeAnim
+                            target: coverImg
+                            property: "opacity"
+                            from: 0.2; to: 1.0
+                            duration: 260
+                            easing.type: Easing.OutQuad
+                        }
                     }
 
                     Text {
                         anchors.centerIn: parent
                         text: {
-                            if (coverImg.status === Image.Ready) return ""
+                            if (coverImg.status === Image.Ready && coverImg.opacity > 0.5) return ""
                             if (mediaRoot.isCalling) {
                                 if (mediaRoot.callTitle && mediaRoot.callTitle.length > 0) {
                                     var parts = mediaRoot.callTitle.trim().split(" ")
@@ -76,7 +109,7 @@ Item {
                             return "🎵"
                         }
                         font.pixelSize: 22; font.family: mediaRoot.chosenFont; font.weight: Font.Black; color: "white"
-                        visible: coverImg.status !== Image.Ready
+                        visible: coverImg.status !== Image.Ready || coverImg.opacity <= 0.5
                     }
 
                     Rectangle {
@@ -96,12 +129,12 @@ Item {
                         width: parent.width; spacing: 6
                         Text {
                             text: mediaRoot.isCalling ? mediaRoot.callTitle : (mediaRoot.title ? mediaRoot.title : "等待播放...")
-                            color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? Theme.calendar : "white"
+                            color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? mediaRoot.dominantColor : "white"
                             font.family: mediaRoot.chosenFont; font.pixelSize: 15; font.weight: Font.Black; elide: Text.ElideRight
                             width: (!mediaRoot.isCalling) ? (parent.width - 22) : parent.width
                         }
                         Text {
-                            text: "↗"; color: Theme.calendar; font.pixelSize: 13; font.weight: Font.Bold
+                            text: "↗"; color: mediaRoot.dominantColor; font.pixelSize: 13; font.weight: Font.Bold
                             visible: !mediaRoot.isCalling && mediaPortalHover.containsMouse
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -184,7 +217,9 @@ Item {
 
                 Rectangle {
                     width: mediaRoot.duration > 0 ? (progressTrack.width * Math.min(1.0, Math.max(0.0, mediaRoot.position / mediaRoot.duration))) : 0
-                    height: parent.height; radius: 99; color: "white"
+                    height: parent.height; radius: 99
+                    color: mediaRoot.dominantColor
+                    Behavior on color { ColorAnimation { duration: 250 } }
                 }
             }
 
@@ -229,8 +264,10 @@ Item {
                 Rectangle {
                     width: 44; height: 44; radius: 22
                     anchors.verticalCenter: parent.verticalCenter
-                    color: playArea.pressed ? Qt.rgba(1, 1, 1, 0.28) : (playArea.containsMouse ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.14))
-                    border.color: Theme.borderSubtle; border.width: 1
+                    color: playArea.pressed ? Qt.rgba(mediaRoot.dominantColor.r, mediaRoot.dominantColor.g, mediaRoot.dominantColor.b, 0.35) :
+                           (playArea.containsMouse ? Qt.rgba(mediaRoot.dominantColor.r, mediaRoot.dominantColor.g, mediaRoot.dominantColor.b, 0.22) : Qt.rgba(1, 1, 1, 0.14))
+                    border.color: playArea.containsMouse ? mediaRoot.dominantColor : Theme.borderSubtle
+                    border.width: 1
                     scale: playArea.pressed ? 0.92 : (playArea.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Easing.OutQuad } }
                     Behavior on color { ColorAnimation { duration: Theme.animInstant } }

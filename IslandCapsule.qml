@@ -10,14 +10,9 @@ Rectangle {
     property bool isMorphing: false
     property var enabledTabs: []
 
-    // =========================================================================
-    // 🚀 核心架构治理：Layer 2 不持有独立状态，直接 alias 直通 Layer 3 真实源！
-    // 彻底解决命令式赋值打碎 QML 响应式绑定的致命顽疾
-    // =========================================================================
     property alias expandedTab: expandedCardView.expandedTab
     property alias drillDownPage: expandedCardView.drillDownPage
 
-    // 业务数据属性
     property string activeTransient: ""
     property string status: "Paused"
     property bool isCalling: false
@@ -29,6 +24,9 @@ Rectangle {
     property string artUrl: ""
     property real position: 0
     property real duration: 0
+
+    // 主色调注入
+    property color dominantColor: "#22c55e"
 
     property int wsCurrent: 1
     property int wsTotal: 4
@@ -53,6 +51,23 @@ Rectangle {
     property string upSpeedStr: ""
     property string localIp: ""
 
+    property int continuousSitMinutes: 45
+    signal sedentaryRested()
+    signal sedentarySnooze()
+
+    // 复制时的硬件级纯光影脉冲
+    property real clipGlowOpacity: 0.0
+
+    SequentialAnimation {
+        id: clipGlowAnim
+        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.95; duration: 110; easing.type: Easing.OutQuad }
+        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.0; duration: 340; easing.type: Easing.InOutQuad }
+    }
+
+    function triggerClipGlow() {
+        clipGlowAnim.restart()
+    }
+
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
     readonly property bool timerHasHours: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.hasHours : false
@@ -72,34 +87,33 @@ Rectangle {
     readonly property bool isLongAlert: {
         if (capsuleRoot.activeTransient !== "ALERT") return false
         var totalLen = (capsuleRoot.alertTitle || "").length + (capsuleRoot.alertSubtitle || "").length
-        return totalLen > 20 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
+        return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // 🚀 适配 3px 粗边框，宽度缓冲相应扩展为 +38，确保两端弧度与文字不贴脸
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
-        if (capsuleRoot.isCalling) return 260
+        if (capsuleRoot.isCalling) return 320
+        if (capsuleRoot.activeTransient === "SEDENTARY") return 520
         if (capsuleRoot.activeTransient === "ALERT") {
-            var rawLen = (capsuleRoot.alertTitle || "").length + (capsuleRoot.alertSubtitle || "").length
-            return rawLen > 24 ? 470 : (rawLen > 12 ? 430 : 400)
+            var dynamicW = compactCapsuleView.alertContentImplicitWidth + 34
+            return Math.min(450, Math.max(260, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
         if (capsuleRoot.activeTransient === "OSD") return 175
-        return Math.max(130, compactCapsuleView.textRowImplicitWidth + 48)
+        return Math.max(130, compactCapsuleView.textRowImplicitWidth + 38)
     }
 
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
-        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 72 : 58
-        return capsuleRoot.isCalling ? 38 : 36
+        if (capsuleRoot.activeTransient === "SEDENTARY") return 108
+        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 68 : 52
+        return capsuleRoot.isCalling ? 44 : 36
     }
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
-    readonly property int durExpandW: isJellyStyle ? 340 : 240
-    readonly property int durExpandH: isJellyStyle ? 260 : 230
-    readonly property real overshootW: isJellyStyle ? 1.08 : 1.018
-    readonly property real overshootH: isJellyStyle ? 1.15 : 1.025
-    readonly property int durCollapseW: isJellyStyle ? 200 : 210
-    readonly property int durCollapseH: isJellyStyle ? 180 : 190
+    readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
+    readonly property bool isMorphGrowing: isExpanded || isNoticeActive
 
     z: 2
     anchors.top: parent.top
@@ -111,20 +125,33 @@ Rectangle {
 
     width: targetWidth
     height: targetHeight
-    radius: isExpanded ? 28 : (activeTransient === "ALERT" ? 22 : Math.min(height / 2, 27))
+    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 20 : Math.min(height / 2, 27))))
     clip: false
-    
+
     color: Theme.bgCapsule
-    border.color: (activeTransient === "ALERT") ? Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.75) :
-                  ((isMouseOver || isExpanded) ? Theme.borderFocus : Theme.borderSubtle)
-    border.width: activeTransient === "ALERT" ? 1.8 : 1
+
+    border.color: clipGlowOpacity > 0.01 ?
+                  Qt.rgba(1.0, 1.0, 1.0, 0.35 + clipGlowOpacity * 0.65) :
+                  (isCalling ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.85) :
+                  ((activeTransient === "SEDENTARY") ? Qt.rgba(52, 211, 153, 0.8) :
+                  ((activeTransient === "ALERT") ? Qt.rgba(compactCapsuleView.alertThemeColor.r, compactCapsuleView.alertThemeColor.g, compactCapsuleView.alertThemeColor.b, 0.7) :
+                  ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.55) :
+                  ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(1, 1, 1, 0.18))))))
+
+    // 🚀 核心更新：描边厚度设置为 3px
+    border.width: 3
+
+    Behavior on border.color {
+        enabled: clipGlowOpacity <= 0.01
+        ColorAnimation { duration: 200 }
+    }
 
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isExpanded ? capsuleRoot.durExpandW : capsuleRoot.durCollapseW
-            easing.type: capsuleRoot.isExpanded ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isExpanded ? capsuleRoot.overshootW : 1.0
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 300 : 240) : 180
+            easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.12 : 1.06) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || heightNumAnim.running
                 capsuleRoot.maskCommitRequested()
@@ -141,9 +168,9 @@ Rectangle {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isExpanded ? capsuleRoot.durExpandH : capsuleRoot.durCollapseH
-            easing.type: capsuleRoot.isExpanded ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isExpanded ? capsuleRoot.overshootH : 1.0
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 250 : 210) : 170
+            easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.14 : 1.05) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || widthNumAnim.running
                 capsuleRoot.maskCommitRequested()
@@ -154,7 +181,7 @@ Rectangle {
         }
     }
 
-    Behavior on radius { NumberAnimation { duration: capsuleRoot.isExpanded ? 200 : 170; easing.type: Easing.OutCubic } }
+    Behavior on radius { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
 
     property bool contentReady: false
     property bool clockReady: true
@@ -203,9 +230,6 @@ Rectangle {
         }
     }
 
-    // =========================================================================
-    // 🚀 核心逻辑恢复：鼠标移入悬停无条件进入桌面工作区，彻底消除下钻残留
-    // =========================================================================
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
@@ -215,6 +239,8 @@ Rectangle {
                     capsuleRoot.requestExpand("media")
                 } else if (capsuleRoot.activeTransient === "ALERT") {
                     capsuleRoot.requestExpand("notification")
+                } else if (capsuleRoot.activeTransient === "SEDENTARY") {
+                    return
                 } else {
                     capsuleRoot.requestExpand("workspace")
                 }
@@ -263,7 +289,7 @@ Rectangle {
     }
 
     function handleWheelAction(deltaY) {
-        if (capsuleRoot.isCalling) return
+        if (capsuleRoot.isCalling || capsuleRoot.activeTransient === "SEDENTARY") return
         if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") {
             return
         }
@@ -280,14 +306,11 @@ Rectangle {
         }
     }
 
-    // =========================================================================
-    // 胶囊主传感区：展开态下严禁响应点击，杜绝事件向底层冒泡击穿
-    // =========================================================================
     MouseArea {
         id: hitSensorArea
         anchors.fill: parent
-        anchors.topMargin: -(typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined ? Config.capsuleTopMargin : 6) - 2
-        z: capsuleRoot.isExpanded ? -1 : 10
+        anchors.topMargin: 0
+        z: (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isCalling) ? -1 : 10
         hoverEnabled: true
 
         acceptedButtons: capsuleRoot.isExpanded ? Qt.NoButton : (Qt.LeftButton | Qt.RightButton)
@@ -312,25 +335,21 @@ Rectangle {
             }
         }
         onClicked: (mouse) => {
-            if (capsuleRoot.isExpanded) return
+            if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isCalling) return
 
             hoverDwellTimer.stop()
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
 
             if (mouse.button === Qt.RightButton) { capsuleRoot.requestSettings(); return }
-            if (capsuleRoot.isCalling) { Bridge.focusTeamsWindow(); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
             capsuleRoot.requestExpand("workspace")
         }
     }
 
-    // 1. 紧凑时钟视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
-        anchors.leftMargin: 12
-        anchors.rightMargin: 12
         visible: capsuleRoot.clockReady && !capsuleRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.94
@@ -344,11 +363,14 @@ Rectangle {
         displayDate: capsuleRoot.displayDate; displayTime: capsuleRoot.displayTime; displaySeconds: capsuleRoot.displaySeconds; displayPeriod: capsuleRoot.displayPeriod
         downCompact: capsuleRoot.downCompact; upCompact: capsuleRoot.upCompact
 
+        continuousSitMinutes: capsuleRoot.continuousSitMinutes
+        onSedentaryRested: capsuleRoot.sedentaryRested()
+        onSedentarySnooze: capsuleRoot.sedentarySnooze()
+
         Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开大卡片（挂载 Layer 3 路由中枢）
     Item {
         anchors.fill: parent
         clip: true
@@ -367,6 +389,7 @@ Rectangle {
             chosenFont: capsuleRoot.chosenFont
 
             enabledTabs: capsuleRoot.enabledTabs
+            dominantColor: capsuleRoot.dominantColor
 
             isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
             title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration

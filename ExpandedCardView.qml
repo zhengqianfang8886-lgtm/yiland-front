@@ -5,10 +5,6 @@ Item {
     id: cardRoot
 
     property string chosenFont: ""
-
-    // =========================================================================
-    // 🚀 全局唯一单真理源路由状态
-    // =========================================================================
     property string expandedTab: "workspace"
     property string previousTab: "workspace"
     property string drillDownPage: ""
@@ -25,6 +21,9 @@ Item {
     property real position: 0
     property real duration: 0
 
+    // 主色调注入
+    property color dominantColor: "#22c55e"
+
     property int wsCurrent: 1
     property int wsTotal: 4
     property string wsName: ""
@@ -35,7 +34,6 @@ Item {
     property string localIp: ""
     property string activeTransient: ""
 
-    // 暴露计时器常驻引用给外部副岛（确保倒计时在后台切页时不中断）
     readonly property alias timerPageRef: persistentTimerPage
 
     signal cancelCollapse()
@@ -43,9 +41,6 @@ Item {
     signal startCollapse()
     signal timerCompleted(string title, string message)
 
-    // =========================================================================
-    // 🚀 全局直达路由：直接切换到独立页面，无需中转
-    // =========================================================================
     function switchRoute(targetTab, targetSubPage) {
         cardRoot.cancelCollapse()
         if (targetTab !== "power" && cardRoot.expandedTab !== "power") {
@@ -63,9 +58,6 @@ Item {
         return 0
     }
 
-    // =========================================================================
-    // 🚀 滚轮防抖切页引擎（双轴自适应）
-    // =========================================================================
     property real tabWheelAccum: 0
     Timer {
         id: tabWheelResetTimer
@@ -90,7 +82,6 @@ Item {
         }
     }
 
-    // 底层遮罩吸收未捕获点击，杜绝事件击穿
     MouseArea {
         anchors.fill: parent
         z: -1
@@ -102,15 +93,11 @@ Item {
         anchors.fill: parent
         spacing: 12
 
-        // =====================================================================
-        // 1. 顶部 Header 交互栏
-        // =====================================================================
         Item {
             id: headerArea
             width: parent.width
             height: 26
 
-            // 左侧桌面滚轮支持
             MouseArea {
                 anchors.left: parent.left
                 anchors.right: powerQuickBtn.left
@@ -126,7 +113,6 @@ Item {
                 }
             }
 
-            // 左侧状态指示与独立模块面包屑标题
             Item {
                 anchors.left: parent.left
                 anchors.right: powerQuickBtn.left
@@ -134,7 +120,6 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 height: 24
 
-                // 电源状态下的快捷返回键
                 Rectangle {
                     visible: cardRoot.expandedTab === "power" && !cardRoot.isCalling
                     anchors.left: parent.left
@@ -167,7 +152,6 @@ Item {
                     }
                 }
 
-                // 各独立页面专属面包屑标题
                 Text {
                     visible: cardRoot.expandedTab !== "power" || cardRoot.isCalling
                     anchors.left: parent.left
@@ -176,6 +160,7 @@ Item {
 
                     text: {
                         if (cardRoot.isCalling) return "● INCOMING CALL · TEAMS"
+                        if (cardRoot.expandedTab === "power") return "● SYSTEM POWER · 电源与会话"
                         if (cardRoot.expandedTab === "workspace") return "● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))
                         if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"
                         if (cardRoot.expandedTab === "calendar") return "● CALENDAR · 日历"
@@ -190,7 +175,7 @@ Item {
                     color: {
                         if (cardRoot.isCalling) return Theme.media
                         if (cardRoot.expandedTab === "workspace") return Theme.workspace
-                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? Theme.media : Theme.textMuted
+                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted
                         if (cardRoot.expandedTab === "calendar") return Theme.calendar
                         if (cardRoot.expandedTab === "timer") return Theme.timer
                         if (cardRoot.expandedTab === "clock") return Theme.clock
@@ -207,7 +192,6 @@ Item {
                 }
             }
 
-            // 独立电源快捷键
             Rectangle {
                 id: powerQuickBtn
                 anchors.right: tabTrackContainer.left
@@ -246,10 +230,6 @@ Item {
                 }
             }
 
-            // =================================================================
-            // 🚀 图 2 风格流体点条指示轨（Dots & Pill Track）
-            // 消除汉字，选中项拉伸为专属色药丸，未选中项为微圆点
-            // =================================================================
             Rectangle {
                 id: tabTrackContainer
                 anchors.right: parent.right
@@ -299,7 +279,7 @@ Item {
                                 height: 5
                                 radius: 2.5
                                 color: tabSlotItem.isCurrent ?
-                                       (modelData.color ? modelData.color : Theme.workspace) :
+                                       (modelData.key === "media" ? cardRoot.dominantColor : (modelData.color ? modelData.color : Theme.workspace)) :
                                        (tabMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(1, 1, 1, 0.35))
 
                                 scale: tabSlotItem.isCurrent ? 1.0 : (tabMouseArea.containsMouse ? 1.35 : 1.0)
@@ -322,14 +302,10 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. 独立业务页面展示区（全量一等公民直达页面）
-        // =====================================================================
         Item {
             width: parent.width
             height: parent.height - 38
 
-            // 1. 来电特权级呼叫面板
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -490,36 +466,32 @@ Item {
                 }
             }
 
-            // 2. 桌面工作区独立页
             WorkspacePage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal; currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "workspace")
             }
 
-            // 3. 媒体控制独立页
             MediaPage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont; isCalling: false
                 title: cardRoot.title; artist: cardRoot.artist; status: cardRoot.status; artUrl: cardRoot.artUrl
                 position: cardRoot.position; duration: cardRoot.duration
+                dominantColor: cardRoot.dominantColor
                 onCancelCollapse: cardRoot.cancelCollapse(); onRequestCollapse: cardRoot.requestCollapse(); onStartCollapse: cardRoot.startCollapse()
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "media")
             }
 
-            // 4. 日历独立页
             CalendarPage {
                 anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "calendar")
             }
 
-            // 5. 专注倒计时/秒表独立页（状态常驻，防止切页中断）
             TimerPage {
                 id: persistentTimerPage; anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 visible: !cardRoot.isCalling && (cardRoot.expandedTab === "timer")
                 onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
             }
 
-            // 6. 世界时钟独立页
             Loader {
                 id: clockLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "clock")
@@ -532,7 +504,6 @@ Item {
                 }
             }
 
-            // 7. 实时网络监控独立页
             Loader {
                 id: networkLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "network")
@@ -545,7 +516,6 @@ Item {
                 }
             }
 
-            // 8. 蓝牙外设管理独立页
             Loader {
                 id: bluetoothLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "bluetooth")
@@ -555,23 +525,37 @@ Item {
                 }
             }
 
-            // 9. 消息归档中心独立页
+            // 🚀 核心修复：改用安全 Connections 监听，即使子页面缺少声明也绝不报错
             Loader {
                 id: notifLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "notification")
                 visible: active
                 sourceComponent: Component {
-                    NotificationPage { chosenFont: cardRoot.chosenFont }
+                    NotificationPage {
+                        chosenFont: cardRoot.chosenFont
+                    }
+                }
+                Connections {
+                    target: notifLoader.item
+                    ignoreUnknownSignals: true
+                    function onStartCollapse() { cardRoot.startCollapse() }
                 }
             }
 
-            // 10. 系统电源会话独立页
+            // 🚀 核心修复：改用安全 Connections 监听，彻底解耦子页面
             Loader {
                 id: powerLoader; anchors.fill: parent
                 active: !cardRoot.isCalling && (cardRoot.expandedTab === "power")
                 visible: active
                 sourceComponent: Component {
-                    PowerPage { chosenFont: cardRoot.chosenFont }
+                    PowerPage {
+                        chosenFont: cardRoot.chosenFont
+                    }
+                }
+                Connections {
+                    target: powerLoader.item
+                    ignoreUnknownSignals: true
+                    function onStartCollapse() { cardRoot.startCollapse() }
                 }
             }
         }

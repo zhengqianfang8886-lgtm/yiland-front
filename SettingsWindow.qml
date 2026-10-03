@@ -6,7 +6,7 @@ Window {
     id: settingsWin
     title: "Alcove Island 偏好设置"
     width: 420
-    height: 760
+    height: 840
     minimumWidth: 400
     minimumHeight: 600
     color: "#18181b"
@@ -15,7 +15,48 @@ Window {
     property bool fontPickerOpen: false
     property string fontSearchText: ""
 
-    // 动态搜索过滤系统字体库
+    function getIslandName(key) {
+        if (key === "memory") return "💾 内存监控"
+        if (key === "music") return "🎵 媒体音乐"
+        if (key === "timer") return "⏱️ 专注计时"
+        if (key === "notification") return "💬 未读通知"
+        return key
+    }
+
+    function moveIslandUp(side, index) {
+        if (index <= 0) return
+        var list = (side === "left" ? Config.subIslandsLeft : Config.subIslandsRight).slice()
+        var temp = list[index]
+        list[index] = list[index - 1]
+        list[index - 1] = temp
+        if (side === "left") Config.subIslandsLeft = list
+        else Config.subIslandsRight = list
+    }
+
+    function moveIslandDown(side, index) {
+        var list = (side === "left" ? Config.subIslandsLeft : Config.subIslandsRight).slice()
+        if (index >= list.length - 1) return
+        var temp = list[index]
+        list[index] = list[index + 1]
+        list[index + 1] = temp
+        if (side === "left") Config.subIslandsLeft = list
+        else Config.subIslandsRight = list
+    }
+
+    function switchIslandSide(fromSide, index) {
+        var left = (Config.subIslandsLeft || []).slice()
+        var right = (Config.subIslandsRight || []).slice()
+        if (fromSide === "left") {
+            var item = left.splice(index, 1)[0]
+            right.push(item)
+        } else {
+            var item = right.splice(index, 1)[0]
+            left.push(item)
+        }
+        Config.subIslandsLeft = left
+        Config.subIslandsRight = right
+    }
+
     readonly property var filteredFonts: {
         if (typeof Config === "undefined" || !Config.systemFonts) return ["系统默认 (Default)"]
         var list = Config.systemFonts
@@ -292,7 +333,6 @@ Window {
                         Row {
                             anchors.fill: parent
 
-                            // 精密克制
                             Rectangle {
                                 id: precBtn
                                 width: parent.width / 2; height: parent.height; radius: 14
@@ -318,7 +358,6 @@ Window {
                                 }
                             }
 
-                            // 有机果冻
                             Rectangle {
                                 id: jellyBtn
                                 width: parent.width / 2; height: parent.height; radius: 14
@@ -356,160 +395,353 @@ Window {
             }
 
             // ==========================================
-            // 分组 1：多副岛排布方向与副岛间距控制
+            // 🚀 分组 1：副岛排列、位置顺序与呼吸间距控制
             // ==========================================
             Rectangle {
                 width: parent.width
-                height: 136
+                height: dockSettingsCol.implicitHeight + 24
                 radius: 12
                 color: Qt.rgba(1, 1, 1, 0.05)
                 border.color: Qt.rgba(129, 140, 248, 0.3)
+                border.width: 1
 
                 Column {
+                    id: dockSettingsCol
                     anchors.fill: parent
                     anchors.margins: 12
-                    spacing: 8
+                    spacing: 10
 
-                    Item {
-                        width: parent.width
-                        height: 16
-
-                        Text {
-                            text: "多副岛扩展方向"
-                            color: "#818cf8"
-                            font.pixelSize: 12
-                            font.bold: true
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Text {
-                            text: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "当前：向左延伸" : "当前：向右延伸"
-                            color: Qt.rgba(1, 1, 1, 0.45)
-                            font.pixelSize: 10
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                    Row {
+                        spacing: 6
+                        Text { text: "🧩"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: "副岛排列与间距控制"; color: "#818cf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                     }
 
+                    Text {
+                        text: "离胶囊越近越优先排布 · 支持点击 ⇄ 任意移至对侧"
+                        color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10
+                    }
+
+                    // 左侧副岛列表
                     Rectangle {
-                        width: parent.width
-                        height: 26
-                        radius: 13
-                        color: Qt.rgba(1, 1, 1, 0.08)
+                        width: parent.width; height: leftIslandCol.implicitHeight + 16
+                        radius: 8; color: Qt.rgba(1, 1, 1, 0.04)
+                        border.color: Qt.rgba(1, 1, 1, 0.08); border.width: 1
 
-                        Row {
-                            anchors.fill: parent
-                            Rectangle {
-                                width: parent.width / 2; height: parent.height; radius: 13
-                                color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? Qt.rgba(129, 140, 248, 0.25) : "transparent"
-                                border.color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "#818cf8" : "transparent"
-                                border.width: 1
-                                Behavior on color { ColorAnimation { duration: 150 } }
+                        Column {
+                            id: leftIslandCol
+                            anchors.fill: parent; anchors.margins: 8; spacing: 4
+                            Text { text: "⬅️ 左侧小岛 (胶囊左侧排布)"; color: "#38bdf8"; font.pixelSize: 10; font.bold: true }
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "⬅️ 优先向左扩展"
-                                    color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? "white" : Qt.rgba(1, 1, 1, 0.5)
-                                    font.pixelSize: 10; font.weight: Font.Bold
-                                }
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (typeof Config !== "undefined") Config.multiIslandExpandDirection = "left"
-                                }
-                            }
+                            Repeater {
+                                model: Config.subIslandsLeft || []
+                                Rectangle {
+                                    width: parent.width; height: 28; radius: 6
+                                    color: Qt.rgba(1, 1, 1, 0.06)
 
-                            Rectangle {
-                                width: parent.width / 2; height: parent.height; radius: 13
-                                color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? Qt.rgba(129, 140, 248, 0.25) : "transparent"
-                                border.color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? "#818cf8" : "transparent"
-                                border.width: 1
-                                Behavior on color { ColorAnimation { duration: 150 } }
+                                    Text {
+                                        anchors.left: parent.left; anchors.leftMargin: 8
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: settingsWin.getIslandName(modelData)
+                                        color: "white"; font.pixelSize: 11; font.bold: true
+                                    }
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "➡️ 优先向右扩展"
-                                    color: (typeof Config !== "undefined" && Config.multiIslandExpandDirection !== "left") ? "white" : Qt.rgba(1, 1, 1, 0.5)
-                                    font.pixelSize: 10; font.weight: Font.Bold
-                                }
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (typeof Config !== "undefined") Config.multiIslandExpandDirection = "right"
+                                    Row {
+                                        anchors.right: parent.right; anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+
+                                        Rectangle {
+                                            width: 22; height: 20; radius: 4
+                                            color: index > 0 ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                            Text { anchors.centerIn: parent; text: "↑"; color: "white"; font.pixelSize: 11; opacity: index > 0 ? 1 : 0.2 }
+                                            MouseArea { anchors.fill: parent; enabled: index > 0; cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.moveIslandUp("left", index) }
+                                        }
+
+                                        Rectangle {
+                                            width: 22; height: 20; radius: 4
+                                            color: index < (Config.subIslandsLeft.length - 1) ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                            Text { anchors.centerIn: parent; text: "↓"; color: "white"; font.pixelSize: 11; opacity: index < (Config.subIslandsLeft.length - 1) ? 1 : 0.2 }
+                                            MouseArea { anchors.fill: parent; enabled: index < (Config.subIslandsLeft.length - 1); cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.moveIslandDown("left", index) }
+                                        }
+
+                                        Rectangle {
+                                            width: 32; height: 20; radius: 4
+                                            color: Qt.rgba(56, 189, 248, 0.2)
+                                            Text { anchors.centerIn: parent; text: "⇄ 右"; color: "#38bdf8"; font.pixelSize: 9; font.bold: true }
+                                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.switchIslandSide("left", index) }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Item {
-                        width: parent.width
-                        height: 16
+                    // 右侧副岛列表
+                    Rectangle {
+                        width: parent.width; height: rightIslandCol.implicitHeight + 16
+                        radius: 8; color: Qt.rgba(1, 1, 1, 0.04)
+                        border.color: Qt.rgba(1, 1, 1, 0.08); border.width: 1
 
-                        Text {
-                            text: "主副岛呼吸间距"
-                            color: "#818cf8"
-                            font.pixelSize: 12
-                            font.bold: true
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        Column {
+                            id: rightIslandCol
+                            anchors.fill: parent; anchors.margins: 8; spacing: 4
+                            Text { text: "➡️ 右侧小岛 (胶囊右侧排布)"; color: "#34d399"; font.pixelSize: 10; font.bold: true }
 
-                        Text {
-                            text: ((typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8) + " px"
-                            color: "#38bdf8"
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            font.family: "Monospace"
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
+                            Repeater {
+                                model: Config.subIslandsRight || []
+                                Rectangle {
+                                    width: parent.width; height: 28; radius: 6
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+
+                                    Text {
+                                        anchors.left: parent.left; anchors.leftMargin: 8
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: settingsWin.getIslandName(modelData)
+                                        color: "white"; font.pixelSize: 11; font.bold: true
+                                    }
+
+                                    Row {
+                                        anchors.right: parent.right; anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: 4
+
+                                        Rectangle {
+                                            width: 22; height: 20; radius: 4
+                                            color: index > 0 ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                            Text { anchors.centerIn: parent; text: "↑"; color: "white"; font.pixelSize: 11; opacity: index > 0 ? 1 : 0.2 }
+                                            MouseArea { anchors.fill: parent; enabled: index > 0; cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.moveIslandUp("right", index) }
+                                        }
+
+                                        Rectangle {
+                                            width: 22; height: 20; radius: 4
+                                            color: index < (Config.subIslandsRight.length - 1) ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                                            Text { anchors.centerIn: parent; text: "↓"; color: "white"; font.pixelSize: 11; opacity: index < (Config.subIslandsRight.length - 1) ? 1 : 0.2 }
+                                            MouseArea { anchors.fill: parent; enabled: index < (Config.subIslandsRight.length - 1); cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.moveIslandDown("right", index) }
+                                        }
+
+                                        Rectangle {
+                                            width: 32; height: 20; radius: 4
+                                            color: Qt.rgba(52, 211, 153, 0.2)
+                                            Text { anchors.centerIn: parent; text: "左 ⇄"; color: "#34d399"; font.pixelSize: 9; font.bold: true }
+                                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: settingsWin.switchIslandSide("right", index) }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    Slider {
-                        id: gapSlider
+                    // 🚀 【全面补齐】主副岛呼吸间距设置滑块
+                    Column {
                         width: parent.width
-                        height: 22
-                        from: 2
-                        to: 24
-                        stepSize: 1
-                        value: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
-                        onMoved: if (typeof Config !== "undefined") Config.splitGap = Math.round(value)
+                        spacing: 6
 
-                        background: Rectangle {
-                            x: gapSlider.leftPadding
-                            y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
-                            width: gapSlider.availableWidth
-                            height: 4
-                            radius: 2
-                            color: Qt.rgba(1, 1, 1, 0.12)
-
-                            Rectangle {
-                                width: gapSlider.visualPosition * parent.width
-                                height: parent.height
-                                radius: 2
-                                color: "#818cf8"
-                            }
-                        }
-
-                        handle: Rectangle {
-                            x: gapSlider.leftPadding + gapSlider.visualPosition * (gapSlider.availableWidth - width)
-                            y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
-                            width: 16
+                        Item {
+                            width: parent.width
                             height: 16
-                            radius: 8
-                            color: gapSlider.pressed ? "#a5b4fc" : "#818cf8"
-                            border.color: "#ffffff"
-                            border.width: 1.5
+
+                            Text {
+                                text: "主副岛呼吸间距"
+                                color: "#818cf8"
+                                font.pixelSize: 12
+                                font.bold: true
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Text {
+                                text: ((typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8) + " px"
+                                color: "#38bdf8"
+                                font.pixelSize: 11
+                                font.weight: Font.Bold
+                                font.family: "Monospace"
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Slider {
+                            id: gapSlider
+                            width: parent.width
+                            height: 22
+                            from: 2
+                            to: 24
+                            stepSize: 1
+                            value: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
+                            onMoved: if (typeof Config !== "undefined") Config.splitGap = Math.round(value)
+
+                            background: Rectangle {
+                                x: gapSlider.leftPadding
+                                y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
+                                width: gapSlider.availableWidth
+                                height: 4
+                                radius: 2
+                                color: Qt.rgba(1, 1, 1, 0.12)
+
+                                Rectangle {
+                                    width: gapSlider.visualPosition * parent.width
+                                    height: parent.height
+                                    radius: 2
+                                    color: "#818cf8"
+                                }
+                            }
+
+                            handle: Rectangle {
+                                x: gapSlider.leftPadding + gapSlider.visualPosition * (gapSlider.availableWidth - width)
+                                y: gapSlider.topPadding + gapSlider.availableHeight / 2 - height / 2
+                                width: 16
+                                height: 16
+                                radius: 8
+                                color: gapSlider.pressed ? "#a5b4fc" : "#818cf8"
+                                border.color: "#ffffff"
+                                border.width: 1.5
+                            }
                         }
                     }
                 }
             }
 
             // ==========================================
-            // 分组 2：胶囊常态显示项
+            // 分组 2：健康关怀与硬件监控 (含内存弹出阈值)
+            // ==========================================
+            Rectangle {
+                id: healthCard
+                width: parent.width
+                // 高度根据内部内容自适应
+                height: healthSettingsCol.implicitHeight + 24
+                radius: 12
+                color: Qt.rgba(1, 1, 1, 0.05)
+                border.color: Qt.rgba(52, 211, 153, 0.3)
+                border.width: 1
+
+                Column {
+                    id: healthSettingsCol
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 8
+
+                    Text { text: "🌿 健康关怀与硬件监控"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
+
+                    // 1. 内存小岛总开关
+                    Item {
+                        width: parent.width; height: 30
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Text { text: "💾"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "内存监控小岛 (RAM %)"; color: "white"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.showMemoryBubble !== undefined) ? Config.showMemoryBubble : true
+                            onToggled: if (typeof Config !== "undefined") Config.showMemoryBubble = checked
+                        }
+                    }
+
+                    // 🚀 2. 内存小岛弹出阈值选择器 (常驻 / 60% / 70% / 75% / 80% / 85%)
+                    Row {
+                        width: parent.width
+                        height: 26
+                        spacing: 6
+                        visible: (typeof Config !== "undefined" && Config.showMemoryBubble !== false)
+
+                        Text {
+                            text: "弹出阈值:"; color: Qt.rgba(1, 1, 1, 0.6); font.pixelSize: 11; font.bold: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Repeater {
+                            model: [
+                                { label: "常驻", val: 0 },
+                                { label: "60%", val: 60 },
+                                { label: "70%", val: 70 },
+                                { label: "75%", val: 75 },
+                                { label: "80%", val: 80 },
+                                { label: "85%", val: 85 }
+                            ]
+                            Rectangle {
+                                width: 44; height: 22; radius: 11
+                                readonly property bool isSel: (typeof Config !== "undefined" && Config.memoryThreshold === modelData.val)
+                                color: isSel ? Qt.rgba(52, 211, 153, 0.28) : Qt.rgba(1, 1, 1, 0.08)
+                                border.color: isSel ? "#34d399" : "transparent"
+                                border.width: 1
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                    font.pixelSize: 10; font.weight: Font.Bold
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (typeof Config !== "undefined") Config.memoryThreshold = modelData.val
+                                }
+                            }
+                        }
+                    }
+
+                    Item { height: 2 }
+
+                    // 3. 久坐提醒总开关
+                    Item {
+                        width: parent.width; height: 30
+                        Row {
+                            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                            Text { text: "🧘"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: "久坐伏案提醒 (特大打断弹窗)"; color: "white"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                        }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.sedentaryReminderEnabled !== undefined) ? Config.sedentaryReminderEnabled : true
+                            onToggled: if (typeof Config !== "undefined") Config.sedentaryReminderEnabled = checked
+                        }
+                    }
+
+                    // 4. 久坐周期预设
+                    Row {
+                        width: parent.width
+                        height: 26
+                        spacing: 8
+                        visible: (typeof Config !== "undefined" && Config.sedentaryReminderEnabled !== false)
+
+                        Text {
+                            text: "提醒周期:"; color: Qt.rgba(1, 1, 1, 0.6); font.pixelSize: 11; font.bold: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Repeater {
+                            model: [30, 45, 60]
+                            Rectangle {
+                                width: 54; height: 24; radius: 12
+                                readonly property bool isSel: (typeof Config !== "undefined" && Config.sedentaryIntervalMinutes === modelData)
+                                color: isSel ? Qt.rgba(52, 211, 153, 0.28) : Qt.rgba(1, 1, 1, 0.08)
+                                border.color: isSel ? "#34d399" : "transparent"
+                                border.width: 1
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: modelData + "m"
+                                    color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                    font.pixelSize: 10; font.weight: Font.Bold
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                    onClicked: if (typeof Config !== "undefined") Config.sedentaryIntervalMinutes = modelData
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // 🚀 分组 3：胶囊常态显示项（含 24/12 小时制切换）
             // ==========================================
             Rectangle {
                 width: parent.width
-                height: 140
+                height: 172
                 radius: 12
                 color: Qt.rgba(1, 1, 1, 0.05)
                 border.color: Qt.rgba(1, 1, 1, 0.1)
@@ -520,6 +752,21 @@ Window {
                     spacing: 2
 
                     Text { text: "胶囊常态显示项"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true }
+
+                    // 🚀 【全面补齐】12小时 / 24小时制切换开关
+                    Item {
+                        width: parent.width; height: 32
+                        Text { text: "使用 24 小时制时间格式"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                        Switch {
+                            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            checked: (typeof Config !== "undefined" && Config.timeFormat === "24h")
+                            onToggled: {
+                                if (typeof Config !== "undefined") {
+                                    Config.timeFormat = checked ? "24h" : "12h"
+                                }
+                            }
+                        }
+                    }
 
                     Item {
                         width: parent.width; height: 32
@@ -554,7 +801,7 @@ Window {
             }
 
             // ==========================================
-            // 🚀 分组 3：重构后的 8 大独立界面直达开关列表
+            // 分组 4：独立界面直达开关
             // ==========================================
             Rectangle {
                 width: parent.width
@@ -571,7 +818,6 @@ Window {
 
                     Text { text: "独立界面管理 (点条轨道直达项)"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
 
-                    // 1. 桌面
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -586,7 +832,6 @@ Window {
                         }
                     }
 
-                    // 2. 媒体
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -601,7 +846,6 @@ Window {
                         }
                     }
 
-                    // 3. 日历
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -616,7 +860,6 @@ Window {
                         }
                     }
 
-                    // 4. 计时器
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -631,7 +874,6 @@ Window {
                         }
                     }
 
-                    // 5. 世界时钟
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -646,7 +888,6 @@ Window {
                         }
                     }
 
-                    // 6. 网络监控
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -661,7 +902,6 @@ Window {
                         }
                     }
 
-                    // 7. 蓝牙管理
                     Item {
                         width: parent.width; height: 32
                         Row {
@@ -676,7 +916,6 @@ Window {
                         }
                     }
 
-                    // 8. 消息归档
                     Item {
                         width: parent.width; height: 32
                         Row {

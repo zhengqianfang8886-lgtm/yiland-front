@@ -4,8 +4,10 @@ import json
 import time
 import socket
 import shutil
+import struct
 import hashlib
 import urllib.parse
+import urllib.request
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
@@ -13,15 +15,15 @@ from PySide6.QtCore import (
     QObject, Signal, Slot, Property, QRect, QTimer,
     QDateTime, QTimeZone, QByteArray, Qt
 )
-from PySide6.QtGui import QRegion
+from PySide6.QtGui import QRegion, QPainterPath, QGuiApplication, QImage
 from logger import app_logger
 from models import NotificationListModel, BluetoothListModel
 
 AVATAR_CACHE_DIR = os.path.expanduser("~/.local/state/alcove_island/avatar_cache")
+CAVA_CONFIG_PATH = "/tmp/alcove_cava_config"
 
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
-    """提取头像并使用 Pillow 强制裁剪为抗锯齿透明正圆 PNG，彻底解决直角残留"""
     if not raw_avatar_url:
         return ""
     try:
@@ -38,7 +40,7 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
         file_hash = hashlib.md5(f"{clean_path}_{mtime}".encode("utf-8")).hexdigest()[:12]
         cached_filename = f"avatar_circle_{file_hash}.png"
         cached_path = os.path.join(AVATAR_CACHE_DIR, cached_filename)
-        
+
         if not os.path.exists(cached_path):
             try:
                 from PIL import Image, ImageDraw
@@ -47,17 +49,15 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
                 left = (im.width - size) // 2
                 top = (im.height - size) // 2
                 im = im.crop((left, top, left + size, top + size))
-                
-                # 制作带抗锯齿的正圆 Alpha 蒙版
+
                 mask = Image.new("L", (size, size), 0)
                 draw = ImageDraw.Draw(mask)
                 draw.ellipse((0, 0, size, size), fill=255)
                 im.putalpha(mask)
                 im.save(cached_path, "PNG")
-            except Exception as pe:
-                app_logger.warning(f"PIL 圆形裁剪降级: {pe}")
+            except Exception:
                 shutil.copy2(clean_path, cached_path)
-                
+
         return f"file://{cached_path}"
     except Exception as e:
         app_logger.warning(f"处理头像缓存异常: {e}")
@@ -107,6 +107,11 @@ class IslandBridge(QObject):
     callEndedTriggered = Signal()
     syncDataUpdated = Signal("QVariantMap")
     netSpeedUpdated = Signal(str, str, str, str, str)
+    memoryUpdated = Signal(int, str, str)
+
+    audioSpectrumUpdated = Signal(float, float, float, float)
+    dominantColorUpdated = Signal(str)
+    clipboardTriggered = Signal(str, str, str, int)
 
     bluetoothStateChanged = Signal(bool)
     unreadCountChanged = Signal(int)
@@ -122,6 +127,8 @@ class IslandBridge(QObject):
         self._curr_pos = 0.0
         self._curr_dur = 0.0
         self._curr_status = "Paused"
+        self._curr_art = ""
+        self._curr_dominant_color = "#22c55e"
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
@@ -139,7 +146,198 @@ class IslandBridge(QObject):
         self._local_media_timer.setInterval(1000)
         self._local_media_timer.timeout.connect(self._on_local_media_tick)
 
+        self._memory_timer = QTimer(self)
+        self._memory_timer.setInterval(2000)
+        self._memory_timer.timeout.connect(self._poll_memory_usage)
+        self._memory_timer.start()
+
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
+
+        self._last_clip_text = ""
+        self._setup_clipboard_listener()
+
+        self._cava_proc = None
+        self._start_cava_spectrum_monitor()
+
+    def _start_cava_spectrum_monitor(self):
+        if not shutil.which("cava"):
+            return
+
+        def _cava_worker():
+            try:
+                cava_cfg = (
+                    "[general]\n"
+                    "bars = 4\n"
+                    "framerate = 30\n"
+                    "lower_cutoff_freq = 50\n"
+                    "higher_cutoff_freq = 12000\n"
+                    "[output]\n"
+                    "method = raw\n"
+                    "raw_target = /dev/stdout\n"
+                    "data_format = binary\n"
+                    "bit_format = 8bit\n"
+                )
+                with open(CAVA_CONFIG_PATH, "w", encoding="utf-8") as f:
+                    f.write(cava_cfg)
+
+                self._cava_proc = subprocess.Popen(
+                    ["cava", "-p", CAVA_CONFIG_PATH],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL
+                )
+
+                chunk_size = 4
+                while True:
+                    if not self._cava_proc or self._cava_proc.poll() is not None:
+                        break
+                    raw = self._cava_proc.stdout.read(chunk_size)
+                    if len(raw) < 4:
+                        break
+                    b1, b2, b3, b4 = struct.unpack("4B", raw)
+                    s1 = round(0.15 + (b1 / 255.0) * 0.85, 2)
+                    s2 = round(0.15 + (b2 / 255.0) * 0.85, 2)
+                    s3 = round(0.15 + (b3 / 255.0) * 0.85, 2)
+                    s4 = round(0.15 + (b4 / 255.0) * 0.85, 2)
+
+                    if self._curr_status == "Playing":
+                        self.audioSpectrumUpdated.emit(s1, s2, s3, s4)
+                    else:
+                        self.audioSpectrumUpdated.emit(0.2, 0.2, 0.2, 0.2)
+            except Exception:
+                pass
+
+        self._pool.submit(_cava_worker)
+
+    @Slot(int)
+    def adjustVolume(self, delta_pct: int):
+        def _vol():
+            sign = "+" if delta_pct > 0 else "-"
+            val_abs = abs(delta_pct)
+            new_val = 50
+            try:
+                if shutil.which("wpctl"):
+                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{val_abs}%{sign}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    res = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True)
+                    parts = res.stdout.strip().split()
+                    if len(parts) >= 2:
+                        new_val = int(round(float(parts[1]) * 100))
+                elif shutil.which("pactl"):
+                    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{val_abs}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    res = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], capture_output=True, text=True)
+                    for token in res.stdout.split():
+                        if "%" in token:
+                            new_val = int(token.replace("%", ""))
+                            break
+
+                new_val = max(0, min(100, new_val))
+                icon = "🔇" if new_val == 0 else ("🔉" if new_val < 50 else "🔊")
+                self.osdTriggered.emit(icon, "Volume", new_val)
+            except Exception as e:
+                app_logger.warning(f"调节音量异常: {e}")
+
+        self._pool.submit(_vol)
+
+    # 🚀 封面取色引擎（全流程追踪日志）
+    def _extract_cover_color(self, art_url: str):
+        if not art_url:
+            app_logger.warning("🎨 [主色调] 传入的封面地址为空，使用默认绿色")
+            self.dominantColorUpdated.emit("#22c55e")
+            return
+
+        def _extract():
+            try:
+                img_bytes = None
+                clean_url = art_url.strip().split("?")[0]
+                app_logger.info(f"🎨 [主色调] 开始分析封面色彩 -> '{clean_url}'")
+
+                if clean_url.startswith("http://") or clean_url.startswith("https://"):
+                    app_logger.info(f"🌐 [主色调] 正在从网络下载封面图片: {clean_url}")
+                    req = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                        img_bytes = resp.read()
+                    app_logger.info(f"🌐 [主色调] 网络封面下载完成，大小: {len(img_bytes)} 字节")
+                else:
+                    local_path = clean_url
+                    if local_path.startswith("file://"):
+                        local_path = local_path[7:]
+                    local_path = urllib.parse.unquote(local_path)
+                    app_logger.info(f"📁 [主色调] 正在读取本地封面文件: '{local_path}'")
+                    if os.path.exists(local_path):
+                        with open(local_path, "rb") as f:
+                            img_bytes = f.read()
+                        app_logger.info(f"📁 [主色调] 本地封面读取成功，大小: {len(img_bytes)} 字节")
+                    else:
+                        app_logger.warning(f"❌ [主色调] 本地封面文件不存在: '{local_path}'")
+                        return
+
+                if not img_bytes:
+                    app_logger.warning("❌ [主色调] 未能获取到图片二进制数据")
+                    return
+
+                qimg = QImage()
+                if not qimg.loadFromData(img_bytes):
+                    app_logger.warning("❌ [主色调] QImage 解析图片数据失败，图片格式可能不受支持")
+                    return
+
+                scaled = qimg.scaled(24, 24, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+                best_color = None
+                max_score = -1.0
+
+                for y in range(24):
+                    for x in range(24):
+                        col = scaled.pixelColor(x, y)
+                        r, g, b, a = col.red(), col.green(), col.blue(), col.alpha()
+                        if a < 128:
+                            continue
+                        lum = 0.299 * r + 0.587 * g + 0.114 * b
+                        if lum < 35 or lum > 225:
+                            continue
+                        sat = max(r, g, b) - min(r, g, b)
+                        if sat < 25:
+                            continue
+                        score = sat * 1.8 + (255 - abs(lum - 128))
+                        if score > max_score:
+                            max_score = score
+                            best_color = (r, g, b)
+
+                if best_color:
+                    hex_color = f"#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}"
+                    self._curr_dominant_color = hex_color
+                    app_logger.info(f"✨ [主色调] 提取成功 -> {hex_color} (已通过 dominantColorUpdated 广播)")
+                    self.dominantColorUpdated.emit(hex_color)
+                else:
+                    app_logger.info("ℹ️ [主色调] 封面颜色过于暗淡或单调，保留主题色")
+                    self.dominantColorUpdated.emit("#22c55e")
+            except Exception as e:
+                app_logger.error(f"❌ [主色调] 提取过程异常崩溃: {e}")
+
+        self._pool.submit(_extract)
+
+    def _setup_clipboard_listener(self):
+        clipboard = QGuiApplication.clipboard()
+        clipboard.dataChanged.connect(self._on_clipboard_changed)
+
+    def _on_clipboard_changed(self):
+        clipboard = QGuiApplication.clipboard()
+        mime = clipboard.mimeData()
+        if not mime:
+            return
+
+        if mime.hasImage():
+            self.clipboardTriggered.emit("🖼️", "截图/图像", "已复制到剪贴板", 1300)
+            return
+
+        if mime.hasText():
+            text = clipboard.text().strip()
+            if not text or text == self._last_clip_text:
+                return
+            self._last_clip_text = text
+            count = len(text)
+            preview = text.replace("\n", " ").strip()
+            if len(preview) > 18:
+                preview = preview[:16] + "..."
+            detail_str = f"已复制 {count} 字符 · \"{preview}\""
+            self.clipboardTriggered.emit("📋", "剪贴板", detail_str, 1300)
 
     @Property(QObject, constant=True)
     def notificationModel(self):
@@ -162,6 +360,27 @@ class IslandBridge(QObject):
                 prog = min(1.0, max(0.0, self._curr_pos / self._curr_dur))
                 self.progressUpdated.emit(self._curr_pos, self._curr_dur, prog)
 
+    def _poll_memory_usage(self):
+        try:
+            total_kb, avail_kb = 0, 0
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        total_kb = int(line.split()[1])
+                    elif line.startswith("MemAvailable:"):
+                        avail_kb = int(line.split()[1])
+                    if total_kb and avail_kb:
+                        break
+
+            if total_kb > 0:
+                used_kb = max(0, total_kb - avail_kb)
+                pct = int(round((used_kb / total_kb) * 100))
+                used_gb = f"{used_kb / (1024 * 1024):.1f}G"
+                total_gb = f"{total_kb / (1024 * 1024):.1f}G"
+                self.memoryUpdated.emit(pct, used_gb, total_gb)
+        except Exception:
+            pass
+
     @Slot(str, str)
     def _handle_daemon_payload(self, m_type: str, data_str: str):
         try:
@@ -176,13 +395,22 @@ class IslandBridge(QObject):
 
         elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
             m = data["media"]
-            art = m.get("art_url", "")
+            # 🚀 全候选字段兼容提取
+            raw_art = m.get("art_url") or m.get("artUrl") or m.get("mpris:artUrl") or m.get("cover") or m.get("thumbnail") or ""
+            art = raw_art
             if art and art.startswith("/") and not art.startswith("file://"):
                 art = "file://" + art
+
+            title = m.get("title", "等待播放...")
+            artist = m.get("artist", "未知歌手")
+            status = m.get("status", "Paused")
+
+            app_logger.info(f"📥 [MPRIS-WS] 收到媒体包 -> 曲目: '{title}' | 歌手: '{artist}' | 状态: [{status}] | 封面: '{raw_art}'")
+
             self._apply_media_state(
-                m.get("title", "等待播放..."),
-                m.get("artist", "未知歌手"),
-                m.get("status", "Paused"),
+                title,
+                artist,
+                status,
                 art,
                 m.get("position"),
                 m.get("duration"),
@@ -298,6 +526,15 @@ class IslandBridge(QObject):
             if pos and pos > 0:
                 self._curr_pos = pos
 
+        # 🚀 强制提色与日志输出
+        if is_track_changed or (art and art != self._curr_art):
+            app_logger.info(f"🔄 [状态流] 切歌或封面变动 -> 旧封面: '{self._curr_art}' | 新封面: '{art}'")
+            self._curr_art = art
+            if art:
+                self._extract_cover_color(art)
+            else:
+                self.dominantColorUpdated.emit("#22c55e")
+
         if status == "Playing":
             if not self._local_media_timer.isActive():
                 self._local_media_timer.start()
@@ -305,6 +542,7 @@ class IslandBridge(QObject):
             if self._local_media_timer.isActive():
                 self._local_media_timer.stop()
 
+        app_logger.info(f"📡 [广播QML] mediaUpdated -> title='{title}', art='{art}'")
         self.mediaUpdated.emit(title, artist, status, art, self._curr_pos, self._curr_dur)
 
     def _apply_media_progress(self, pos_val, dur_val, prog):
@@ -359,8 +597,15 @@ class IslandBridge(QObject):
             ry = max(0, int(r.get("y", 0)))
             rw = min(vw - rx, int(r.get("w", 0)))
             rh = min(vh - ry, int(r.get("h", 0)))
+            radius = int(r.get("r", 0))
             if rw > 0 and rh > 0:
-                composite = composite.united(QRect(rx, ry, rw, rh))
+                if radius > 0:
+                    path = QPainterPath()
+                    path.addRoundedRect(rx, ry, rw, rh, radius, radius)
+                    poly = path.toFillPolygon().toPolygon()
+                    composite = composite.united(QRegion(poly))
+                else:
+                    composite = composite.united(QRect(rx, ry, rw, rh))
         if not composite.isEmpty():
             self.view.setMask(composite)
 
@@ -404,20 +649,76 @@ class IslandBridge(QObject):
     def switchWorkspaceNext(self):
         self.sendIpcCmd("WORKSPACE_NEXT")
 
-    # 🚀 一键接听 Teams 来电
+    @Slot(str)
+    def executePowerAction(self, action: str):
+        app_logger.info(f"触发系统电源/会话管理指令 -> {action}")
+        self.sendIpcCmd(action)
+
     @Slot()
     def answerTeamsCall(self):
         self.sendIpcCmd("TEAMS_ANSWER")
 
-    # 🚀 拒接/挂断 Teams 来电
     @Slot()
     def rejectTeamsCall(self):
         self.sendIpcCmd("TEAMS_REJECT")
 
-    # 🚀 激活聚焦 Teams 窗口
     @Slot()
     def focusTeamsWindow(self):
         self.sendIpcCmd("TEAMS_FOCUS")
+        def _focus():
+            candidates = ["teams-for-linux", "Microsoft Teams", "Teams", "teams", "crx_cifhbcnohmdccbgoicgdjpfamggdegmo"]
+            for kw in candidates:
+                try:
+                    if shutil.which("wmctrl"):
+                        if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                    if shutil.which("xdotool"):
+                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
+                            return
+                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
+                            return
+                    if shutil.which("hyprctl"):
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
+                            return
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
+                            return
+                    if shutil.which("swaymsg"):
+                        if subprocess.run(["swaymsg", f'[class="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                        if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                            return
+                except subprocess.TimeoutExpired:
+                    continue
+        self._pool.submit(_focus)
+
+    @Slot()
+    def openSystemMonitor(self):
+        def _open():
+            gui_candidates = ["mission-center", "resources", "gnome-system-monitor", "plasma-systemmonitor", "mate-system-monitor", "xfce4-taskmanager"]
+            for cmd in gui_candidates:
+                if shutil.which(cmd):
+                    try:
+                        subprocess.Popen([cmd])
+                        return
+                    except Exception as e:
+                        app_logger.warning(f"唤起任务管理器异常: {e}")
+
+            terminal_emulators = ["kitty", "alacritty", "foot", "wezterm", "gnome-terminal", "konsole", "xterm"]
+            tui_monitors = ["btop", "htop", "top"]
+            for term in terminal_emulators:
+                if shutil.which(term):
+                    for mon in tui_monitors:
+                        if shutil.which(mon):
+                            try:
+                                subprocess.Popen([term, "-e", mon])
+                                return
+                            except Exception:
+                                pass
+        self._pool.submit(_open)
 
     @Slot(str, bool, result=dict)
     def getWorldTime(self, tz_name, is_24h=True):
@@ -518,10 +819,12 @@ class IslandBridge(QObject):
                         if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
                             return
                     if shutil.which("xdotool"):
-                        if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
                             return
                     if shutil.which("hyprctl"):
-                        if subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        if res.returncode == 0:
                             return
                     if shutil.which("swaymsg"):
                         if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:

@@ -11,6 +11,13 @@ Item {
     property real position: 0
     property real duration: 0
 
+    // 自适应专辑主色调与真实 FFT 频谱
+    property string dominantColor: "#22c55e"
+    property real spec1: 0.2
+    property real spec2: 0.2
+    property real spec3: 0.2
+    property real spec4: 0.2
+
     // 通话数据
     property bool isCalling: false
     property string callTitle: ""
@@ -31,7 +38,7 @@ Item {
     property string alertSubtitle: ""
     property string alertAvatar: ""
 
-    // 网络与通知（声明式单向绑定至 NotificationListModel）
+    // 网络与通知
     readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
     property int unreadCount: notifModel ? notifModel.unreadCount : 0
     property string latestNotifAvatar: notifModel ? notifModel.latestAvatar : ""
@@ -42,7 +49,12 @@ Item {
     property string upSpeedCompact: "0K"
     property string localIp: "127.0.0.1"
 
+    property int memoryPercent: 0
+    property string memoryUsedGb: "0G"
+    property string memoryTotalGb: "0G"
+
     signal triggerAlert(string icon, string title, string sub, int ms, string avatar)
+    signal triggerClipboard(string icon, string title, string detail, int ms)
     signal triggerOsd(string icon, string label, int val)
     signal triggerWorkspace(int curr, int tot, string name)
     signal callEnded()
@@ -58,6 +70,16 @@ Item {
         function onProgressUpdated(pos, dur) {
             if (dur !== undefined && !isNaN(dur) && Number(dur) > 0) relay.duration = Number(dur)
             if (pos !== undefined && !isNaN(pos) && Number(pos) >= 0) relay.position = Number(pos)
+        }
+        function onDominantColorUpdated(hex) {
+            relay.dominantColor = hex
+        }
+        function onAudioSpectrumUpdated(s1, s2, s3, s4) {
+            relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
+        }
+        // 🚀 核心修复：纯正标准的 Qt 6 Connections 信号函数语法
+        function onClipboardTriggered(icon, title, detail, ms) {
+            relay.triggerClipboard(icon, title, detail, ms)
         }
         function onOsdTriggered(icon, label, val) {
             relay.osdIcon = icon; relay.osdValue = val
@@ -83,6 +105,11 @@ Item {
             relay.downSpeedStr = down; relay.upSpeedStr = up
             relay.downSpeedCompact = downComp; relay.upSpeedCompact = upComp
             if (ip) relay.localIp = ip
+        }
+        function onMemoryUpdated(pct, used, total) {
+            relay.memoryPercent = pct
+            relay.memoryUsedGb = used
+            relay.memoryTotalGb = total
         }
     }
 }
