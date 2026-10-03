@@ -121,7 +121,9 @@ Rectangle {
             wheelActiveTimer.restart()
             musicBubbleRoot.wheelInteracted()
 
-            var delta = event.angleDelta.y > 0 ? 5 : -5
+            // 🚀 动态读取配置中的音量调节步长
+            var step = (typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5
+            var delta = event.angleDelta.y > 0 ? step : -step
             if (typeof Bridge !== "undefined" && Bridge.adjustVolume) {
                 Bridge.adjustVolume(delta)
             }

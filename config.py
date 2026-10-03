@@ -32,8 +32,9 @@ class ConfigManager(QObject):
     showNetSpeedChanged = Signal(bool)
     clipboardMonitorEnabledChanged = Signal(bool)
 
-    # 硬件多模态微岛开关
+    # 硬件多模态微岛开关与音量步长
     showHardwareBubbleChanged = Signal(bool)
+    volumeStepChanged = Signal(int)
 
     # 内存小岛与久坐关怀专用信号
     showMemoryBubbleChanged = Signal(bool)
@@ -76,6 +77,7 @@ class ConfigManager(QObject):
         self._showNetSpeed = True
         self._clipboardMonitorEnabled = True
         self._showHardwareBubble = True
+        self._volumeStep = 5
 
         self._showMemoryBubble = True
         self._memoryThreshold = 75
@@ -84,7 +86,6 @@ class ConfigManager(QObject):
         self._sedentarySnoozeMinutes = 5
 
         self._subIslandsLeft = ["memory", "music"]
-        # 🚀 默认将 hardware 硬件调节小岛排在右侧首位（紧贴主胶囊）
         self._subIslandsRight = ["hardware", "timer", "notification"]
 
         self._showWorkspaceTab = True
@@ -161,6 +162,7 @@ class ConfigManager(QObject):
                 self._showNetSpeed = data.get("showNetSpeed", True)
                 self._clipboardMonitorEnabled = data.get("clipboardMonitorEnabled", True)
                 self._showHardwareBubble = data.get("showHardwareBubble", True)
+                self._volumeStep = data.get("volumeStep", 5)
 
                 self._showMemoryBubble = data.get("showMemoryBubble", True)
                 self._memoryThreshold = data.get("memoryThreshold", 75)
@@ -208,6 +210,7 @@ class ConfigManager(QObject):
                     "showNetSpeed": self._showNetSpeed,
                     "clipboardMonitorEnabled": self._clipboardMonitorEnabled,
                     "showHardwareBubble": self._showHardwareBubble,
+                    "volumeStep": self._volumeStep,
 
                     "showMemoryBubble": self._showMemoryBubble,
                     "memoryThreshold": self._memoryThreshold,
@@ -232,6 +235,14 @@ class ConfigManager(QObject):
             os.replace(tmp_file, CONFIG_FILE)
         except Exception as e:
             app_logger.warning(f"保存配置失败: {e}")
+
+    @Property(int, notify=volumeStepChanged)
+    def volumeStep(self): return self._volumeStep
+    @volumeStep.setter
+    def volumeStep(self, val):
+        val = max(1, min(20, int(val)))
+        if self._volumeStep != val:
+            self._volumeStep = val; self.save(); self.volumeStepChanged.emit(self._volumeStep)
 
     @Property(bool, notify=showHardwareBubbleChanged)
     def showHardwareBubble(self): return self._showHardwareBubble

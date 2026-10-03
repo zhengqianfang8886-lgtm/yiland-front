@@ -7,7 +7,6 @@ Rectangle {
     property string chosenFont: ""
     property bool isExpanded: false
     property bool isCollapsing: false
-    property bool isMorphing: false
     property var enabledTabs: []
 
     property alias expandedTab: expandedCardView.expandedTab
@@ -127,7 +126,11 @@ Rectangle {
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
-    readonly property bool isMorphGrowing: isExpanded || isNoticeActive
+    // 🚀 切换工作区模式同样归为形态扩张动效，获得丝滑回弹与正确的物理响应
+    readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE")
+
+    // 🚀 响应式声明：只要宽度或高度处于动画中，即刻判定为正在 Morphing，零时序延迟
+    readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
 
     z: 2
     anchors.top: parent.top
@@ -161,7 +164,6 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
-    // 统一 Spring 物理曲线
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
@@ -169,7 +171,6 @@ Rectangle {
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
-                capsuleRoot.isMorphing = running || heightNumAnim.running
                 capsuleRoot.maskCommitRequested()
                 if (!running && !heightNumAnim.running) {
                     capsuleRoot.onMorphFinished()
@@ -185,7 +186,6 @@ Rectangle {
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
-                capsuleRoot.isMorphing = running || widthNumAnim.running
                 capsuleRoot.maskCommitRequested()
                 if (!running && !widthNumAnim.running) {
                     capsuleRoot.onMorphFinished()

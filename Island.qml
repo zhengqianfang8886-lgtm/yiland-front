@@ -14,7 +14,7 @@ Item {
     // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing)
 
-    // 音乐小岛延时 5 秒消失逻辑（拖动进度条、缓冲时保持常驻）
+    // 音乐小岛延时 5 秒消失逻辑
     property bool musicRetained: relay.status === "Playing"
 
     Timer {
@@ -253,7 +253,7 @@ Item {
     }
 
     // =========================================================================
-    // 5 大副岛组件
+    // 5 大副岛组件（胶囊 Morphing 期间禁用二次滤波，彻底杜绝穿模碰撞）
     // =========================================================================
 
     MemoryBubbleView {
@@ -275,7 +275,10 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on x {
+            enabled: !capsule.isMorphing
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
@@ -297,7 +300,10 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on x {
+            enabled: !capsule.isMorphing
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
@@ -315,7 +321,10 @@ Item {
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
 
-        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on x {
+            enabled: !capsule.isMorphing
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
@@ -363,9 +372,11 @@ Item {
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on x {
+            enabled: !capsule.isMorphing
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
 
-        // 🚀 补齐尺寸变动报备，彻底杜绝任何窗口遮罩裁切隐患
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
@@ -383,7 +394,10 @@ Item {
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on x {
+            enabled: !capsule.isMorphing
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()

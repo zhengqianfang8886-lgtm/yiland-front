@@ -55,7 +55,7 @@ Rectangle {
         return Theme.timer
     }
 
-    // 🚀【核心修复】：宽度严格固定，原位切换，绝不延长胶囊，彻底消灭穿模
+    // 宽度严格锁定，绝对不产生尺寸膨胀
     width: hasHours ? 106 : 90
     height: 34
     radius: height / 2
@@ -106,7 +106,7 @@ Rectangle {
         }
     }
 
-    // 二次确认时的背景微红警示光圈
+    // 二次确认模式下的背景微红警示光晕
     Rectangle {
         anchors.fill: parent
         radius: parent.radius
@@ -223,48 +223,91 @@ Rectangle {
     }
 
     // =========================================================================
-    // 🚀 2. 原位内嵌二次确认操作层 (总宽 80px，完美收拢在 90px 岛体内)
+    // 🚀 2. 无文字·纯矢量自表意二次确认层 (左返回 ← / 右停止 ⏹)
     // =========================================================================
     Row {
         id: confirmRow
         anchors.centerIn: parent
-        spacing: 5
+        spacing: 6
         visible: timerBubbleRoot.isConfirmingDismiss
         opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.92
 
         Behavior on opacity {
             NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
         }
-
-        Text {
-            text: "结束?"
-            color: Theme.danger
-            font.pixelSize: 10
-            font.weight: Font.Black
-            font.family: (timerBubbleRoot.chosenFont !== "") ? timerBubbleRoot.chosenFont : "Monospace"
-            anchors.verticalCenter: parent.verticalCenter
+        Behavior on scale {
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle }
         }
 
-        // 确认结束按钮 (✓)
+        // 1. 撤销/返回原状按钮 (← 矢量纯画，表达取消确认、返回计时)
         Rectangle {
-            width: 22; height: 22; radius: 11
+            width: (timerBubbleRoot.width - 18) / 2
+            height: 24
+            radius: 12
             anchors.verticalCenter: parent.verticalCenter
-            color: confirmYesTap.pressed ? "#991b1b" : (confirmYesHover.hovered ? "#dc2626" : Theme.danger)
-            scale: confirmYesTap.pressed ? 0.9 : (confirmYesHover.hovered ? 1.06 : 1.0)
+            color: backBtnTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (backBtnHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
+            border.color: backBtnHover.hovered ? Qt.rgba(1, 1, 1, 0.35) : Theme.borderSubtle
+            border.width: 1
+            scale: backBtnTap.pressed ? 0.92 : (backBtnHover.hovered ? 1.04 : 1.0)
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+            Behavior on color { ColorAnimation { duration: Theme.animInstant } }
+            Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+
+            Shape {
+                anchors.centerIn: parent
+                width: 14; height: 14
+                layer.enabled: true
+                layer.samples: 4
+
+                ShapePath {
+                    strokeColor: backBtnHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.85)
+                    strokeWidth: 1.8
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    joinStyle: ShapePath.RoundJoin
+
+                    startX: 6.5; startY: 3.5
+                    PathLine { x: 3.0; y: 7.0 }
+                    PathLine { x: 6.5; y: 10.5 }
+
+                    PathMove { x: 3.0; y: 7.0 }
+                    PathLine { x: 11.5; y: 7.0 }
+                }
+            }
+
+            HoverHandler { id: backBtnHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler {
+                id: backBtnTap
+                onTapped: {
+                    dismissConfirmTimer.stop()
+                    timerBubbleRoot.isConfirmingDismiss = false
+                }
+            }
+        }
+
+        // 2. 终止/退出计时按钮 (⏹ 实心方块终止符，表达确认终止计时)
+        Rectangle {
+            width: (timerBubbleRoot.width - 18) / 2
+            height: 24
+            radius: 12
+            anchors.verticalCenter: parent.verticalCenter
+            color: stopBtnTap.pressed ? "#991b1b" : (stopBtnHover.hovered ? "#dc2626" : Theme.danger)
+            scale: stopBtnTap.pressed ? 0.92 : (stopBtnHover.hovered ? 1.04 : 1.0)
             Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
             Behavior on color { ColorAnimation { duration: Theme.animInstant } }
 
-            Text {
+            // 终止实心方块 (Stop)
+            Rectangle {
                 anchors.centerIn: parent
-                text: "✓"
+                width: 8; height: 8
+                radius: 1.8
                 color: "white"
-                font.pixelSize: 11
-                font.weight: Font.Black
             }
 
-            HoverHandler { id: confirmYesHover; cursorShape: Qt.PointingHandCursor }
+            HoverHandler { id: stopBtnHover; cursorShape: Qt.PointingHandCursor }
             TapHandler {
-                id: confirmYesTap
+                id: stopBtnTap
                 onTapped: {
                     dismissConfirmTimer.stop()
                     timerBubbleRoot.isConfirmingDismiss = false
@@ -272,40 +315,11 @@ Rectangle {
                 }
             }
         }
-
-        // 取消返回按钮 (✕)
-        Rectangle {
-            width: 22; height: 22; radius: 11
-            anchors.verticalCenter: parent.verticalCenter
-            color: confirmNoTap.pressed ? Qt.rgba(1, 1, 1, 0.25) : (confirmNoHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
-            border.color: Theme.borderSubtle
-            border.width: 1
-            scale: confirmNoTap.pressed ? 0.9 : (confirmNoHover.hovered ? 1.06 : 1.0)
-            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
-            Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-
-            Text {
-                anchors.centerIn: parent
-                text: "✕"
-                color: Qt.rgba(1, 1, 1, 0.8)
-                font.pixelSize: 10
-                font.weight: Font.Bold
-            }
-
-            HoverHandler { id: confirmNoHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler {
-                id: confirmNoTap
-                onTapped: {
-                    dismissConfirmTimer.stop()
-                    timerBubbleRoot.isConfirmingDismiss = false
-                }
-            }
-        }
     }
 
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
 
-    // 左键单击：常态下切换 暂停/继续；确认态下点击外部区域取消确认
+    // 左键单击：常态下切换 暂停/继续；确认态下点击外部空白安全取消
     TapHandler {
         acceptedButtons: Qt.LeftButton
         onTapped: {
@@ -318,7 +332,7 @@ Rectangle {
         }
     }
 
-    // 右键单击：激活二次确认；再次右键则取消确认
+    // 右键单击：激活二次确认；再次右键则取消确认返回
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {

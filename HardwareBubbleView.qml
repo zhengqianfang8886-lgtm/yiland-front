@@ -298,7 +298,12 @@ Rectangle {
         onWheel: (event) => {
             event.accepted = true
             hwBubbleRoot.resetActivity()
-            var delta = event.angleDelta.y > 0 ? 5 : -5
+            // 🚀 音量调节应用配置的步长，其余模态保持标准 5
+            var step = 5
+            if (hwBubbleRoot.currentMode === 0 && typeof Config !== "undefined" && Config.volumeStep !== undefined) {
+                step = Config.volumeStep
+            }
+            var delta = event.angleDelta.y > 0 ? step : -step
             hwBubbleRoot.wheelAdjusted(hwBubbleRoot.currentMode, delta)
         }
     }

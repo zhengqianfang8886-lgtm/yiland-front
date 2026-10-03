@@ -102,7 +102,7 @@ Window {
             }
 
             // ==========================================
-            // 🚀 核心新增：悬浮间距与手势灵敏度（即时生效）
+            // 悬浮间距与手势灵敏度
             // ==========================================
             Rectangle {
                 width: parent.width
@@ -124,7 +124,7 @@ Window {
                         Text { text: "悬浮位置与手势灵敏度"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                     }
 
-                    // 1. 顶部下落距离滑块 (0 ~ 40px)
+                    // 1. 顶部下落距离滑块
                     Column {
                         width: parent.width
                         spacing: 4
@@ -143,7 +143,6 @@ Window {
                             width: parent.width; height: 22
                             from: 0; to: 40; stepSize: 1
                             value: (typeof Config !== "undefined") ? Config.topMargin : 0
-                            // 🚀 即时双向响应
                             onMoved: if (typeof Config !== "undefined") Config.topMargin = Math.round(value)
 
                             background: Rectangle {
@@ -160,7 +159,7 @@ Window {
                         }
                     }
 
-                    // 2. 鼠标悬停展开延时滑块 (80ms ~ 600ms)
+                    // 2. 鼠标悬停展开延时滑块
                     Column {
                         width: parent.width
                         spacing: 4
@@ -179,7 +178,6 @@ Window {
                             width: parent.width; height: 22
                             from: 80; to: 600; stepSize: 10
                             value: (typeof Config !== "undefined") ? Config.hoverDwellTime : 240
-                            // 🚀 即时响应
                             onMoved: if (typeof Config !== "undefined") Config.hoverDwellTime = Math.round(value)
 
                             background: Rectangle {
@@ -822,6 +820,75 @@ Window {
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: if (typeof Config !== "undefined") Config.sedentaryIntervalMinutes = modelData
+                                }
+                            }
+                        }
+                    }
+
+                    Item { height: 4 }
+
+                    // ==========================================
+                    // 🚀 核心新增：滚轮音量调节步长配置
+                    // ==========================================
+                    Column {
+                        width: parent.width
+                        spacing: 6
+
+                        Item {
+                            width: parent.width; height: 16
+                            Row {
+                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 5
+                                Text { text: "🔊"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: "滚轮音量调节步长"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
+                            }
+                            Text {
+                                text: ((typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5) + " %"
+                                color: "#34d399"; font.pixelSize: 11; font.weight: Font.Black; font.family: "Monospace"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Slider {
+                            id: volumeStepSlider
+                            width: parent.width; height: 22
+                            from: 1; to: 20; stepSize: 1
+                            value: (typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5
+                            onMoved: if (typeof Config !== "undefined") Config.volumeStep = Math.round(value)
+
+                            background: Rectangle {
+                                x: volumeStepSlider.leftPadding
+                                y: volumeStepSlider.topPadding + volumeStepSlider.availableHeight / 2 - height / 2
+                                width: volumeStepSlider.availableWidth; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                                Rectangle { width: volumeStepSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: "#34d399" }
+                            }
+                            handle: Rectangle {
+                                x: volumeStepSlider.leftPadding + volumeStepSlider.visualPosition * (volumeStepSlider.availableWidth - width)
+                                y: volumeStepSlider.topPadding + volumeStepSlider.availableHeight / 2 - height / 2
+                                width: 14; height: 14; radius: 7; color: volumeStepSlider.pressed ? "#6ee7b7" : "#34d399"; border.color: "#ffffff"; border.width: 1.5
+                            }
+                        }
+
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [1, 2, 5, 10]
+                                Rectangle {
+                                    width: 44; height: 20; radius: 10
+                                    readonly property bool isSel: (typeof Config !== "undefined" && Config.volumeStep === modelData)
+                                    color: isSel ? Qt.rgba(52, 211, 153, 0.28) : Qt.rgba(1, 1, 1, 0.08)
+                                    border.color: isSel ? "#34d399" : "transparent"
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData + "%"
+                                        color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                        font.pixelSize: 10; font.weight: Font.Bold
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        onClicked: if (typeof Config !== "undefined") Config.volumeStep = modelData
+                                    }
                                 }
                             }
                         }
