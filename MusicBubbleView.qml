@@ -28,14 +28,15 @@ Rectangle {
     border.color: isWheelActive ? dominantColor :
                   (musicBubbleRoot.isHovered ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.85) :
                   Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.35))
-    Behavior on border.color { ColorAnimation { duration: 180 } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+    // 统一 Spring 物理曲线
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
     property bool isWheelActive: false
     Timer {
@@ -48,7 +49,7 @@ Rectangle {
         anchors.centerIn: parent
         width: 26; height: 18; radius: 9
         color: (musicBubbleRoot.active || isWheelActive) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, isWheelActive ? 0.28 : 0.14) : "transparent"
-        Behavior on color { ColorAnimation { duration: 180 } }
+        Behavior on color { ColorAnimation { duration: Theme.animFast } }
     }
 
     // 4 频段实时跳动音波柱
@@ -111,7 +112,7 @@ Rectangle {
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
     TapHandler { onTapped: musicBubbleRoot.clicked() }
 
-    // 🚀【核心优化】：零延迟滚轮捕获，直接调用 Bridge 的乐观预测
+    // 零延迟滚轮调节
     WheelHandler {
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: (event) => {

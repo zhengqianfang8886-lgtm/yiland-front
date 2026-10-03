@@ -29,14 +29,15 @@ Rectangle {
     border.color: hwBubbleRoot.isHovered ?
                   Qt.rgba(currentThemeColor.r, currentThemeColor.g, currentThemeColor.b, 0.85) :
                   (isCurrentMuted ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.6) : Qt.rgba(currentThemeColor.r, currentThemeColor.g, currentThemeColor.b, 0.35))
-    Behavior on border.color { ColorAnimation { duration: 180 } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+    // 统一 Spring 物理曲线
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
     readonly property color currentThemeColor: {
         if (currentMode === 0) return Theme.bluetooth
@@ -70,8 +71,8 @@ Rectangle {
 
     SequentialAnimation {
         id: switchAnimation
-        NumberAnimation { target: iconContainer; property: "scale"; to: 0.65; duration: 90; easing.type: Easing.InQuad }
-        NumberAnimation { target: iconContainer; property: "scale"; to: 1.0; duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.25 }
+        NumberAnimation { target: iconContainer; property: "scale"; to: 0.65; duration: Theme.animInstant; easing.type: Easing.InQuad }
+        NumberAnimation { target: iconContainer; property: "scale"; to: 1.0; duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootFirm }
     }
 
     SequentialAnimation {
@@ -86,7 +87,7 @@ Rectangle {
         anchors.centerIn: parent
         width: 24; height: 24; radius: 12
         color: isCurrentMuted ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.22) : Qt.rgba(currentThemeColor.r, currentThemeColor.g, currentThemeColor.b, 0.16)
-        Behavior on color { ColorAnimation { duration: 180 } }
+        Behavior on color { ColorAnimation { duration: Theme.animFast } }
     }
 
     // 严谨定位的 16x16 黄金微视网膜光栅容器
@@ -95,14 +96,11 @@ Rectangle {
         anchors.centerIn: parent
         width: 16; height: 16
 
-        // =====================================================================
-        // 1. 工业级手绘音量：实心金属喇叭 + 严格同心声波弧
-        // =====================================================================
+        // 1. 手绘音量
         Item {
             anchors.fill: parent
             visible: hwBubbleRoot.currentMode === 0
 
-            // 喇叭本体（实心填充 + 微圆角修饰）
             Shape {
                 anchors.fill: parent
                 layer.enabled: true
@@ -115,8 +113,7 @@ Rectangle {
                     capStyle: ShapePath.RoundCap
                     joinStyle: ShapePath.RoundJoin
 
-                    startX: 1.5
-                    startY: 5.8
+                    startX: 1.5; startY: 5.8
                     PathLine { x: 4.2; y: 5.8 }
                     PathLine { x: 8.0; y: 2.2 }
                     PathLine { x: 8.0; y: 13.8 }
@@ -126,7 +123,6 @@ Rectangle {
                 }
             }
 
-            // 未静音：精细双阶同心声波弧
             Shape {
                 anchors.fill: parent
                 visible: !hwBubbleRoot.isVolMuted
@@ -139,8 +135,7 @@ Rectangle {
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 10.5
-                    startY: 5.5
+                    startX: 10.5; startY: 5.5
                     PathArc { x: 10.5; y: 10.5; radiusX: 3.5; radiusY: 3.5; useLargeArc: false }
                 }
 
@@ -150,13 +145,11 @@ Rectangle {
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 13.2
-                    startY: 3.5
+                    startX: 13.2; startY: 3.5
                     PathArc { x: 13.2; y: 12.5; radiusX: 6.5; radiusY: 6.5; useLargeArc: false }
                 }
             }
 
-            // 静音状态：右侧利落的 45° 红色交叉斩叉
             Shape {
                 anchors.fill: parent
                 visible: hwBubbleRoot.isVolMuted
@@ -169,8 +162,7 @@ Rectangle {
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 10.8
-                    startY: 6.0
+                    startX: 10.8; startY: 6.0
                     PathLine { x: 14.8; y: 10.0 }
                     PathMove { x: 14.8; y: 6.0 }
                     PathLine { x: 10.8; y: 10.0 }
@@ -178,9 +170,7 @@ Rectangle {
             }
         }
 
-        // =====================================================================
-        // 2. 工业级手绘屏幕亮度：实心金核 + 换行规整排布的八方射线
-        // =====================================================================
+        // 2. 手绘屏幕亮度
         Item {
             anchors.fill: parent
             visible: hwBubbleRoot.currentMode === 1
@@ -190,55 +180,42 @@ Rectangle {
                 layer.enabled: true
                 layer.samples: 4
 
-                // 实心圆核
                 ShapePath {
                     fillColor: hwBubbleRoot.isHovered ? "white" : "#fbbf24"
                     strokeColor: "transparent"
 
-                    startX: 8.0
-                    startY: 4.8
+                    startX: 8.0; startY: 4.8
                     PathArc { x: 8.0; y: 11.2; radiusX: 3.2; radiusY: 3.2; useLargeArc: false }
                     PathArc { x: 8.0; y: 4.8; radiusX: 3.2; radiusY: 3.2; useLargeArc: false }
                 }
 
-                // 八方射线（严格换行，无任何行内分号）
                 ShapePath {
                     strokeColor: hwBubbleRoot.isHovered ? "white" : "#fbbf24"
                     strokeWidth: 1.4
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 8.0
-                    startY: 0.8
+                    startX: 8.0; startY: 0.8
                     PathLine { x: 8.0; y: 2.8 }
-
                     PathMove { x: 8.0; y: 13.2 }
                     PathLine { x: 8.0; y: 15.2 }
-
                     PathMove { x: 0.8; y: 8.0 }
                     PathLine { x: 2.8; y: 8.0 }
-
                     PathMove { x: 13.2; y: 8.0 }
                     PathLine { x: 15.2; y: 8.0 }
-
                     PathMove { x: 2.9; y: 2.9 }
                     PathLine { x: 4.3; y: 4.3 }
-
                     PathMove { x: 13.1; y: 2.9 }
                     PathLine { x: 11.7; y: 4.3 }
-
                     PathMove { x: 2.9; y: 13.1 }
                     PathLine { x: 4.3; y: 11.7 }
-
                     PathMove { x: 13.1; y: 13.1 }
                     PathLine { x: 11.7; y: 11.7 }
                 }
             }
         }
 
-        // =====================================================================
-        // 3. 工业级手绘麦克风：实心金属话筒 + 抛物线支架 + 闭麦斩切
-        // =====================================================================
+        // 3. 手绘麦克风
         Item {
             anchors.fill: parent
             visible: hwBubbleRoot.currentMode === 2
@@ -248,32 +225,27 @@ Rectangle {
                 layer.enabled: true
                 layer.samples: 4
 
-                // 实心拾音头胶囊
                 ShapePath {
                     fillColor: hwBubbleRoot.isMicMuted ? Qt.rgba(1, 1, 1, 0.45) : (hwBubbleRoot.isHovered ? "white" : "#c084fc")
                     strokeColor: "transparent"
 
-                    startX: 5.8
-                    startY: 3.5
+                    startX: 5.8; startY: 3.5
                     PathArc { x: 10.2; y: 3.5; radiusX: 2.2; radiusY: 2.2; useLargeArc: false }
                     PathLine { x: 10.2; y: 7.5 }
                     PathArc { x: 5.8; y: 7.5; radiusX: 2.2; radiusY: 2.2; useLargeArc: false }
                     PathLine { x: 5.8; y: 3.5 }
                 }
 
-                // 悬吊 U 型架与立柱底座
                 ShapePath {
                     strokeColor: hwBubbleRoot.isMicMuted ? Qt.rgba(1, 1, 1, 0.45) : (hwBubbleRoot.isHovered ? "white" : "#c084fc")
                     strokeWidth: 1.4
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 3.8
-                    startY: 6.2
+                    startX: 3.8; startY: 6.2
                     PathLine { x: 3.8; y: 7.4 }
                     PathArc { x: 12.2; y: 7.4; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
                     PathLine { x: 12.2; y: 6.2 }
-
                     PathMove { x: 8.0; y: 11.6 }
                     PathLine { x: 8.0; y: 14.5 }
                     PathMove { x: 5.2; y: 14.5 }
@@ -281,7 +253,6 @@ Rectangle {
                 }
             }
 
-            // 闭麦禁音斩切红线
             Shape {
                 anchors.fill: parent
                 visible: hwBubbleRoot.isMicMuted
@@ -294,8 +265,7 @@ Rectangle {
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
 
-                    startX: 2.5
-                    startY: 2.5
+                    startX: 2.5; startY: 2.5
                     PathLine { x: 13.5; y: 13.5 }
                 }
             }
@@ -304,7 +274,6 @@ Rectangle {
 
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
 
-    // 左键静音/开关
     TapHandler {
         acceptedButtons: Qt.LeftButton
         onTapped: {
@@ -314,7 +283,6 @@ Rectangle {
         }
     }
 
-    // 右键循环切模 (音量 -> 亮度 -> 麦克风)
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {
@@ -325,7 +293,6 @@ Rectangle {
         }
     }
 
-    // 滚轮调节
     WheelHandler {
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: (event) => {

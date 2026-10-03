@@ -58,8 +58,8 @@ Rectangle {
 
     SequentialAnimation {
         id: clipGlowAnim
-        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.95; duration: 110; easing.type: Easing.OutQuad }
-        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.0; duration: 340; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.95; duration: Theme.animInstant; easing.type: Easing.OutQuad }
+        NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.0; duration: Theme.animSlow; easing.type: Easing.InOutQuad }
     }
 
     function triggerClipGlow() {
@@ -158,15 +158,16 @@ Rectangle {
 
     Behavior on border.color {
         enabled: clipGlowOpacity <= 0.01
-        ColorAnimation { duration: 200 }
+        ColorAnimation { duration: Theme.animNormal }
     }
 
+    // 统一 Spring 物理曲线
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 280 : 220) : 170
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.animSlow : Theme.animSpring) : Theme.animFast
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.10 : 1.05) : 1.0
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || heightNumAnim.running
                 capsuleRoot.maskCommitRequested()
@@ -180,9 +181,9 @@ Rectangle {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 160
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : Theme.animNormal) : Theme.animFast
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.12 : 1.04) : 1.0
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || widthNumAnim.running
                 capsuleRoot.maskCommitRequested()
@@ -193,7 +194,7 @@ Rectangle {
         }
     }
 
-    Behavior on radius { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+    Behavior on radius { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic } }
 
     function onMorphFinished() {
         if (!isExpanded) {
@@ -293,7 +294,6 @@ Rectangle {
         }
     }
 
-    // 🚀 确保弹窗出现时，透明感应层不会遮挡弹窗内的点击
     MouseArea {
         id: hitSensorArea
         anchors.fill: parent
@@ -337,14 +337,12 @@ Rectangle {
         }
     }
 
-    // 1. 常态与所有瞬态弹窗视图 (ALERT, SEDENTARY, OSD, WORKSPACE, CALL)
+    // 1. 常态与所有瞬态弹窗视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
         z: 5
 
-        // 🚀【核心修复】：移除 height <= 44 的致命判定！
-        // 只要不是点击展开大卡片，所有小胶囊弹窗均无条件渲染显示
         visible: opacity > 0.01
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
@@ -362,11 +360,11 @@ Rectangle {
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
-        Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animInstant; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开大卡片视图容器 (仅在主动点击展开时呈现)
+    // 2. 展开大卡片视图容器
     Item {
         anchors.fill: parent
         clip: false
@@ -398,10 +396,10 @@ Rectangle {
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
 
             Behavior on opacity {
-                NumberAnimation { duration: capsuleRoot.isExpanded ? 140 : 40; easing.type: Easing.OutQuad }
+                NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad }
             }
             Behavior on scale {
-                NumberAnimation { duration: capsuleRoot.isExpanded ? 180 : 60; easing.type: Easing.OutBack; easing.overshoot: 1.04 }
+                NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle }
             }
         }
     }

@@ -13,7 +13,36 @@ Item {
 
     // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing)
-    readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
+
+    // 音乐小岛延时 5 秒消失逻辑（拖动进度条、缓冲时保持常驻）
+    property bool musicRetained: relay.status === "Playing"
+
+    Timer {
+        id: musicRetainTimer
+        interval: 5000
+        repeat: false
+        onTriggered: {
+            if (relay.status !== "Playing") {
+                root.musicRetained = false
+            }
+        }
+    }
+
+    Connections {
+        target: relay
+        function onStatusChanged() {
+            if (relay.status === "Playing") {
+                musicRetainTimer.stop()
+                root.musicRetained = true
+            } else {
+                if (root.musicRetained) {
+                    musicRetainTimer.restart()
+                }
+            }
+        }
+    }
+
+    readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
 
@@ -224,7 +253,7 @@ Item {
     }
 
     // =========================================================================
-    // 5 大副岛组件（位移或隐现均向 maskController 报备，彻底告别切断残影）
+    // 5 大副岛组件
     // =========================================================================
 
     MemoryBubbleView {
@@ -246,11 +275,11 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
-        // 🚀 核心联动：位移或显隐立即放开遮罩
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        onWidthChanged: maskController.notifyIslandMoving()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
@@ -268,10 +297,11 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        onWidthChanged: maskController.notifyIslandMoving()
         onClicked: root.expandToTab("media")
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
@@ -285,10 +315,11 @@ Item {
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
 
-        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        onWidthChanged: maskController.notifyIslandMoving()
 
         onWheelAdjusted: (mode, delta) => {
             root.handleSubBubbleInteracted()
@@ -332,10 +363,12 @@ Item {
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
+        // 🚀 补齐尺寸变动报备，彻底杜绝任何窗口遮罩裁切隐患
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        onWidthChanged: maskController.notifyIslandMoving()
 
         onTogglePause: capsule.toggleTimerPause()
         onDismissTimer: capsule.resetTimer()
@@ -350,10 +383,11 @@ Item {
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+        Behavior on x { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        onWidthChanged: maskController.notifyIslandMoving()
         onClicked: root.expandToTab("notification")
         onRightClicked: root.expandToTab("notification")
     }

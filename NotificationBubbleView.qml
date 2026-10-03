@@ -16,7 +16,6 @@ Rectangle {
 
     transformOrigin: (typeof Config !== "undefined" && Config.multiIslandExpandDirection === "left") ? Item.Right : Item.Left
 
-    // 🚀 1. 严格统一全岛 34px 标准高度，彻底消除 2px 错位；宽度随数字智能舒展
     height: 34
     radius: 17
     width: notifContentRow.implicitWidth + 18
@@ -34,20 +33,21 @@ Rectangle {
     opacity: shouldShow ? 1.0 : 0.0
     scale: shouldShow ? 1.0 : 0.0
 
-    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
-    Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
+    // 统一 Spring 物理曲线
+    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     Behavior on opacity {
         NumberAnimation {
-            duration: notifBubbleRoot.shouldShow ? 160 : 0
+            duration: notifBubbleRoot.shouldShow ? Theme.animNormal : 0
             easing.type: Easing.OutQuad
         }
     }
     Behavior on scale {
         NumberAnimation {
-            duration: notifBubbleRoot.shouldShow ? 220 : 0
+            duration: notifBubbleRoot.shouldShow ? Theme.animSpring : 0
             easing.type: Easing.OutBack
-            easing.overshoot: Theme.springOvershoot
+            easing.overshoot: Theme.springOvershootNormal
         }
     }
 
@@ -67,13 +67,11 @@ Rectangle {
         }
     }
 
-    // 🚀 2. 内嵌自包含排列：正圆头像 + 数字微药丸，完全收拢在岛体内
     Row {
         id: notifContentRow
         anchors.centerIn: parent
         spacing: 6
 
-        // 正圆头像容器（开启硬件级多重采样裁剪，坚决杜绝平底直角漏出）
         Item {
             id: avatarWrapper
             width: 22; height: 22
@@ -121,7 +119,6 @@ Rectangle {
             }
         }
 
-        // 🚀 3. 发光数字微药丸（纯岛内布局，再也不会被窗口遮罩削去一半）
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             height: 18
@@ -131,7 +128,7 @@ Rectangle {
             border.color: Qt.rgba(255, 255, 255, 0.3)
             border.width: 1
 
-            Behavior on color { ColorAnimation { duration: 150 } }
+            Behavior on color { ColorAnimation { duration: Theme.animInstant } }
 
             Text {
                 id: countText
@@ -147,13 +144,11 @@ Rectangle {
 
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
 
-    // 左键点击：展开通知大卡片
     TapHandler {
         acceptedButtons: Qt.LeftButton
         onTapped: notifBubbleRoot.clicked()
     }
 
-    // 🚀 4. 右键点击：一键标为全部已读，小岛平滑隐去
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {

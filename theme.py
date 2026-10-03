@@ -62,7 +62,7 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def textMuted(self): return QColor(255, 255, 255, int(0.45 * 255))
 
-    # 4. 动效常数
+    # 4. 统一动效物理常数与 Spring 曲线参数
     @Property(int, constant=True)
     def animInstant(self): return 100
 
@@ -73,10 +73,22 @@ class ThemeManager(QObject):
     def animNormal(self): return 200
 
     @Property(int, constant=True)
+    def animSpring(self): return 220
+
+    @Property(int, constant=True)
     def animSlow(self): return 280
 
     @Property(float, constant=True)
+    def springOvershootSubtle(self): return 1.08
+
+    @Property(float, constant=True)
     def springOvershoot(self): return 1.15
+
+    @Property(float, constant=True)
+    def springOvershootNormal(self): return 1.15
+
+    @Property(float, constant=True)
+    def springOvershootFirm(self): return 1.25
 
     # 5. 几何规格
     @Property(int, constant=True)

@@ -27,14 +27,15 @@ Rectangle {
     color: Theme.bgCapsule
     border.width: 1
     border.color: memoryBubbleRoot.isHovered ? Qt.rgba(loadColor.r, loadColor.g, loadColor.b, 0.85) : Theme.borderSubtle
-    Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
+    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+    // 统一 Spring 物理曲线
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
     onMemoryPercentChanged: gaugeCanvas.requestPaint()
     onLoadColorChanged: gaugeCanvas.requestPaint()
@@ -43,7 +44,6 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 6
 
-        // 🚀 核心优化：加厚版硬件加速 Canvas 环形仪表盘 (strokeW: 3.0)
         Canvas {
             id: gaugeCanvas
             width: 20; height: 20
@@ -59,7 +59,7 @@ Rectangle {
                 var centerX = width / 2
                 var centerY = height / 2
                 var radius = 7.0
-                var strokeW = 3.0 // 🚀 由 2.0 加粗至 3.0
+                var strokeW = 3.0
 
                 // 绘制底层微光底环
                 ctx.beginPath()
@@ -84,7 +84,6 @@ Rectangle {
             }
         }
 
-        // 🚀 核心优化：超粗体数字读数（13px + Font.Black）
         Text {
             anchors.verticalCenter: parent.verticalCenter
             text: memoryBubbleRoot.isHovered ? memoryBubbleRoot.memoryUsedGb : (memoryBubbleRoot.memoryPercent + "%")
