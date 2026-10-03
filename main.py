@@ -16,10 +16,13 @@ from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
 
 
+# 🚀【核心修复】：安全的 libc 内存整理，杜绝非 glibc 环境抛出异常崩溃
 def trim_memory():
     gc.collect()
     try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
+        libc = ctypes.CDLL("libc.so.6")
+        if hasattr(libc, "malloc_trim"):
+            libc.malloc_trim(0)
     except Exception:
         pass
 
@@ -43,6 +46,8 @@ def main():
     view.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
 
     bridge = IslandBridge(view)
+    app.aboutToQuit.connect(bridge.cleanup)
+
     window_width, window_height = 720, 270
 
     def update_view_position():

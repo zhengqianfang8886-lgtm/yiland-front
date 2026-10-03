@@ -68,7 +68,6 @@ Item {
             capsule.alertAvatar = avatar || ""
             triggerTransient("ALERT", ms > 0 ? ms : 5000)
         }
-        // 🚀 核心优化：复制时只触发纯粹的边框微光脉冲，绝不打断时钟与排版
         onTriggerClipboard: (icon, t, sub, ms) => {
             capsule.triggerClipGlow()
         }
@@ -121,6 +120,18 @@ Item {
         capsule.drillDownPage = ""
         capsule.isExpanded = true
         maskController.commit()
+    }
+
+    // 🚀【核心修复】：副岛操作互斥锁，在滚动音量/时间期间彻底阻止主岛自动展开
+    Timer {
+        id: subInteractingTimer
+        interval: 700
+        onTriggered: capsule.subBubbleInteracting = false
+    }
+
+    function handleSubBubbleInteracted() {
+        capsule.subBubbleInteracting = true
+        subInteractingTimer.restart()
     }
 
     IslandCapsule {
@@ -248,6 +259,7 @@ Item {
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
         onClicked: root.expandToTab("media")
+        onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
     TimerBubbleView {
@@ -265,6 +277,7 @@ Item {
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
         onClicked: root.expandToTab("timer")
+        onWheelAdjust: root.handleSubBubbleInteracted()
     }
 
     NotificationBubbleView {

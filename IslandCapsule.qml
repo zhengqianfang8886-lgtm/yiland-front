@@ -76,8 +76,13 @@ Rectangle {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
+    // 🚀【核心修复】：严格区分主胶囊自身的悬停与副岛的悬停
     property bool anySubBubbleHovered: false
-    readonly property bool isMouseOver: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse) || anySubBubbleHovered
+    property bool subBubbleInteracting: false // 副岛正在进行滚轮等高优交互
+
+    readonly property bool isCapsuleDirectHovered: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse)
+    // 仅在展开时允许副岛维持卡片不收缩；常态下任何副岛的 hover 都绝不冒充主胶囊
+    readonly property bool isMouseOver: isCapsuleDirectHovered || (isExpanded && anySubBubbleHovered)
 
     signal requestExpand(string tabName)
     signal requestSettings()
@@ -90,7 +95,7 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // 🚀 适配 3px 粗边框，宽度缓冲相应扩展为 +38，确保两端弧度与文字不贴脸
+    // 适配 3px 粗边框，宽度缓冲相应扩展为 +38，确保两端弧度与文字不贴脸
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -138,7 +143,6 @@ Rectangle {
                   ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.55) :
                   ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(1, 1, 1, 0.18))))))
 
-    // 🚀 核心更新：描边厚度设置为 3px
     border.width: 3
 
     Behavior on border.color {
@@ -219,7 +223,8 @@ Rectangle {
         onHoveredChanged: {
             if (hovered) {
                 capsuleRoot.cancelCollapse()
-                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) {
+                // 🚀【核心修复】：副岛正在交互时，严禁启动主胶囊展开定时器
+                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
                     hoverDwellTimer.restart()
                 }
             } else {
@@ -230,11 +235,12 @@ Rectangle {
         }
     }
 
+    // 🚀【核心修复】：必须且仅当鼠标真正停留在主胶囊自身上，且无副岛锁定时，才允许展开
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
-            if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
+            if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded) {
                 if (capsuleRoot.isCalling) {
                     capsuleRoot.requestExpand("media")
                 } else if (capsuleRoot.activeTransient === "ALERT") {
@@ -264,7 +270,9 @@ Rectangle {
         onTriggered: {
             capsuleRoot.isCollapsing = false
             capsuleRoot.maskCommitRequested()
-            if (capsuleRoot.isMouseOver && !capsuleRoot.isExpanded && !capsuleRoot.scrollSessionLocked) hoverDwellTimer.restart()
+            if (capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded && !capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting) {
+                hoverDwellTimer.restart()
+            }
         }
     }
 
@@ -319,7 +327,7 @@ Rectangle {
         onEntered: {
             capsuleRoot.cancelCollapse()
             capsuleRoot.scrollSessionLocked = false
-            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing) {
+            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
                 hoverDwellTimer.restart()
             }
         }
@@ -409,4 +417,4 @@ Rectangle {
             }
         }
     }
-}
+}   

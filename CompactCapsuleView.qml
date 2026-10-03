@@ -448,7 +448,9 @@ Item {
         }
     }
 
+    // =========================================================================
     // 2. 桌面切换动画展示栏
+    // =========================================================================
     Row {
         id: wsLayoutRow
         anchors.centerIn: parent
@@ -542,33 +544,72 @@ Item {
         }
     }
 
-    // 3. 音量/亮度 OSD
+    // =========================================================================
+    // 3. 🚀【极速流体音量 OSD】：零延迟触发 + 90ms OutCubic 水银丝滑滑动
+    // =========================================================================
     Row {
+        id: osdLayoutRow
         anchors.centerIn: parent
-        spacing: 7
+        spacing: 9
         visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling
         opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 100 } }
+        scale: opacity > 0.4 ? 1.0 : 0.94
 
-        Text { text: compactRoot.osdIcon; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+        // 柔和灵动的进退场
+        Behavior on opacity { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: 1.06 } }
+
+        // 滑轨槽底（圆润细腻胶囊底）
         Rectangle {
-            width: 86; height: 4; radius: 99; color: Qt.rgba(1, 1, 1, 0.2)
+            id: osdTrack
+            width: 100
+            height: 5
+            radius: 2.5
+            color: Qt.rgba(1, 1, 1, 0.16)
             anchors.verticalCenter: parent.verticalCenter
+            clip: true
+
+            // 高亮滑块填充层（液态水银连续滑动）
             Rectangle {
-                width: parent.width * Math.min(1.0, Math.max(0.0, compactRoot.osdValue / 100.0))
-                height: parent.height; radius: 99; color: "white"
+                id: osdFillBar
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height
+                radius: parent.radius
+                color: "white"
+
+                // 目标填充宽度（0 ~ 100% 精确映射）
+                width: Math.round(parent.width * Math.min(1.0, Math.max(0.0, compactRoot.osdValue / 100.0)))
+
+                // 🚀【核心动力学】：90ms OutCubic 阻尼曲线
+                // - t=0 瞬时初速度最大（感官绝对零延迟，滚轮一碰立即响应）
+                // - 末端 20% 平滑收束缓冲
+                // - 连滚时多段目标无缝融合为一条连贯加速的水银流动，彻底告别僵硬与卡钝
+                Behavior on width {
+                    NumberAnimation {
+                        duration: 90
+                        easing.type: Easing.OutCubic
+                    }
+                }
             }
         }
+
+        // 读数百分比（等宽字体排版，杜绝宽度震荡微抖）
         Text {
-            text: compactRoot.osdValue + "%"; color: "white"
-            font.family: (compactRoot.chosenFont !== "") ? compactRoot.chosenFont : "Monospace"
+            id: osdValText
+            text: compactRoot.osdValue + "%"
+            color: "white"
+            font.family: "Monospace"
             font.pixelSize: 12
             font.weight: Font.Black
+            font.letterSpacing: 0.3
             anchors.verticalCenter: parent.verticalCenter
         }
     }
 
+    // =========================================================================
     // 4. 通知弹窗视图 (ALERT)
+    // =========================================================================
     Item {
         id: alertContainer
         anchors.top: parent.top
@@ -675,7 +716,7 @@ Item {
     }
 
     // =========================================================================
-    // 5. 常态时钟与网络（纯净、基线统一、无文字打扰）
+    // 5. 常态时钟与网络
     // =========================================================================
     Row {
         id: compactTimeRow
@@ -726,7 +767,6 @@ Item {
             }
         }
 
-        // 日期展示
         Text {
             id: dateText
             text: compactRoot.displayDate
@@ -740,7 +780,6 @@ Item {
             anchors.verticalCenterOffset: 0.5
         }
 
-        // 微分割细线
         Rectangle {
             width: 1
             height: 11
@@ -750,7 +789,6 @@ Item {
             visible: (typeof Config !== "undefined" && Config.showDate) && compactRoot.displayDate !== ""
         }
 
-        // 时钟主体
         Row {
             id: timeInnerRow
             spacing: 1

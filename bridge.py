@@ -5,6 +5,7 @@ import time
 import socket
 import shutil
 import struct
+import atexit
 import hashlib
 import urllib.parse
 import urllib.request
@@ -20,7 +21,7 @@ from logger import app_logger
 from models import NotificationListModel, BluetoothListModel
 
 AVATAR_CACHE_DIR = os.path.expanduser("~/.local/state/alcove_island/avatar_cache")
-CAVA_CONFIG_PATH = "/tmp/alcove_cava_config"
+CAVA_CONFIG_PATH = f"/tmp/alcove_cava_{os.getuid()}_config"
 
 
 def process_notification_avatar(raw_avatar_url: str) -> str:
@@ -130,6 +131,9 @@ class IslandBridge(QObject):
         self._curr_art = ""
         self._curr_dominant_color = "#22c55e"
 
+        # 本地音量乐观预测缓存
+        self._cached_volume = 50
+
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
@@ -158,6 +162,27 @@ class IslandBridge(QObject):
 
         self._cava_proc = None
         self._start_cava_spectrum_monitor()
+
+        atexit.register(self.cleanup)
+
+    def cleanup(self):
+        if self._cava_proc:
+            try:
+                if self._cava_proc.poll() is None:
+                    self._cava_proc.terminate()
+                    self._cava_proc.wait(timeout=0.5)
+            except Exception:
+                try:
+                    self._cava_proc.kill()
+                except Exception:
+                    pass
+            self._cava_proc = None
+        try:
+            if os.path.exists(CAVA_CONFIG_PATH):
+                os.remove(CAVA_CONFIG_PATH)
+        except Exception:
+            pass
+        self._pool.shutdown(wait=False, cancel_futures=True)
 
     def _start_cava_spectrum_monitor(self):
         if not shutil.which("cava"):
@@ -208,108 +233,72 @@ class IslandBridge(QObject):
 
         self._pool.submit(_cava_worker)
 
+    # 🚀【核心架构重构】：0ms 乐观本地更新 + 统一 IPC 提交，消除前端所有阻塞子进程
     @Slot(int)
     def adjustVolume(self, delta_pct: int):
-        def _vol():
-            sign = "+" if delta_pct > 0 else "-"
-            val_abs = abs(delta_pct)
-            new_val = 50
-            try:
-                if shutil.which("wpctl"):
-                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{val_abs}%{sign}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    res = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True)
-                    parts = res.stdout.strip().split()
-                    if len(parts) >= 2:
-                        new_val = int(round(float(parts[1]) * 100))
-                elif shutil.which("pactl"):
-                    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{sign}{val_abs}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    res = subprocess.run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], capture_output=True, text=True)
-                    for token in res.stdout.split():
-                        if "%" in token:
-                            new_val = int(token.replace("%", ""))
-                            break
+        new_val = max(0, min(100, self._cached_volume + delta_pct))
+        self._cached_volume = new_val
 
-                new_val = max(0, min(100, new_val))
-                icon = "🔇" if new_val == 0 else ("🔉" if new_val < 50 else "🔊")
-                self.osdTriggered.emit(icon, "Volume", new_val)
-            except Exception as e:
-                app_logger.warning(f"调节音量异常: {e}")
+        # 1. 0 毫秒立即驱动 QML 展现 OSD，绝对跟手
+        self.osdTriggered.emit("🔊", "Volume", new_val)
 
-        self._pool.submit(_vol)
+        # 2. 异步派发至后端 Daemon 统一处理，前端零等待
+        self.sendIpcCmd("VOLUME_DELTA", delta=delta_pct)
 
-    # 🚀 封面取色引擎（全流程追踪日志）
     def _extract_cover_color(self, art_url: str):
         if not art_url:
-            app_logger.warning("🎨 [主色调] 传入的封面地址为空，使用默认绿色")
             self.dominantColorUpdated.emit("#22c55e")
             return
 
         def _extract():
             try:
-                img_bytes = None
                 clean_url = art_url.strip().split("?")[0]
-                app_logger.info(f"🎨 [主色调] 开始分析封面色彩 -> '{clean_url}'")
+                img_bytes = None
 
                 if clean_url.startswith("http://") or clean_url.startswith("https://"):
-                    app_logger.info(f"🌐 [主色调] 正在从网络下载封面图片: {clean_url}")
-                    req = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
-                    with urllib.request.urlopen(req, timeout=3.5) as resp:
+                    req = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=3.0) as resp:
                         img_bytes = resp.read()
-                    app_logger.info(f"🌐 [主色调] 网络封面下载完成，大小: {len(img_bytes)} 字节")
                 else:
-                    local_path = clean_url
-                    if local_path.startswith("file://"):
-                        local_path = local_path[7:]
+                    local_path = clean_url[7:] if clean_url.startswith("file://") else clean_url
                     local_path = urllib.parse.unquote(local_path)
-                    app_logger.info(f"📁 [主色调] 正在读取本地封面文件: '{local_path}'")
                     if os.path.exists(local_path):
                         with open(local_path, "rb") as f:
                             img_bytes = f.read()
-                        app_logger.info(f"📁 [主色调] 本地封面读取成功，大小: {len(img_bytes)} 字节")
-                    else:
-                        app_logger.warning(f"❌ [主色调] 本地封面文件不存在: '{local_path}'")
-                        return
 
                 if not img_bytes:
-                    app_logger.warning("❌ [主色调] 未能获取到图片二进制数据")
                     return
 
-                qimg = QImage()
-                if not qimg.loadFromData(img_bytes):
-                    app_logger.warning("❌ [主色调] QImage 解析图片数据失败，图片格式可能不受支持")
-                    return
-
-                scaled = qimg.scaled(24, 24, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
-                best_color = None
-                max_score = -1.0
-
-                for y in range(24):
-                    for x in range(24):
-                        col = scaled.pixelColor(x, y)
-                        r, g, b, a = col.red(), col.green(), col.blue(), col.alpha()
-                        if a < 128:
-                            continue
+                try:
+                    import io
+                    from PIL import Image
+                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((24, 24))
+                    colors = im.getcolors(maxcolors=576) or []
+                    best_col = None
+                    max_score = -1.0
+                    for count, (r, g, b) in colors:
                         lum = 0.299 * r + 0.587 * g + 0.114 * b
                         if lum < 35 or lum > 225:
                             continue
                         sat = max(r, g, b) - min(r, g, b)
                         if sat < 25:
                             continue
-                        score = sat * 1.8 + (255 - abs(lum - 128))
+                        score = (sat * 2.0 + (255 - abs(lum - 128))) * (1.0 + (count / 576.0))
                         if score > max_score:
                             max_score = score
-                            best_color = (r, g, b)
+                            best_col = (r, g, b)
 
-                if best_color:
-                    hex_color = f"#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}"
-                    self._curr_dominant_color = hex_color
-                    app_logger.info(f"✨ [主色调] 提取成功 -> {hex_color} (已通过 dominantColorUpdated 广播)")
-                    self.dominantColorUpdated.emit(hex_color)
-                else:
-                    app_logger.info("ℹ️ [主色调] 封面颜色过于暗淡或单调，保留主题色")
-                    self.dominantColorUpdated.emit("#22c55e")
+                    if best_col:
+                        hex_c = f"#{best_col[0]:02x}{best_col[1]:02x}{best_col[2]:02x}"
+                        self._curr_dominant_color = hex_c
+                        self.dominantColorUpdated.emit(hex_c)
+                        return
+                except Exception:
+                    pass
+
+                self.dominantColorUpdated.emit("#22c55e")
             except Exception as e:
-                app_logger.error(f"❌ [主色调] 提取过程异常崩溃: {e}")
+                app_logger.warning(f"主色调解析异常: {e}")
 
         self._pool.submit(_extract)
 
@@ -395,7 +384,6 @@ class IslandBridge(QObject):
 
         elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
             m = data["media"]
-            # 🚀 全候选字段兼容提取
             raw_art = m.get("art_url") or m.get("artUrl") or m.get("mpris:artUrl") or m.get("cover") or m.get("thumbnail") or ""
             art = raw_art
             if art and art.startswith("/") and not art.startswith("file://"):
@@ -404,8 +392,6 @@ class IslandBridge(QObject):
             title = m.get("title", "等待播放...")
             artist = m.get("artist", "未知歌手")
             status = m.get("status", "Paused")
-
-            app_logger.info(f"📥 [MPRIS-WS] 收到媒体包 -> 曲目: '{title}' | 歌手: '{artist}' | 状态: [{status}] | 封面: '{raw_art}'")
 
             self._apply_media_state(
                 title,
@@ -426,13 +412,18 @@ class IslandBridge(QObject):
             if "list" in ws_info:
                 self.workspaceListUpdated.emit(ws_info.get("list", []))
 
-        if m_type == "VOLUME_UPDATE" and "system" in data:
+        # 🚀 音量静默校准与更新
+        if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
             sys_info = data["system"]
-            self.osdTriggered.emit(
-                "🔇" if sys_info.get("muted", False) else "🔊",
-                "Volume",
-                int(sys_info.get("volume", 50)),
-            )
+            real_vol = int(sys_info.get("volume", 50))
+            self._cached_volume = real_vol
+            if m_type == "VOLUME_UPDATE":
+                self.osdTriggered.emit(
+                    "🔇" if sys_info.get("muted", False) else "🔊",
+                    "Volume",
+                    real_vol,
+                )
+
         elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
             self.osdTriggered.emit("☀️", "Display", int(data["system"].get("brightness", 50)))
 
@@ -526,9 +517,7 @@ class IslandBridge(QObject):
             if pos and pos > 0:
                 self._curr_pos = pos
 
-        # 🚀 强制提色与日志输出
         if is_track_changed or (art and art != self._curr_art):
-            app_logger.info(f"🔄 [状态流] 切歌或封面变动 -> 旧封面: '{self._curr_art}' | 新封面: '{art}'")
             self._curr_art = art
             if art:
                 self._extract_cover_color(art)
@@ -542,7 +531,6 @@ class IslandBridge(QObject):
             if self._local_media_timer.isActive():
                 self._local_media_timer.stop()
 
-        app_logger.info(f"📡 [广播QML] mediaUpdated -> title='{title}', art='{art}'")
         self.mediaUpdated.emit(title, artist, status, art, self._curr_pos, self._curr_dur)
 
     def _apply_media_progress(self, pos_val, dur_val, prog):

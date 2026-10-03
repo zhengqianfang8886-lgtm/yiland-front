@@ -21,11 +21,28 @@ Item {
     onTargetHChanged: commit()
     onIsExpandedChanged: commit()
     onIsCollapsingChanged: commit()
-    onIsMorphingChanged: commit()
+
+    // 🚀【核心修复】：在物理形变期间以 60fps 实时刷新输入遮罩，确保点击穿透绝无滞后
+    onIsMorphingChanged: {
+        if (isMorphing) {
+            morphFrameTracker.start()
+        } else {
+            morphFrameTracker.stop()
+            commit()
+        }
+    }
+
+    Timer {
+        id: morphFrameTracker
+        interval: 16
+        repeat: true
+        running: false
+        onTriggered: maskCtrl.commit()
+    }
 
     Timer {
         id: retractTimer
-        interval: 160
+        interval: 120
         onTriggered: maskCtrl.commit()
     }
 
@@ -53,12 +70,9 @@ Item {
             return
         }
 
-        // =====================================================================
-        // 常态紧凑态：1:1 严格贴合真实几何曲率，零多余外扩 (padX = 0, padY = 0)
-        // =====================================================================
+        // 常态紧凑态：1:1 严格贴合真实几何曲率，零多余外扩
         var rectList = []
 
-        // 1. 主胶囊 (精准传入圆角)
         rectList.push({
             x: Math.round(capsuleItem.x),
             y: Math.round(capsuleItem.y),
@@ -67,7 +81,6 @@ Item {
             r: Math.round(capsuleItem.radius)
         })
 
-        // 辅助闭包：添加活跃副岛
         function addBubble(bubble) {
             if (!bubble || !bubble.active || bubble.opacity <= 0.02) return
             rectList.push({
