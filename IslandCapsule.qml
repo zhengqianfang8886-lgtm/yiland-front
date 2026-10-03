@@ -144,7 +144,6 @@ Rectangle {
 
     antialiasing: true
     smooth: true
-
     color: Theme.bgCapsule
 
     border.color: clipGlowOpacity > 0.01 ?
@@ -162,21 +161,18 @@ Rectangle {
         ColorAnimation { duration: 200 }
     }
 
+    // 🚀 精准生命周期控制动画
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 300 : 240) : 180
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 280 : 220) : 170
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.12 : 1.06) : 1.0
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.10 : 1.05) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || heightNumAnim.running
                 capsuleRoot.maskCommitRequested()
-                if (!running) {
-                    if (!capsuleRoot.isExpanded) cooldownTimer.restart()
-                    // 🚀 核心优化 3：解除 !isCalling 限制，动画结束未悬停即可收起
-                    if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver) {
-                        capsuleRoot.startCollapse()
-                    }
+                if (!running && !heightNumAnim.running) {
+                    capsuleRoot.onMorphFinished()
                 }
             }
         }
@@ -185,47 +181,32 @@ Rectangle {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 250 : 210) : 170
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 160
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.14 : 1.05) : 1.0
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.12 : 1.04) : 1.0
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || widthNumAnim.running
                 capsuleRoot.maskCommitRequested()
-                if (!running && capsuleRoot.isExpanded && !capsuleRoot.isMouseOver) {
-                    capsuleRoot.startCollapse()
+                if (!running && !widthNumAnim.running) {
+                    capsuleRoot.onMorphFinished()
                 }
             }
         }
     }
 
-    Behavior on radius { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+    Behavior on radius { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-    property bool contentReady: false
-    property bool clockReady: true
-
-    Timer {
-        id: contentRevealTimer
-        interval: capsuleRoot.isJellyStyle ? 160 : 130
-        onTriggered: capsuleRoot.contentReady = true
-    }
-
-    Timer {
-        id: clockRevealTimer
-        interval: 140
-        onTriggered: capsuleRoot.clockReady = true
-    }
-
-    onIsExpandedChanged: {
-        if (isExpanded) {
-            clockReady = false
-            clockRevealTimer.stop()
-            contentReady = false
-            contentRevealTimer.restart()
+    function onMorphFinished() {
+        if (!isExpanded) {
+            isCollapsing = false
+            maskCommitRequested()
+            if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) {
+                Bridge.forceClearWindow()
+            }
         } else {
-            contentRevealTimer.stop()
-            contentReady = false
-            clockReady = false
-            clockRevealTimer.restart()
+            if (!capsuleRoot.isMouseOver) {
+                capsuleRoot.startCollapse()
+            }
         }
     }
 
@@ -265,7 +246,6 @@ Rectangle {
         }
     }
 
-    // 🚀 核心优化 3：鼠标移出后 180ms 自动折叠回收，即便在 isCalling 通话中也正常生效
     Timer {
         id: leaveGraceTimer
         interval: 180
@@ -276,35 +256,23 @@ Rectangle {
         }
     }
 
-    Timer {
-        id: cooldownTimer
-        interval: 100
-        onTriggered: {
-            capsuleRoot.isCollapsing = false
-            capsuleRoot.maskCommitRequested()
-            if (capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded && !capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting) {
-                hoverDwellTimer.restart()
-            }
-        }
-    }
-
     function cancelCollapse() { leaveGraceTimer.stop() }
 
-    // 🚀 核心优化 3：解除 !isCalling 阻断，支持来电态鼠标移出折叠
     function requestCollapse() {
         if (isExpanded) {
             leaveGraceTimer.restart()
         }
     }
 
+    // 🚀【秒级淡出】：开始收折瞬间立刻把大卡片内容透明度打入 0，绝不让它在被压缩的容器中露出一截残尸！
     function startCollapse() {
         if (!isExpanded) return
-        contentRevealTimer.stop()
-        contentReady = false
-        isCollapsing = true
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
+
+        isCollapsing = true
         isExpanded = false
+
         if (activeTransient === "ALERT") activeTransient = ""
         capsuleRoot.maskCommitRequested()
     }
@@ -370,12 +338,15 @@ Rectangle {
         }
     }
 
+    // 1. 常态小胶囊视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
-        visible: capsuleRoot.clockReady && !capsuleRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
-        scale: visible ? 1.0 : 0.94
+
+        // 只有当高度真正缩回平底且非展开状态才显现
+        visible: opacity > 0.01
+        opacity: (!capsuleRoot.isExpanded && capsuleRoot.height <= 44) ? 1.0 : 0.0
+        scale: opacity > 0.5 ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
         status: capsuleRoot.status; isCalling: capsuleRoot.isCalling; isExpanded: capsuleRoot.isExpanded; isCollapsing: capsuleRoot.isCollapsing
@@ -394,9 +365,11 @@ Rectangle {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
+    // 2. 展开卡片视图容器
     Item {
         anchors.fill: parent
-        clip: true
+        // 🚀【核心防护】：移除暴力截断的 clip: true，改由 ExpandedCardView 自主淡出，避免自下而上削掉半截！
+        clip: false
 
         ExpandedCardView {
             id: expandedCardView
@@ -406,16 +379,17 @@ Rectangle {
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
 
-            visible: capsuleRoot.contentReady && capsuleRoot.isExpanded
-            opacity: visible ? 1.0 : 0.0
-            scale: visible ? 1.0 : 0.95
+            // 展开时 140ms 优雅浮现，收拢开始时 40ms 极速隐去，绝无半截残尸留存！
+            visible: opacity > 0.01
+            opacity: (capsuleRoot.isExpanded && capsuleRoot.height > 100) ? 1.0 : 0.0
+            scale: capsuleRoot.isExpanded ? 1.0 : 0.94
             chosenFont: capsuleRoot.chosenFont
 
             enabledTabs: capsuleRoot.enabledTabs
             dominantColor: capsuleRoot.dominantColor
 
             isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
-            title: capsuleRoot.title; artist: cardRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
+            title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
             wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal; wsName: capsuleRoot.wsName; wsList: capsuleRoot.wsList
             downSpeedStr: capsuleRoot.downSpeedStr; upSpeedStr: capsuleRoot.upSpeedStr; localIp: capsuleRoot.localIp; activeTransient: capsuleRoot.activeTransient
 
@@ -425,10 +399,10 @@ Rectangle {
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
 
             Behavior on opacity {
-                NumberAnimation { duration: 110; easing.type: Easing.OutQuad }
+                NumberAnimation { duration: capsuleRoot.isExpanded ? 140 : 40; easing.type: Easing.OutQuad }
             }
             Behavior on scale {
-                NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: 1.04 }
+                NumberAnimation { duration: capsuleRoot.isExpanded ? 180 : 60; easing.type: Easing.OutBack; easing.overshoot: 1.04 }
             }
         }
     }

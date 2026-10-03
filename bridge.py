@@ -646,7 +646,6 @@ class IslandBridge(QObject):
             elif m_type == "VPN_DISCONNECTED":
                 self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
-        # 🚀 核心修复：分离来电与普通通知，彻底阻断通知误入通话态
         if m_type == "TEAMS_CALL_INCOMING":
             if "notification" in data:
                 noti = data["notification"]
@@ -745,6 +744,9 @@ class IslandBridge(QObject):
         except Exception:
             return None
 
+    # =========================================================================
+    # 🚀 核心修复：更新遮罩后强制全视口透明清屏（彻底根除桌面残留残影）
+    # =========================================================================
     @Slot("QVariantList")
     def updateCompositeMask(self, rects):
         if not rects:
@@ -775,6 +777,13 @@ class IslandBridge(QObject):
         if not composite.isEmpty() and composite != self._last_applied_mask:
             self._last_applied_mask = composite
             self.view.setMask(composite)
+            # 🚀 关键：通知合成器立即执行 glClear 擦除剔除区域的脏数据，不留残影
+            self.view.requestUpdate()
+
+    @Slot()
+    def forceClearWindow(self):
+        """收缩完成时的终极擦除"""
+        self.view.requestUpdate()
 
     @Slot(result=str)
     def getLatestNotificationAvatar(self):
@@ -956,23 +965,17 @@ class IslandBridge(QObject):
                         app_logger.warning(f"调起蓝牙设置程序异常: {e}")
         self._pool.submit(_open)
 
-    # =========================================================================
-    # 🚀 核心重构：精准唤醒音乐播放器，杜绝误唤醒 Teams
-    # =========================================================================
     @Slot(str, str)
     def focusMediaWindow(self, title="", artist=""):
-        # 1. 优先通过 IPC 发给后端，后端通过 MPRIS Raise 原生拉起正在播放的客户端
         self.sendIpcCmd("MEDIA_FOCUS")
 
         def _focus():
-            # 2. 原生 DBus 标准 MPRIS Raise 直呼
             try:
                 if shutil.which("playerctl"):
                     subprocess.run(["playerctl", "raise"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
             except Exception:
                 pass
 
-            # 3. 严格限定精准的音乐播放器类名，坚决剔除 "music", "Chrome", "Firefox" 等通配词
             pure_players = [
                 "Spotify",
                 "spotify",
@@ -991,7 +994,7 @@ class IslandBridge(QObject):
             for kw in pure_players:
                 try:
                     if shutil.which("hyprctl"):
-                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(?i)({kw})"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8)
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:^(?i)({kw})"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8)
                         if res.returncode == 0:
                             return
                     if shutil.which("swaymsg"):
@@ -1004,3 +1007,10 @@ class IslandBridge(QObject):
                     continue
 
         self._pool.submit(_focus)
+        
+    @Slot()
+    def clearMask(self):
+        """动画期间彻底释放遮罩，交由 GPU 纯净透明渲染，消灭一切物理切割与黑斑"""
+        self._last_applied_mask = QRegion()
+        self.view.setMask(QRegion())
+        self.view.requestUpdate()

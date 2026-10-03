@@ -8,9 +8,11 @@ Item {
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY")
+    // 🚀【精准修复】：彻底剔除 isMorphing！
+    // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛；
+    // 切换桌面（WORKSPACE 瞬态）仅为主胶囊微扩，副岛绝不消失，自然随动！
+    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing)
     readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
-    // 🚀 核心修改：运行中、暂停中、完成待消除状态均保持常驻，暂停绝不消失！
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
 
@@ -231,7 +233,7 @@ Item {
             return relay.memoryPercent >= Config.memoryThreshold
         }
 
-        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient &&
+        active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showMemoryBubble !== false) &&
                 meetsThreshold
 
@@ -239,7 +241,7 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
@@ -251,7 +253,7 @@ Item {
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: root.getIslandSide("music") === "left" ? Item.Right : Item.Left
 
-        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient && root.hasMusicIsland
+        active: !root.isBlockingTransient && root.hasMusicIsland
 
         dominantColor: relay.dominantColor
         spec1: relay.spec1
@@ -259,7 +261,7 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
         onClicked: root.expandToTab("media")
@@ -272,10 +274,10 @@ Item {
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: root.getIslandSide("hardware") === "left" ? Item.Right : Item.Left
 
-        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient &&
+        active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
 
-        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
 
@@ -306,33 +308,26 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 🚀 倒计时浮岛：四态状态机 + 暂停驻留 + 禁用滚轮 + 右键消除
-    // =========================================================================
     TimerBubbleView {
         id: bubbleTimer; z: 1
         x: root.getIslandX("timer", width)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: root.getIslandSide("timer") === "left" ? Item.Right : Item.Left
 
-        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient && root.hasTimerIsland
+        active: !root.isBlockingTransient && root.hasTimerIsland
         timerText: capsule.timerFormattedText; hasHours: capsule.timerHasHours; chosenFont: root.chosenFont
         isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
         remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
 
-        // 状态机绑定
         isRunning: capsule.timerRunning
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
 
-        // 核心交互：左键单击切换暂停/继续
         onTogglePause: capsule.toggleTimerPause()
-
-        // 核心交互：右键单击为唯一消除触发口，直接重置并使小岛退场消失
         onDismissTimer: capsule.resetTimer()
     }
 
@@ -342,10 +337,10 @@ Item {
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: root.getIslandSide("notification") === "left" ? Item.Right : Item.Left
 
-        active: !capsule.isExpanded && !capsule.isCollapsing && !root.isBlockingTransient && root.hasNotifIsland
+        active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
         onClicked: root.expandToTab("notification")

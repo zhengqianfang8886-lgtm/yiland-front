@@ -15,65 +15,49 @@ Item {
     property bool isExpanded: false
     property bool isCollapsing: false
     property bool isMorphing: false
+
+    // 保留属性以兼容 Island.qml 的绑定调用
     property int targetW: 150
     property int targetH: 36
 
-    onTargetWChanged: commit()
-    onTargetHChanged: commit()
-    onIsExpandedChanged: commit()
-    onIsCollapsingChanged: commit()
+    // 🚀【核心机制】：只要动效一开始，立刻完全释放系统遮罩！
+    onIsExpandedChanged: handleMotionChange()
+    onIsCollapsingChanged: handleMotionChange()
+    onIsMorphingChanged: handleMotionChange()
 
-    onIsMorphingChanged: {
-        if (isMorphing) {
-            morphFrameTracker.start()
+    function handleMotionChange() {
+        if (!maskActive || typeof Bridge === "undefined") return
+
+        var inMotion = isExpanded || isCollapsing || isMorphing
+
+        if (inMotion) {
+            // 动效期间彻底清除剪刀！让 GPU 进行 100% 完整流畅的物理绘制
+            settleTimer.stop()
+            if (Bridge.clearMask) {
+                Bridge.clearMask()
+            }
         } else {
-            morphFrameTracker.stop()
-            commit()
+            // 动画完全停稳后，等待 80ms 确保 GPU 双缓冲彻底静止，再执行唯一一次精细镂空
+            settleTimer.restart()
         }
     }
 
     Timer {
-        id: morphFrameTracker
-        interval: 16
-        repeat: true
-        running: false
-        onTriggered: maskCtrl.commit()
+        id: settleTimer
+        interval: 80
+        repeat: false
+        onTriggered: maskCtrl.commitPreciseMask()
     }
 
-    Timer {
-        id: retractTimer
-        interval: 120
-        onTriggered: maskCtrl.commit()
-    }
-
-    function requestRetract() { retractTimer.restart() }
-
-    function commit() {
+    // 🚀【静止态唯一收束口】：此时所有岛屿都在绝对静止位置，绝不撕裂
+    function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
+        if (isExpanded || isCollapsing || isMorphing) return
 
-        var isLargeCard = isExpanded || isCollapsing || (capsuleItem.height > 60) || (targetH > 60)
-
-        // 四周外扩 2px 羽化防狗牙
         var margin = 2
-
-        if (isLargeCard) {
-            var effH = Math.max(capsuleItem.height, targetH)
-            var effW = Math.max(capsuleItem.width, targetW)
-            var pX = Math.max(0, Math.round((rootItem.width - effW) / 2) + ((typeof Config !== "undefined") ? Config.offsetX : 0))
-            var pY = Math.round(capsuleItem.y)
-            var rList = [{
-                x: pX - margin,
-                y: pY - margin,
-                w: Math.round(effW) + margin * 2,
-                h: Math.round(effH) + margin * 2,
-                r: Math.round(capsuleItem.radius) + margin
-            }]
-            Bridge.updateCompositeMask(rList)
-            return
-        }
-
         var rectList = []
 
+        // 1. 中间主胶囊
         rectList.push({
             x: Math.round(capsuleItem.x) - margin,
             y: Math.round(capsuleItem.y) - margin,
@@ -82,8 +66,9 @@ Item {
             r: Math.round(capsuleItem.radius) + margin
         })
 
+        // 2. 所有静止的在场副岛（自动兼容满编与自定义）
         function addBubble(bubble) {
-            if (!bubble || !bubble.active || bubble.opacity <= 0.02) return
+            if (!bubble || !bubble.active || bubble.opacity < 0.2) return
             rectList.push({
                 x: Math.round(bubble.x) - margin,
                 y: Math.round(bubble.y) - margin,
@@ -100,5 +85,9 @@ Item {
         addBubble(notifBubble)
 
         Bridge.updateCompositeMask(rectList)
+    }
+
+    function commit() {
+        handleMotionChange()
     }
 }

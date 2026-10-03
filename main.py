@@ -43,7 +43,13 @@ def main():
 
     view = QQuickView()
     view.setColor("transparent")
-    view.setFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+    # 增加 BypassWindowManagerHint 与 SubWindow 属性，确保跨虚拟桌面永久常驻、绝不随工作区切换隐藏
+    view.setFlags(
+        Qt.WindowType.FramelessWindowHint | 
+        Qt.WindowType.WindowStaysOnTopHint | 
+        Qt.WindowType.Tool |
+        Qt.WindowType.BypassWindowManagerHint
+    )
 
     bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
