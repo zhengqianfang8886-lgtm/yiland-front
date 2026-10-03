@@ -4,6 +4,9 @@ Item {
     id: calRoot
 
     property string chosenFont: ""
+    readonly property string effectiveFont: (chosenFont !== "") ? chosenFont : Theme.defaultFontFamily
+    readonly property string effectiveMonoFont: Theme.defaultMonoFamily
+
     property int calYear: new Date().getFullYear()
     property int calMonth: new Date().getMonth()
     property var calGridModel: []
@@ -65,13 +68,13 @@ Item {
                 Row {
                     spacing: 5; anchors.horizontalCenter: parent.horizontalCenter
                     Rectangle { width: 6; height: 6; radius: 3; color: "#10b981"; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "TODAY"; font.pixelSize: 9; font.weight: Font.Black; color: "#10b981"; font.family: calRoot.chosenFont; font.letterSpacing: 0.8 }
+                    Text { text: "TODAY"; font.pixelSize: 9; font.weight: Font.Black; color: "#10b981"; font.family: calRoot.effectiveFont; font.letterSpacing: 0.8 }
                 }
 
                 Text {
                     text: new Date().getDate()
                     color: "white"; font.pixelSize: 52; font.weight: Font.Black
-                    font.family: (calRoot.chosenFont !== "") ? calRoot.chosenFont : "Monospace"
+                    font.family: calRoot.effectiveMonoFont
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
@@ -82,7 +85,7 @@ Item {
                         return days[d.getDay()] + " · " + (d.getMonth() + 1) + "月"
                     }
                     color: Qt.rgba(1, 1, 1, 0.75); font.pixelSize: 12; font.weight: Font.Bold
-                    font.family: calRoot.chosenFont
+                    font.family: calRoot.effectiveFont
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
@@ -96,7 +99,7 @@ Item {
                     Behavior on color { ColorAnimation { duration: 120 } }
                     anchors.horizontalCenter: parent.horizontalCenter
 
-                    Text { anchors.centerIn: parent; text: "回到今天"; color: Qt.rgba(1, 1, 1, 0.9); font.pixelSize: 10; font.family: calRoot.chosenFont; font.weight: Font.Bold }
+                    Text { anchors.centerIn: parent; text: "回到今天"; color: Qt.rgba(1, 1, 1, 0.9); font.pixelSize: 10; font.family: calRoot.effectiveFont; font.weight: Font.Bold }
                     MouseArea {
                         id: resetBtnArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                         onClicked: calRoot.resetToToday()
@@ -115,7 +118,7 @@ Item {
                 Text {
                     anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
                     text: calRoot.calYear + "年 " + (calRoot.calMonth + 1) + "月"
-                    color: "white"; font.pixelSize: 14; font.weight: Font.Black; font.family: calRoot.chosenFont
+                    color: "white"; font.pixelSize: 14; font.weight: Font.Black; font.family: calRoot.effectiveFont
                 }
                 Row {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
@@ -151,7 +154,7 @@ Item {
                             anchors.centerIn: parent
                             text: modelData; font.pixelSize: 11; font.weight: Font.Bold
                             color: (index >= 5) ? Qt.rgba(244, 114, 182, 0.85) : Qt.rgba(1, 1, 1, 0.45)
-                            font.family: calRoot.chosenFont
+                            font.family: calRoot.effectiveFont
                         }
                     }
                 }
@@ -176,7 +179,7 @@ Item {
                             text: modelData.day; font.pixelSize: 12
                             font.weight: modelData.isToday ? Font.Black : Font.DemiBold
                             color: modelData.isToday ? "white" : (modelData.isCurrentMonth ? Qt.rgba(1, 1, 1, 0.95) : Qt.rgba(1, 1, 1, 0.25))
-                            font.family: (calRoot.chosenFont !== "") ? calRoot.chosenFont : "Monospace"
+                            font.family: calRoot.effectiveMonoFont
                         }
 
                         MouseArea { id: cellArea; anchors.fill: parent; hoverEnabled: true }

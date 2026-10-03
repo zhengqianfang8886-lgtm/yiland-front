@@ -6,14 +6,22 @@ Item {
     anchors.fill: parent
 
     property string chosenFont: ""
+    readonly property string effectiveFont: {
+        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
+            return Config.fontFamily
+        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
+            return chosenFont
+        }
+        return ""
+    }
+    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+
     property var timerPageRef: null
     property string downSpeedStr: "0.0 B/s"
     property string upSpeedStr: "0.0 B/s"
     property string localIp: "127.0.0.1"
 
-    // =========================================================================
-    // 🚀 核心对齐信号：被 ExpandedCardView.qml 的 onOpenDetail 监听并执行路由下钻
-    // =========================================================================
     signal openDetail(string pageKey)
 
     readonly property var savedClocks: (typeof Config !== "undefined" && Config.savedClocks) ? Config.savedClocks : []
@@ -30,9 +38,7 @@ Item {
         columns: 2
         spacing: 8
 
-        // =================================================================
-        // 瓦片 1：日历与世界时钟（横向双城并排，彻底告别切边）
-        // =================================================================
+        // 瓦片 1：日历与世界时钟
         Rectangle {
             width: (bentoRoot.width - 8) / 2
             height: (bentoRoot.height - 8) / 2
@@ -51,21 +57,19 @@ Item {
                 anchors.topMargin: 7; anchors.bottomMargin: 7
                 spacing: 3
 
-                // 顶栏标头
                 Item {
                     width: parent.width; height: 16
                     Row {
                         anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 4
                         Text { text: "🌍"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                        Text { text: "日历时钟"; color: Theme.clock; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.chosenFont }
+                        Text { text: "日历时钟"; color: Theme.clock; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.effectiveFont }
                     }
                     Text {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "↗"; color: clockCardArea.containsMouse ? "white" : Theme.clock; font.pixelSize: 12; font.weight: Font.Bold
+                        text: "↗"; color: clockCardArea.containsMouse ? "white" : Theme.clock; font.pixelSize: 12; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                     }
                 }
 
-                // 本地日期大字
                 Row {
                     width: parent.width; height: 20
                     spacing: 6
@@ -76,18 +80,16 @@ Item {
                             var days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
                             return (d.getMonth() + 1) + "月" + d.getDate() + "日 · " + days[d.getDay()]
                         }
-                        color: "white"; font.pixelSize: 13; font.weight: Font.Black; font.family: bentoRoot.chosenFont
+                        color: "white"; font.pixelSize: 13; font.weight: Font.Black; font.family: bentoRoot.effectiveFont
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
 
-                // 双城横向并排
                 Row {
                     width: parent.width; height: 18
                     spacing: 8
                     anchors.horizontalCenter: parent.horizontalCenter
 
-                    // 城市 1
                     Item {
                         width: (parent.width - 9) / 2; height: parent.height
                         readonly property var c1: (bentoRoot.savedClocks && bentoRoot.savedClocks.length > 0) ? bentoRoot.savedClocks[0] : null
@@ -97,15 +99,14 @@ Item {
                         Row {
                             anchors.fill: parent; spacing: 3
                             Text { text: parent.parent.info1.isDay ? "☀️" : "🌙"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: parent.parent.c1 ? parent.parent.c1.name : "纽约"; color: Theme.textSecondary; font.pixelSize: 10; font.family: bentoRoot.chosenFont; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: parent.parent.c1 ? parent.parent.c1.name : "纽约"; color: Theme.textSecondary; font.pixelSize: 10; font.family: bentoRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
                             Item { width: 1 }
-                            Text { text: parent.parent.info1.time || "--:--"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: "Monospace"; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: parent.parent.info1.time || "--:--"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: bentoRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
 
                     Rectangle { width: 1; height: 10; color: Qt.rgba(1, 1, 1, 0.15); anchors.verticalCenter: parent.verticalCenter }
 
-                    // 城市 2
                     Item {
                         width: (parent.width - 9) / 2; height: parent.height
                         readonly property var c2: (bentoRoot.savedClocks && bentoRoot.savedClocks.length > 1) ? bentoRoot.savedClocks[1] : null
@@ -115,9 +116,9 @@ Item {
                         Row {
                             anchors.fill: parent; spacing: 3
                             Text { text: parent.parent.info2.isDay ? "☀️" : "🌙"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: parent.parent.c2 ? parent.parent.c2.name : "马尼拉"; color: Theme.textSecondary; font.pixelSize: 10; font.family: bentoRoot.chosenFont; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: parent.parent.c2 ? parent.parent.c2.name : "马尼拉"; color: Theme.textSecondary; font.pixelSize: 10; font.family: bentoRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
                             Item { width: 1 }
-                            Text { text: parent.parent.info2.time || "--:--"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: "Monospace"; anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: parent.parent.info2.time || "--:--"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: bentoRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
                         }
                     }
                 }
@@ -129,9 +130,7 @@ Item {
             }
         }
 
-        // =================================================================
-        // 瓦片 2：专注倒计时（左右分栏排布：左大字与进度，右操作微胶囊）
-        // =================================================================
+        // 瓦片 2：专注倒计时
         Rectangle {
             id: timerCardRect
             width: (bentoRoot.width - 8) / 2
@@ -149,7 +148,6 @@ Item {
                 anchors.topMargin: 7; anchors.bottomMargin: 7
                 spacing: 3
 
-                // 顶栏标头
                 Item {
                     width: parent.width; height: 16
                     Row {
@@ -157,21 +155,19 @@ Item {
                         Text { text: "⏱️"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                         Text {
                             text: bentoRoot.timerPageRef ? (bentoRoot.timerPageRef.isCountUp ? "正向计次" : "专注倒计时") : "计时器"
-                            color: Theme.timer; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.chosenFont
+                            color: Theme.timer; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.effectiveFont
                         }
                     }
                     Text {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "↗"; color: timerHeaderArea.containsMouse ? "white" : Theme.timer; font.pixelSize: 12; font.weight: Font.Bold
+                        text: "↗"; color: timerHeaderArea.containsMouse ? "white" : Theme.timer; font.pixelSize: 12; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                     }
                 }
 
-                // 左右双栏结构
                 Row {
                     width: parent.width; height: 42
                     spacing: 6
 
-                    // 左栏：时间大字 + 进度条
                     Column {
                         width: parent.width - 76
                         anchors.verticalCenter: parent.verticalCenter
@@ -182,7 +178,7 @@ Item {
                             color: "white"
                             font.pixelSize: 22
                             font.weight: Font.Black
-                            font.family: "Monospace"
+                            font.family: bentoRoot.displayFont
                             anchors.left: parent.left
                         }
 
@@ -197,27 +193,24 @@ Item {
                         }
                     }
 
-                    // 右栏：两颗紧凑操作微胶囊
                     Column {
                         width: 70
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 4
 
-                        // 25m 预设
                         Rectangle {
                             width: parent.width; height: 19; radius: 9.5
                             color: p25Area.pressed ? Qt.rgba(Theme.timer.r, Theme.timer.g, Theme.timer.b, 0.45) : Qt.rgba(Theme.timer.r, Theme.timer.g, Theme.timer.b, 0.2)
                             border.color: Theme.timer; border.width: 1
                             scale: p25Area.pressed ? 0.94 : 1.0
 
-                            Text { anchors.centerIn: parent; text: "25m 专注"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: bentoRoot.chosenFont }
+                            Text { anchors.centerIn: parent; text: "25m 专注"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont }
                             MouseArea {
                                 id: p25Area; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                 onClicked: if (bentoRoot.timerPageRef) bentoRoot.timerPageRef.startPreset(1500, "focus")
                             }
                         }
 
-                        // 开始/暂停/重置
                         Rectangle {
                             width: parent.width; height: 19; radius: 9.5
                             readonly property bool isRun: bentoRoot.timerPageRef && bentoRoot.timerPageRef.isRunning
@@ -228,7 +221,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: bentoRoot.timerPageRef ? (bentoRoot.timerPageRef.isRunning ? "暂停" : (bentoRoot.timerPageRef.isPaused ? "继续" : "重置")) : "开始"
-                                color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: bentoRoot.chosenFont
+                                color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                             }
                             MouseArea {
                                 id: pToggleArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -252,9 +245,7 @@ Item {
             }
         }
 
-        // =================================================================
         // 瓦片 3：网络监控
-        // =================================================================
         Rectangle {
             width: (bentoRoot.width - 8) / 2
             height: (bentoRoot.height - 8) / 2
@@ -278,11 +269,11 @@ Item {
                     Row {
                         anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 4
                         Text { text: "📶"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                        Text { text: "网络监控"; color: Theme.network; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.chosenFont }
+                        Text { text: "网络监控"; color: Theme.network; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.effectiveFont }
                     }
                     Text {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "↗"; color: netCardArea.containsMouse ? "white" : Theme.network; font.pixelSize: 12; font.weight: Font.Bold
+                        text: "↗"; color: netCardArea.containsMouse ? "white" : Theme.network; font.pixelSize: 12; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                     }
                 }
 
@@ -291,19 +282,19 @@ Item {
                     spacing: 14
                     Row {
                         spacing: 3; anchors.verticalCenter: parent.verticalCenter
-                        Text { text: "↓"; color: Theme.calendar; font.pixelSize: 11; font.weight: Font.Black }
-                        Text { text: bentoRoot.downSpeedStr; color: "white"; font.pixelSize: 12; font.weight: Font.Black; font.family: "Monospace" }
+                        Text { text: "↓"; color: Theme.calendar; font.pixelSize: 11; font.weight: Font.Black; font.family: bentoRoot.effectiveFont }
+                        Text { text: bentoRoot.downSpeedStr; color: "white"; font.pixelSize: 12; font.weight: Font.Black; font.family: bentoRoot.displayFont }
                     }
                     Row {
                         spacing: 3; anchors.verticalCenter: parent.verticalCenter
-                        Text { text: "↑"; color: Theme.network; font.pixelSize: 11; font.weight: Font.Black }
-                        Text { text: bentoRoot.upSpeedStr; color: "white"; font.pixelSize: 12; font.weight: Font.Black; font.family: "Monospace" }
+                        Text { text: "↑"; color: Theme.network; font.pixelSize: 11; font.weight: Font.Black; font.family: bentoRoot.effectiveFont }
+                        Text { text: bentoRoot.upSpeedStr; color: "white"; font.pixelSize: 12; font.weight: Font.Black; font.family: bentoRoot.displayFont }
                     }
                 }
 
                 Text {
                     text: "内网 IP: " + bentoRoot.localIp
-                    color: Theme.textSecondary; font.pixelSize: 10; font.family: "Monospace"
+                    color: Theme.textSecondary; font.pixelSize: 10; font.family: bentoRoot.displayFont
                 }
             }
 
@@ -313,9 +304,7 @@ Item {
             }
         }
 
-        // =================================================================
         // 瓦片 4：蓝牙外设
-        // =================================================================
         Rectangle {
             width: (bentoRoot.width - 8) / 2
             height: (bentoRoot.height - 8) / 2
@@ -339,11 +328,11 @@ Item {
                     Row {
                         anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 4
                         Text { text: "🎧"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                        Text { text: "蓝牙外设"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.chosenFont }
+                        Text { text: "蓝牙外设"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Black; font.family: bentoRoot.effectiveFont }
                     }
                     Text {
                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                        text: "↗"; color: btCardArea.containsMouse ? "white" : Theme.bluetooth; font.pixelSize: 12; font.weight: Font.Bold
+                        text: "↗"; color: btCardArea.containsMouse ? "white" : Theme.bluetooth; font.pixelSize: 12; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                     }
                 }
 
@@ -359,12 +348,12 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         Text {
                             text: (typeof Bridge !== "undefined" && Bridge.isBluetoothPowered && !Bridge.isBluetoothPowered()) ? "蓝牙已关闭" : "设备控制器已就绪"
-                            color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: bentoRoot.chosenFont
+                            color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: bentoRoot.effectiveFont
                             elide: Text.ElideRight; width: parent.width
                         }
                         Text {
                             text: "点击进入配对管理 ↗"
-                            color: Theme.textMuted; font.pixelSize: 9; font.family: bentoRoot.chosenFont
+                            color: Theme.textMuted; font.pixelSize: 9; font.family: bentoRoot.effectiveFont
                             elide: Text.ElideRight; width: parent.width
                         }
                     }

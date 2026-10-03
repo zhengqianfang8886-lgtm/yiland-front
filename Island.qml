@@ -8,10 +8,9 @@ Item {
     id: root
     width: 720; height: 270
 
-    readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
+    readonly property string chosenFont: (typeof Config !== "undefined") ? Config.activeFont : ""
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    // 全岛隐藏状态管理
     property bool isIslandHidden: false
 
     Timer {
@@ -33,7 +32,6 @@ Item {
         autoRestoreTimer.interval = Math.max(1000, sec * 1000)
         autoRestoreTimer.restart()
         
-        // 🚀 触发隐藏的第 0 毫秒：立即执行离屏穿透，绝不让底层产生任何点击阻塞
         if (typeof Bridge !== "undefined" && Bridge.setPassthrough) {
             Bridge.setPassthrough()
         }
@@ -48,7 +46,6 @@ Item {
 
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || root.isIslandHidden)
 
-    // 音乐小岛延时 5 秒消失逻辑
     property bool musicRetained: relay.status === "Playing"
 
     Timer {
@@ -177,7 +174,6 @@ Item {
         }
     }
 
-    // 🚀 将隐藏状态直接透传给遮罩控制器
     IslandMaskController {
         id: maskController
         rootItem: root; capsuleItem: capsule
@@ -405,6 +401,7 @@ Item {
         }
     }
 
+    // 🚀【时间副岛】：左键只管暂停，右键绝不暂停，红键直通关闭直接消失！
     TimerBubbleView {
         id: bubbleTimer; z: 1
         x: root.getIslandX("timer", width)
@@ -429,8 +426,11 @@ Item {
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
 
+        // 仅由左键触发
         onTogglePause: capsule.toggleTimerPause()
-        onDismissTimer: capsule.endTimer()
+        
+        // 🚀 核心连接：红键点击直通 dismissTimer，像灵动岛一样平滑缩回彻底消失
+        onDismissTimer: capsule.dismissTimer()
     }
 
     NotificationBubbleView {

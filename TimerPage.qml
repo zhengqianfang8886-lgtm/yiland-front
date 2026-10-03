@@ -4,7 +4,21 @@ import QtQuick.Shapes
 Item {
     id: timerRoot
 
+    // 🚀 补齐外部传参接口，消除属性不存在报错
     property string chosenFont: ""
+
+    // 🚀 全局字体响应中枢
+    readonly property string textFont: {
+        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
+            return Config.fontFamily
+        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
+            return chosenFont
+        }
+        return ""
+    }
+    readonly property string displayFont: (textFont !== "") ? textFont : "Monospace"
+
     property string timerType: "countdown"
     readonly property bool isCountUp: timerType === "stopwatch"
 
@@ -109,37 +123,12 @@ Item {
             remainingSeconds = totalSeconds
         }
     }
-    // 🚀【核心新增】：真正“结束”计时（计算已专注时长、触发灵动岛结算弹窗、关闭任务）
-    function endTimer() {
-        // 1. 如果本就处于完成态 (00:00)，直接复位收尾
-        if (isCompleted) {
-            resetTimer()
-            return
-        }
 
-        // 2. 计算本次实际专注/计时的秒数
-        var spentSec = isCountUp ? elapsedSeconds : Math.max(0, totalSeconds - remainingSeconds)
-        var isBreak = (currentMode === "break")
-
-        // 3. 停止时钟
+    function dismissTimer() {
         isRunning = false
         isPaused = false
         isCompleted = false
         tickTimer.stop()
-
-        // 4. 只要专注超过 5 秒，即触发灵动岛专属结算通知
-        if (spentSec >= 5) {
-            var timeStr = formatTime(spentSec)
-            if (isBreak) {
-                timerRoot.timerCompleted("休息结束", "本次休息 " + timeStr + " · 精力充沛准备下一次专注吧 🚀")
-            } else if (isCountUp) {
-                timerRoot.timerCompleted("计时结束", "本次总计时长 " + timeStr + " · 记录已归档")
-            } else {
-                timerRoot.timerCompleted("专注已结束", "本次已专注 " + timeStr + " · 保持良好节奏 👏")
-            }
-        }
-
-        // 5. 将数值还原至待命预设
         if (isCountUp) {
             elapsedSeconds = 0
             laps = []
@@ -180,13 +169,13 @@ Item {
         anchors.fill: parent
         spacing: 14
 
-        // 1. 左侧看板
+        // 1. 左侧大看板
         Rectangle {
             width: 195
             height: parent.height
             radius: 16
             color: Qt.rgba(1, 1, 1, 0.04)
-            border.color: Qt.rgba(timerRoot.accentColor.r, timerRoot.accentColor.g, timerRoot.accentColor.b, 0.28)
+            border.color: Qt.rgba(timerRoot.accentColor.r, timerRoot.accentColor.g, timerRoot.accentColor.b, 0.3)
             border.width: 1
 
             Column {
@@ -211,11 +200,11 @@ Item {
                         text: timerRoot.isCompleted ? "COMPLETED" :
                               (timerRoot.isCountUp ?
                               (timerRoot.isRunning ? "STOPWATCH RUNNING" : (timerRoot.isPaused ? "STOPWATCH PAUSED" : "STOPWATCH READY")) :
-                              (timerRoot.isRunning ? (timerRoot.currentMode === "break" ? "TAKING A BREAK" : "FOCUSING (LOCKED)") : (timerRoot.isPaused ? "PAUSED" : "SCROLL TO EDIT")))
+                              (timerRoot.isRunning ? (timerRoot.currentMode === "break" ? "TAKING A BREAK" : "FOCUSING") : (timerRoot.isPaused ? "PAUSED" : "READY")))
                         font.pixelSize: 9
                         font.weight: Font.Black
                         color: timerRoot.accentColor
-                        font.family: timerRoot.chosenFont
+                        font.family: timerRoot.textFont
                         font.letterSpacing: 0.8
                     }
                 }
@@ -228,85 +217,85 @@ Item {
                         spacing: 2
                         Rectangle {
                             width: 44; height: 42; radius: 8
-                            color: (hMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(249, 115, 22, 0.2) : "transparent"
-                            Behavior on color { ColorAnimation { duration: 150 } }
+                            color: (hHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(timerRoot.accentColor.r, timerRoot.accentColor.g, timerRoot.accentColor.b, 0.22) : "transparent"
+                            border.color: (hHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "transparent"
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 120 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: (timerRoot.hoursPart < 10 ? "0" : "") + timerRoot.hoursPart
-                                color: (hMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
-                                font.pixelSize: 28; font.weight: Font.Black; font.family: "Monospace"
+                                color: (hHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
+                                font.pixelSize: 28; font.weight: Font.Black; font.family: timerRoot.displayFont
                             }
-                            HoverHandler { id: hMouse; enabled: !timerRoot.isRunning && !timerRoot.isCountUp }
+                            HoverHandler { id: hHover; enabled: !timerRoot.isRunning && !timerRoot.isCountUp; cursorShape: Qt.PointingHandCursor }
                             WheelHandler {
                                 enabled: !timerRoot.isRunning && !timerRoot.isCountUp
                                 onWheel: (e) => timerRoot.adjustTime(e.angleDelta.y > 0 ? 3600 : -3600)
                             }
                         }
-                        Text { text: "时"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "时"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; font.family: timerRoot.textFont; anchors.horizontalCenter: parent.horizontalCenter }
                     }
 
-                    Text { text: ":"; font.pixelSize: 22; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.3); y: 6 }
+                    Text { text: ":"; font.pixelSize: 22; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.3); font.family: timerRoot.displayFont; y: 6 }
 
                     Column {
                         spacing: 2
                         Rectangle {
                             width: 44; height: 42; radius: 8
-                            color: (mMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(249, 115, 22, 0.2) : "transparent"
-                            Behavior on color { ColorAnimation { duration: 150 } }
+                            color: (mHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(timerRoot.accentColor.r, timerRoot.accentColor.g, timerRoot.accentColor.b, 0.22) : "transparent"
+                            border.color: (mHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "transparent"
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 120 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: (timerRoot.minutesPart < 10 ? "0" : "") + timerRoot.minutesPart
-                                color: (mMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
-                                font.pixelSize: 28; font.weight: Font.Black; font.family: "Monospace"
+                                color: (mHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
+                                font.pixelSize: 28; font.weight: Font.Black; font.family: timerRoot.displayFont
                             }
-                            HoverHandler { id: mMouse; enabled: !timerRoot.isRunning && !timerRoot.isCountUp }
+                            HoverHandler { id: mHover; enabled: !timerRoot.isRunning && !timerRoot.isCountUp; cursorShape: Qt.PointingHandCursor }
                             WheelHandler {
                                 enabled: !timerRoot.isRunning && !timerRoot.isCountUp
                                 onWheel: (e) => timerRoot.adjustTime(e.angleDelta.y > 0 ? 60 : -60)
                             }
                         }
-                        Text { text: "分"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "分"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; font.family: timerRoot.textFont; anchors.horizontalCenter: parent.horizontalCenter }
                     }
 
-                    Text { text: ":"; font.pixelSize: 22; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.3); y: 6 }
+                    Text { text: ":"; font.pixelSize: 22; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.3); font.family: timerRoot.displayFont; y: 6 }
 
                     Column {
                         spacing: 2
                         Rectangle {
                             width: 44; height: 42; radius: 8
-                            color: (sMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(249, 115, 22, 0.2) : "transparent"
-                            Behavior on color { ColorAnimation { duration: 150 } }
+                            color: (sHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? Qt.rgba(timerRoot.accentColor.r, timerRoot.accentColor.g, timerRoot.accentColor.b, 0.22) : "transparent"
+                            border.color: (sHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "transparent"
+                            border.width: 1
+                            Behavior on color { ColorAnimation { duration: 120 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: (timerRoot.secondsPart < 10 ? "0" : "") + timerRoot.secondsPart
-                                color: (sMouse.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
-                                font.pixelSize: 28; font.weight: Font.Black; font.family: "Monospace"
+                                color: (sHover.hovered && !timerRoot.isRunning && !timerRoot.isCountUp) ? timerRoot.accentColor : "white"
+                                font.pixelSize: 28; font.weight: Font.Black; font.family: timerRoot.displayFont
                             }
-                            HoverHandler { id: sMouse; enabled: !timerRoot.isRunning && !timerRoot.isCountUp }
+                            HoverHandler { id: sHover; enabled: !timerRoot.isRunning && !timerRoot.isCountUp; cursorShape: Qt.PointingHandCursor }
                             WheelHandler {
                                 enabled: !timerRoot.isRunning && !timerRoot.isCountUp
                                 onWheel: (e) => timerRoot.adjustTime(e.angleDelta.y > 0 ? 5 : -5)
                             }
                         }
-                        Text { text: "秒"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "秒"; font.pixelSize: 9; color: Qt.rgba(1, 1, 1, 0.4); font.weight: Font.Bold; font.family: timerRoot.textFont; anchors.horizontalCenter: parent.horizontalCenter }
                     }
                 }
 
                 Rectangle {
-                    width: 140
-                    height: 4.5
-                    radius: 99
-                    color: Qt.rgba(1, 1, 1, 0.12)
+                    width: 140; height: 4.5; radius: 99; color: Qt.rgba(1, 1, 1, 0.12)
                     anchors.horizontalCenter: parent.horizontalCenter
-
                     Rectangle {
                         width: parent.width * Math.min(1.0, Math.max(0.0, timerRoot.isCompleted ? 1.0 : timerRoot.progress))
-                        height: parent.height
-                        radius: 99
-                        color: timerRoot.accentColor
+                        height: parent.height; radius: 99; color: timerRoot.accentColor
                         Behavior on width { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                     }
                 }
@@ -321,22 +310,8 @@ Item {
 
             Rectangle {
                 id: segContainer
-                width: parent.width
-                height: 28
-                radius: 14
-                color: Qt.rgba(1, 1, 1, 0.06)
-                border.color: Qt.rgba(1, 1, 1, 0.1)
-
-                Timer {
-                    id: segDwellTimer
-                    property string pendingType: ""
-                    interval: 180
-                    onTriggered: {
-                        if (!timerRoot.isRunning && pendingType !== "" && pendingType !== timerRoot.timerType) {
-                            timerRoot.switchType(pendingType)
-                        }
-                    }
-                }
+                width: parent.width; height: 28; radius: 14
+                color: Qt.rgba(1, 1, 1, 0.06); border.color: Qt.rgba(1, 1, 1, 0.12); border.width: 1
 
                 Rectangle {
                     x: timerRoot.isCountUp ? parent.width / 2 + 2 : 2
@@ -344,11 +319,11 @@ Item {
                     width: parent.width / 2 - 4
                     height: parent.height - 4
                     radius: 12
-                    color: timerRoot.isCountUp ? Qt.rgba(56, 189, 248, 0.24) : Qt.rgba(249, 115, 22, 0.24)
+                    color: timerRoot.isCountUp ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.28) : Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.28)
                     border.color: timerRoot.isCountUp ? "#38bdf8" : "#f97316"
                     border.width: 1
 
-                    Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
                     Behavior on color { ColorAnimation { duration: 150 } }
                     Behavior on border.color { ColorAnimation { duration: 150 } }
                 }
@@ -358,276 +333,116 @@ Item {
 
                     Item {
                         width: parent.width / 2; height: parent.height
-
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.margins: 2
-                            radius: 12
-                            color: cdHover.hovered && timerRoot.isCountUp ? Qt.rgba(249, 115, 22, 0.12) : "transparent"
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                        Text {
+                            anchors.centerIn: parent; text: "倒计时"
+                            color: !timerRoot.isCountUp ? "white" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.5))
+                            font.pixelSize: 11; font.weight: !timerRoot.isCountUp ? Font.Black : Font.Bold; font.family: timerRoot.textFont
                         }
-
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 6
-
-                            Shape {
-                                width: 11; height: 12
-                                anchors.verticalCenter: parent.verticalCenter
-                                ShapePath {
-                                    strokeColor: !timerRoot.isCountUp ? "#f97316" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.45))
-                                    strokeWidth: 1.3
-                                    fillColor: "transparent"
-                                    capStyle: ShapePath.RoundCap
-                                    joinStyle: ShapePath.RoundJoin
-
-                                    startX: 1.5; startY: 1.2
-                                    PathLine { x: 9.5; y: 1.2 }
-                                    PathLine { x: 6.2; y: 5.5 }
-                                    PathLine { x: 6.2; y: 6.5 }
-                                    PathLine { x: 9.5; y: 10.8 }
-                                    PathLine { x: 1.5; y: 10.8 }
-                                    PathLine { x: 4.8; y: 6.5 }
-                                    PathLine { x: 4.8; y: 5.5 }
-                                    PathLine { x: 1.5; y: 1.2 }
-                                }
-                                Behavior on opacity { NumberAnimation { duration: 120 } }
-                            }
-
-                            Text {
-                                text: "倒计时"
-                                color: !timerRoot.isCountUp ? "white" : (cdHover.hovered ? "#fdba74" : Qt.rgba(1, 1, 1, 0.5))
-                                font.pixelSize: 11
-                                font.weight: !timerRoot.isCountUp ? Font.Black : Font.Bold
-                                font.family: timerRoot.chosenFont
-                                anchors.verticalCenter: parent.verticalCenter
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                            }
-                        }
-
-                        HoverHandler {
-                            id: cdHover
-                            cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
-                            onHoveredChanged: {
-                                if (hovered && timerRoot.isCountUp && !timerRoot.isRunning) {
-                                    segDwellTimer.pendingType = "countdown"
-                                    segDwellTimer.restart()
-                                } else if (!hovered && segDwellTimer.pendingType === "countdown") {
-                                    segDwellTimer.stop()
-                                }
-                            }
-                        }
-
+                        HoverHandler { id: cdHover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
                         TapHandler {
                             enabled: !timerRoot.isRunning
-                            onTapped: {
-                                segDwellTimer.stop()
-                                timerRoot.switchType("countdown")
-                            }
+                            onTapped: timerRoot.switchType("countdown")
                         }
                     }
 
                     Item {
                         width: parent.width / 2; height: parent.height
-
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.margins: 2
-                            radius: 12
-                            color: swHover.hovered && !timerRoot.isCountUp ? Qt.rgba(56, 189, 248, 0.12) : "transparent"
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                        Text {
+                            anchors.centerIn: parent; text: "正向计时"
+                            color: timerRoot.isCountUp ? "white" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.5))
+                            font.pixelSize: 11; font.weight: timerRoot.isCountUp ? Font.Black : Font.Bold; font.family: timerRoot.textFont
                         }
-
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 6
-
-                            Shape {
-                                width: 12; height: 12
-                                anchors.verticalCenter: parent.verticalCenter
-
-                                ShapePath {
-                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
-                                    strokeWidth: 1.3
-                                    fillColor: "transparent"
-                                    capStyle: ShapePath.RoundCap
-
-                                    startX: 6; startY: 2.8
-                                    PathArc { x: 6; y: 11.2; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
-                                    PathArc { x: 6; y: 2.8; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
-                                }
-
-                                ShapePath {
-                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
-                                    strokeWidth: 1.3
-                                    fillColor: "transparent"
-                                    capStyle: ShapePath.RoundCap
-
-                                    startX: 4.5; startY: 1.0
-                                    PathLine { x: 7.5; y: 1.0 }
-                                }
-
-                                ShapePath {
-                                    strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
-                                    strokeWidth: 1.2
-                                    fillColor: "transparent"
-                                    capStyle: ShapePath.RoundCap
-
-                                    startX: 6; startY: 7.0
-                                    PathLine { x: 8.2; y: 5.0 }
-                                }
-                            }
-
-                            Text {
-                                text: "正向计时"
-                                color: timerRoot.isCountUp ? "white" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.5))
-                                font.pixelSize: 11
-                                font.weight: timerRoot.isCountUp ? Font.Black : Font.Bold
-                                font.family: timerRoot.chosenFont
-                                anchors.verticalCenter: parent.verticalCenter
-                                Behavior on color { ColorAnimation { duration: 120 } }
-                            }
-                        }
-
-                        HoverHandler {
-                            id: swHover
-                            cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
-                            onHoveredChanged: {
-                                if (hovered && !timerRoot.isCountUp && !timerRoot.isRunning) {
-                                    segDwellTimer.pendingType = "stopwatch"
-                                    segDwellTimer.restart()
-                                } else if (!hovered && segDwellTimer.pendingType === "stopwatch") {
-                                    segDwellTimer.stop()
-                                }
-                            }
-                        }
-
+                        HoverHandler { id: swHover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
                         TapHandler {
                             enabled: !timerRoot.isRunning
-                            onTapped: {
-                                segDwellTimer.stop()
-                                timerRoot.switchType("stopwatch")
-                            }
+                            onTapped: timerRoot.switchType("stopwatch")
                         }
                     }
                 }
             }
 
             Item {
-                width: parent.width
-                height: 80
-                visible: !timerRoot.isCountUp
+                width: parent.width; height: 80; visible: !timerRoot.isCountUp
 
                 Grid {
-                    anchors.fill: parent
-                    columns: 2
-                    spacing: 6
+                    anchors.fill: parent; columns: 2; spacing: 6
                     enabled: !timerRoot.isRunning
                     opacity: timerRoot.isRunning ? 0.35 : 1.0
                     Behavior on opacity { NumberAnimation { duration: 150 } }
 
                     Rectangle {
                         width: (parent.width - 6) / 2; height: 36; radius: 9
-                        color: p25Tap.pressed ? Qt.rgba(249, 115, 22, 0.35) : (p25Hover.hovered ? Qt.rgba(249, 115, 22, 0.2) : Qt.rgba(1, 1, 1, 0.06))
-                        border.color: timerRoot.currentMode === "focus" && timerRoot.totalSeconds === 1500 ? "#f97316" : (p25Hover.hovered ? Qt.rgba(249, 115, 22, 0.4) : "transparent")
-                        scale: p25Tap.pressed ? 0.95 : (p25Hover.hovered ? 1.02 : 1.0)
+                        color: p25Area.pressed ? Qt.rgba(249, 115, 22, 0.35) : (p25Area.containsMouse ? Qt.rgba(249, 115, 22, 0.2) : Qt.rgba(1, 1, 1, 0.06))
+                        border.color: (timerRoot.currentMode === "focus" && timerRoot.totalSeconds === 1500) ? "#f97316" : (p25Area.containsMouse ? Qt.rgba(249, 115, 22, 0.5) : Theme.borderSubtle)
+                        border.width: 1
+                        scale: p25Area.pressed ? 0.95 : (p25Area.containsMouse ? 1.02 : 1.0)
                         Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                         Behavior on color { ColorAnimation { duration: 120 } }
 
-                        Text { anchors.centerIn: parent; text: "25m 专注"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.chosenFont }
-                        HoverHandler { id: p25Hover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
-                        TapHandler { id: p25Tap; onTapped: timerRoot.startPreset(1500, "focus") }
+                        Text { anchors.centerIn: parent; text: "25m 专注"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.textFont }
+                        MouseArea { id: p25Area; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.startPreset(1500, "focus") }
                     }
 
                     Rectangle {
                         width: (parent.width - 6) / 2; height: 36; radius: 9
-                        color: p1hTap.pressed ? Qt.rgba(249, 115, 22, 0.35) : (p1hHover.hovered ? Qt.rgba(249, 115, 22, 0.2) : Qt.rgba(1, 1, 1, 0.06))
-                        border.color: timerRoot.totalSeconds === 3600 ? "#f97316" : (p1hHover.hovered ? Qt.rgba(249, 115, 22, 0.4) : "transparent")
-                        scale: p1hTap.pressed ? 0.95 : (p1hHover.hovered ? 1.02 : 1.0)
+                        color: p1hArea.pressed ? Qt.rgba(249, 115, 22, 0.35) : (p1hArea.containsMouse ? Qt.rgba(249, 115, 22, 0.2) : Qt.rgba(1, 1, 1, 0.06))
+                        border.color: timerRoot.totalSeconds === 3600 ? "#f97316" : (p1hArea.containsMouse ? Qt.rgba(249, 115, 22, 0.5) : Theme.borderSubtle)
+                        border.width: 1
+                        scale: p1hArea.pressed ? 0.95 : (p1hArea.containsMouse ? 1.02 : 1.0)
                         Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                         Behavior on color { ColorAnimation { duration: 120 } }
 
-                        Text { anchors.centerIn: parent; text: "1h 深度"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.chosenFont }
-                        HoverHandler { id: p1hHover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
-                        TapHandler { id: p1hTap; onTapped: timerRoot.startPreset(3600, "focus") }
+                        Text { anchors.centerIn: parent; text: "1h 深度"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.textFont }
+                        MouseArea { id: p1hArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.startPreset(3600, "focus") }
                     }
 
                     Rectangle {
                         width: (parent.width - 6) / 2; height: 36; radius: 9
-                        color: p5Tap.pressed ? Qt.rgba(16, 185, 129, 0.35) : (p5Hover.hovered ? Qt.rgba(16, 185, 129, 0.2) : Qt.rgba(1, 1, 1, 0.06))
-                        border.color: timerRoot.currentMode === "break" ? "#10b981" : (p5Hover.hovered ? Qt.rgba(16, 185, 129, 0.4) : "transparent")
-                        scale: p5Tap.pressed ? 0.95 : (p5Hover.hovered ? 1.02 : 1.0)
+                        color: p5Area.pressed ? Qt.rgba(16, 185, 129, 0.35) : (p5Area.containsMouse ? Qt.rgba(16, 185, 129, 0.2) : Qt.rgba(1, 1, 1, 0.06))
+                        border.color: timerRoot.currentMode === "break" ? "#10b981" : (p5Area.containsMouse ? Qt.rgba(16, 185, 129, 0.5) : Theme.borderSubtle)
+                        border.width: 1
+                        scale: p5Area.pressed ? 0.95 : (p5Area.containsMouse ? 1.02 : 1.0)
                         Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                         Behavior on color { ColorAnimation { duration: 120 } }
 
-                        Text { anchors.centerIn: parent; text: "5m 小憩"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.chosenFont }
-                        HoverHandler { id: p5Hover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
-                        TapHandler { id: p5Tap; onTapped: timerRoot.startPreset(300, "break") }
+                        Text { anchors.centerIn: parent; text: "5m 小憩"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.textFont }
+                        MouseArea { id: p5Area; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.startPreset(300, "break") }
                     }
 
                     Rectangle {
                         width: (parent.width - 6) / 2; height: 36; radius: 9
-                        color: p15Tap.pressed ? Qt.rgba(1, 1, 1, 0.2) : (p15Hover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
-                        scale: p15Tap.pressed ? 0.95 : (p15Hover.hovered ? 1.02 : 1.0)
+                        color: p15Area.pressed ? Qt.rgba(1, 1, 1, 0.22) : (p15Area.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06))
+                        border.color: p15Area.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Theme.borderSubtle
+                        border.width: 1
+                        scale: p15Area.pressed ? 0.95 : (p15Area.containsMouse ? 1.02 : 1.0)
                         Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                         Behavior on color { ColorAnimation { duration: 120 } }
 
-                        Text { anchors.centerIn: parent; text: "15m 冲刺"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.chosenFont }
-                        HoverHandler { id: p15Hover; cursorShape: timerRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor }
-                        TapHandler { id: p15Tap; onTapped: timerRoot.startPreset(900, "focus") }
+                        Text { anchors.centerIn: parent; text: "15m 冲刺"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.textFont }
+                        MouseArea { id: p15Area; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.startPreset(900, "focus") }
                     }
                 }
             }
 
             Item {
-                width: parent.width
-                height: 80
-                visible: timerRoot.isCountUp
+                width: parent.width; height: 80; visible: timerRoot.isCountUp
 
                 Column {
-                    anchors.centerIn: parent
-                    spacing: 4
-                    visible: timerRoot.laps.length === 0
-
-                    Text { text: "正向连续计时"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold; font.family: timerRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
-                    Text { text: "支持随时暂停、重置与打点标记"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; font.family: timerRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                    anchors.centerIn: parent; spacing: 4; visible: timerRoot.laps.length === 0
+                    Text { text: "正向连续计时"; color: "white"; font.pixelSize: 12; font.weight: Font.Bold; font.family: timerRoot.textFont; anchors.horizontalCenter: parent.horizontalCenter }
+                    Text { text: "支持随时暂停、重置与打点标记"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; font.family: timerRoot.textFont; anchors.horizontalCenter: parent.horizontalCenter }
                 }
 
                 Column {
-                    anchors.fill: parent
-                    spacing: 4
-                    visible: timerRoot.laps.length > 0
-
+                    anchors.fill: parent; spacing: 4; visible: timerRoot.laps.length > 0
                     Repeater {
                         model: timerRoot.laps
                         Rectangle {
-                            width: parent.width; height: 22; radius: 6
-                            color: Qt.rgba(56, 189, 248, 0.1)
-
+                            width: parent.width; height: 22; radius: 6; color: Qt.rgba(56, 189, 248, 0.12)
                             Item {
-                                anchors.fill: parent
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-
-                                Text {
-                                    anchors.left: parent.left
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "计次 " + modelData.id
-                                    color: "#38bdf8"
-                                    font.pixelSize: 10
-                                    font.weight: Font.Bold
-                                    font.family: timerRoot.chosenFont
-                                }
-
-                                Text {
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.time
-                                    color: "white"
-                                    font.pixelSize: 11
-                                    font.weight: Font.Bold
-                                    font.family: "Monospace"
-                                }
+                                anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                                Text { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "计次 " + modelData.id; color: "#38bdf8"; font.pixelSize: 10; font.weight: Font.Bold; font.family: timerRoot.textFont }
+                                Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: modelData.time; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: timerRoot.displayFont }
                             }
                         }
                     }
@@ -639,11 +454,12 @@ Item {
                 spacing: 6
 
                 Rectangle {
-                    width: (timerRoot.isRunning || timerRoot.isPaused || timerRoot.isCompleted) ? (timerRoot.isCountUp && timerRoot.isRunning ? parent.width - 86 : parent.width - 44) : parent.width
+                    width: (timerRoot.isRunning || timerRoot.isPaused || timerRoot.isCompleted) ?
+                           (timerRoot.isCountUp && timerRoot.isRunning ? parent.width - 86 : parent.width - 44) : parent.width
                     height: 36
                     radius: 18
-                    color: mainTap.pressed ? Qt.darker(timerRoot.accentColor, 1.25) : (mainHover.hovered ? Qt.lighter(timerRoot.accentColor, 1.12) : timerRoot.accentColor)
-                    scale: mainTap.pressed ? 0.95 : (mainHover.hovered ? 1.015 : 1.0)
+                    color: mainArea.pressed ? Qt.darker(timerRoot.accentColor, 1.25) : (mainArea.containsMouse ? Qt.lighter(timerRoot.accentColor, 1.15) : timerRoot.accentColor)
+                    scale: mainArea.pressed ? 0.95 : (mainArea.containsMouse ? 1.015 : 1.0)
                     Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Easing.OutQuad } }
                     Behavior on color { ColorAnimation { duration: 150 } }
 
@@ -651,39 +467,44 @@ Item {
                         anchors.centerIn: parent
                         text: timerRoot.isCompleted ? "重置完成" : (timerRoot.isRunning ? "暂停" : (timerRoot.isPaused ? "继续" : (timerRoot.isCountUp ? "开始计时" : "开始专注")))
                         color: "white"
-                        font.family: timerRoot.chosenFont
+                        font.family: timerRoot.textFont
                         font.pixelSize: 12
                         font.weight: Font.Black
                     }
 
-                    HoverHandler { id: mainHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { id: mainTap; onTapped: timerRoot.togglePause() }
+                    MouseArea {
+                        id: mainArea
+                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: timerRoot.togglePause()
+                    }
                 }
 
                 Rectangle {
                     width: 38; height: 36; radius: 18
                     visible: timerRoot.isCountUp && timerRoot.isRunning
-                    color: lapTap.pressed ? Qt.rgba(56, 189, 248, 0.4) : (lapHover.hovered ? Qt.rgba(56, 189, 248, 0.25) : Qt.rgba(1, 1, 1, 0.08))
-                    scale: lapTap.pressed ? 0.92 : (lapHover.hovered ? 1.04 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 120 } }
+                    color: lapArea.pressed ? Qt.rgba(56, 189, 248, 0.4) : (lapArea.containsMouse ? Qt.rgba(56, 189, 248, 0.25) : Qt.rgba(1, 1, 1, 0.08))
+                    border.color: lapArea.containsMouse ? "#38bdf8" : Theme.borderSubtle
+                    border.width: 1
+                    scale: lapArea.pressed ? 0.92 : (lapArea.containsMouse ? 1.05 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                     Behavior on color { ColorAnimation { duration: 120 } }
 
-                    Text { anchors.centerIn: parent; text: "计次"; font.pixelSize: 10; font.weight: Font.Bold; color: "white" }
-                    HoverHandler { id: lapHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { id: lapTap; onTapped: timerRoot.recordLap() }
+                    Text { anchors.centerIn: parent; text: "计次"; font.pixelSize: 10; font.weight: Font.Bold; font.family: timerRoot.textFont; color: "white" }
+                    MouseArea { id: lapArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.recordLap() }
                 }
 
                 Rectangle {
                     width: 38; height: 36; radius: 18
                     visible: timerRoot.isRunning || timerRoot.isPaused || timerRoot.isCompleted
-                    color: resetTap.pressed ? Qt.rgba(1, 1, 1, 0.25) : (resetHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
-                    scale: resetTap.pressed ? 0.92 : (resetHover.hovered ? 1.04 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 120 } }
+                    color: resetArea.pressed ? Qt.rgba(1, 1, 1, 0.25) : (resetArea.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
+                    border.color: resetArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Theme.borderSubtle
+                    border.width: 1
+                    scale: resetArea.pressed ? 0.92 : (resetArea.containsMouse ? 1.05 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                     Behavior on color { ColorAnimation { duration: 120 } }
 
-                    Text { anchors.centerIn: parent; text: "重置"; font.pixelSize: 10; font.weight: Font.Bold; color: "white" }
-                    HoverHandler { id: resetHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { id: resetTap; onTapped: timerRoot.resetTimer() }
+                    Text { anchors.centerIn: parent; text: "重置"; font.pixelSize: 10; font.weight: Font.Bold; font.family: timerRoot.textFont; color: "white" }
+                    MouseArea { id: resetArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: timerRoot.resetTimer() }
                 }
             }
         }

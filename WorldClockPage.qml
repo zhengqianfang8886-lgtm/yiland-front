@@ -6,6 +6,21 @@ Item {
     anchors.fill: parent
 
     property string chosenFont: ""
+
+    // 🚀 直连全局 Config，打破 Loader 传参断链，设置修改立即全量刷新
+    readonly property string effectiveFont: {
+        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
+            return Config.fontFamily
+        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
+            return chosenFont
+        }
+        return ""
+    }
+
+    // 🚀 数字与时间无条件听从用户字体
+    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+
     property bool is24h: true
     property bool timeTick: false
     property bool dropdownOpen: false
@@ -93,9 +108,7 @@ Item {
         anchors.fill: parent
         spacing: 8
 
-        // =====================================================================
-        // 1. 顶栏：清晰大字号标题与添加按钮
-        // =====================================================================
+        // 1. 顶栏
         Item {
             id: topHeader
             width: parent.width
@@ -118,7 +131,7 @@ Item {
                     font.weight: Font.Black
                     font.letterSpacing: 0.8
                     color: Theme.clock
-                    font.family: worldClockRoot.chosenFont
+                    font.family: worldClockRoot.effectiveFont
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -135,12 +148,11 @@ Item {
                         color: Qt.rgba(1, 1, 1, 0.7)
                         font.pixelSize: 10
                         font.weight: Font.Bold
-                        font.family: worldClockRoot.chosenFont
+                        font.family: worldClockRoot.effectiveFont
                     }
                 }
             }
 
-            // 右侧清晰添加胶囊按钮
             Rectangle {
                 id: addBtn
                 anchors.right: parent.right
@@ -158,8 +170,8 @@ Item {
                     id: addRow
                     anchors.centerIn: parent
                     spacing: 5
-                    Text { text: "+"; color: Theme.clock; font.pixelSize: 13; font.weight: Font.Black }
-                    Text { text: "添加城市"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: worldClockRoot.chosenFont }
+                    Text { text: "+"; color: Theme.clock; font.pixelSize: 13; font.weight: Font.Black; font.family: worldClockRoot.effectiveFont }
+                    Text { text: "添加城市"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: worldClockRoot.effectiveFont }
                     Text {
                         text: worldClockRoot.dropdownOpen ? "▲" : "▼"
                         color: Qt.rgba(1, 1, 1, 0.5); font.pixelSize: 8
@@ -174,9 +186,7 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. 核心 2×2 Bento 仪表网格（大字号、实用第一、层次清晰）
-        // =====================================================================
+        // 2. 2×2 Bento 仪表网格
         Item {
             width: parent.width
             height: parent.height - 32
@@ -226,14 +236,10 @@ Item {
                                 anchors.topMargin: 8; anchors.bottomMargin: 8
                                 spacing: 4
 
-                                // ---------------------------------------------
-                                // 顶栏：城市与国家（15px/11px） + 时差胶囊（10px）
-                                // ---------------------------------------------
                                 Item {
                                     width: parent.width
                                     height: 20
 
-                                    // 左侧：指示条 + 城市名 + 国家
                                     Row {
                                         id: leftInfoRow
                                         anchors.left: parent.left
@@ -253,7 +259,7 @@ Item {
                                             color: "white"
                                             font.pixelSize: 15
                                             font.weight: Font.Black
-                                            font.family: worldClockRoot.chosenFont
+                                            font.family: worldClockRoot.effectiveFont
                                             elide: Text.ElideRight
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
@@ -263,19 +269,19 @@ Item {
                                             color: Theme.textSecondary
                                             font.pixelSize: 11
                                             font.weight: Font.DemiBold
-                                            font.family: worldClockRoot.chosenFont
+                                            font.family: worldClockRoot.effectiveFont
                                             elide: Text.ElideRight
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                     }
 
-                                    // 右侧：大号时差胶囊与悬停删除键
                                     Row {
                                         id: rightBadgeRow
                                         anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 4
 
+                                        // 🚀 时差胶囊彻底听从用户字体
                                         Rectangle {
                                             height: 18
                                             width: diffText.implicitWidth + 10
@@ -292,11 +298,10 @@ Item {
                                                 color: Theme.clock
                                                 font.pixelSize: 10
                                                 font.weight: Font.Bold
-                                                font.family: worldClockRoot.chosenFont
+                                                font.family: worldClockRoot.displayFont
                                             }
                                         }
 
-                                        // 悬停显现的微型删除键
                                         Rectangle {
                                             id: delBtn
                                             width: 18; height: 18; radius: 9
@@ -312,6 +317,7 @@ Item {
                                                 color: delHover.hovered ? Theme.danger : Qt.rgba(1, 1, 1, 0.7)
                                                 font.pixelSize: 9
                                                 font.weight: Font.Bold
+                                                font.family: worldClockRoot.effectiveFont
                                             }
 
                                             HoverHandler { id: delHover; cursorShape: Qt.PointingHandCursor }
@@ -323,9 +329,6 @@ Item {
                                     }
                                 }
 
-                                // ---------------------------------------------
-                                // 底栏：清晰时段中文状态（11px） + 超大等宽时间（24px）
-                                // ---------------------------------------------
                                 Item {
                                     width: parent.width
                                     height: 26
@@ -346,12 +349,12 @@ Item {
                                             color: cityCard.info.isWorking ? "#34d399" : Theme.textSecondary
                                             font.pixelSize: 11
                                             font.weight: Font.DemiBold
-                                            font.family: worldClockRoot.chosenFont
+                                            font.family: worldClockRoot.effectiveFont
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                     }
 
-                                    // 24px 超大醒目时间
+                                    // 🚀 核心修复：时间大字彻底绑定 displayFont，用户选什么字体就显示什么字体！
                                     Text {
                                         anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
@@ -359,7 +362,7 @@ Item {
                                         color: "white"
                                         font.pixelSize: 24
                                         font.weight: Font.Black
-                                        font.family: "Monospace"
+                                        font.family: worldClockRoot.displayFont
                                     }
                                 }
                             }
@@ -370,9 +373,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 3. 悬浮城市搜索下拉浮层（加大号字体，检索清晰）
-    // =========================================================================
+    // 3. 悬浮城市搜索下拉浮层
     Rectangle {
         id: dropdownMenu
         anchors.top: parent.top
@@ -409,6 +410,7 @@ Item {
                         font.pixelSize: 9
                         font.weight: Font.Black
                         color: Theme.clock
+                        font.family: worldClockRoot.effectiveFont
                         anchors.verticalCenter: parent.verticalCenter
                     }
 
@@ -418,7 +420,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         color: "white"
                         font.pixelSize: 11
-                        font.family: worldClockRoot.chosenFont
+                        font.family: worldClockRoot.effectiveFont
                         text: worldClockRoot.filterKeyword
                         onTextChanged: worldClockRoot.filterKeyword = text
 
@@ -426,7 +428,7 @@ Item {
                             text: "输入城市中文名、拼音缩写或英文..."
                             color: Qt.rgba(1, 1, 1, 0.4)
                             font.pixelSize: 11
-                            font.family: worldClockRoot.chosenFont
+                            font.family: worldClockRoot.effectiveFont
                             visible: !filterInput.text
                             anchors.verticalCenter: parent.verticalCenter
                         }
@@ -463,14 +465,14 @@ Item {
                             color: "white"
                             font.pixelSize: 12
                             font.weight: Font.Bold
-                            font.family: worldClockRoot.chosenFont
+                            font.family: worldClockRoot.effectiveFont
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
                             text: worldClockRoot.formatTzOffset(modelData.tz)
                             color: Qt.rgba(1, 1, 1, 0.5)
                             font.pixelSize: 10
-                            font.family: "Monospace"
+                            font.family: worldClockRoot.displayFont
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }

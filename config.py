@@ -32,14 +32,10 @@ class ConfigManager(QObject):
     showNetSpeedChanged = Signal(bool)
     clipboardMonitorEnabledChanged = Signal(bool)
 
-    # 硬件多模态微岛开关与音量步长
     showHardwareBubbleChanged = Signal(bool)
     volumeStepChanged = Signal(int)
-
-    # 🚀 主胶囊右键隐藏时长（秒数）
     autoHideDurationSecondsChanged = Signal(int)
 
-    # 内存小岛与久坐关怀专用信号
     showMemoryBubbleChanged = Signal(bool)
     memoryThresholdChanged = Signal(int)
     sedentaryReminderEnabledChanged = Signal(bool)
@@ -81,8 +77,6 @@ class ConfigManager(QObject):
         self._clipboardMonitorEnabled = True
         self._showHardwareBubble = True
         self._volumeStep = 5
-
-        # 🚀 默认右键隐藏 5 秒后自动复原
         self._autoHideDurationSeconds = 5
 
         self._showMemoryBubble = True
@@ -108,6 +102,20 @@ class ConfigManager(QObject):
         self._system_fonts = None
         self._world_cities = self._load_world_cities()
         self.load()
+
+    # 🚀【核心新增】：全局普通文本动态字体，选具体字体立刻返回，选默认则返回空字符串交由系统
+    @Property(str, notify=fontFamilyChanged)
+    def activeFont(self):
+        if not self._fontFamily or "系统默认" in self._fontFamily:
+            return ""
+        return self._fontFamily
+
+    # 🚀【核心新增】：全局时间与数字动态字体，选具体字体立刻全量换肤，选默认才回退等宽
+    @Property(str, notify=fontFamilyChanged)
+    def numberFont(self):
+        if not self._fontFamily or "系统默认" in self._fontFamily:
+            return "Monospace"
+        return self._fontFamily
 
     def _load_world_cities(self):
         try:
@@ -265,18 +273,14 @@ class ConfigManager(QObject):
     @showHardwareBubble.setter
     def showHardwareBubble(self, val):
         if self._showHardwareBubble != val:
-            self._showHardwareBubble = bool(val)
-            self.save()
-            self.showHardwareBubbleChanged.emit(self._showHardwareBubble)
+            self._showHardwareBubble = bool(val); self.save(); self.showHardwareBubbleChanged.emit(self._showHardwareBubble)
 
     @Property(bool, notify=clipboardMonitorEnabledChanged)
     def clipboardMonitorEnabled(self): return self._clipboardMonitorEnabled
     @clipboardMonitorEnabled.setter
     def clipboardMonitorEnabled(self, val):
         if self._clipboardMonitorEnabled != val:
-            self._clipboardMonitorEnabled = bool(val)
-            self.save()
-            self.clipboardMonitorEnabledChanged.emit(self._clipboardMonitorEnabled)
+            self._clipboardMonitorEnabled = bool(val); self.save(); self.clipboardMonitorEnabledChanged.emit(self._clipboardMonitorEnabled)
 
     @Property(int, notify=memoryThresholdChanged)
     def memoryThreshold(self): return self._memoryThreshold

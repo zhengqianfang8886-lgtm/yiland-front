@@ -5,7 +5,16 @@ class ThemeManager(QObject):
     def __init__(self):
         super().__init__()
 
-    # 1. 核心模块与业务色彩 Tokens
+    # 🚀 统一字体规范：系统默认传空字符串，由 Qt/fontconfig 自动匹配系统最佳字体
+    @Property(str, constant=True)
+    def defaultFontFamily(self):
+        return ""
+
+    @Property(str, constant=True)
+    def defaultMonoFamily(self):
+        return "Monospace"
+
+    # 1. 核心模块色彩 Tokens
     @Property(QColor, constant=True)
     def workspace(self): return QColor("#a855f7")
 
@@ -62,7 +71,7 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def textMuted(self): return QColor(255, 255, 255, int(0.45 * 255))
 
-    # 4. 统一动效物理常数与 Spring 曲线参数
+    # 4. 统一动效物理常数
     @Property(int, constant=True)
     def animInstant(self): return 100
 

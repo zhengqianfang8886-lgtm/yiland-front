@@ -5,17 +5,17 @@ Item {
     id: wsPageRoot
 
     property string chosenFont: ""
+    readonly property string effectiveFont: (chosenFont !== "") ? chosenFont : Theme.defaultFontFamily
+    readonly property string effectiveMonoFont: Theme.defaultMonoFamily
+
     property int currentWs: 0
     property int totalWs: 5
     property string currentWsName: "Main"
-
-    // 🚀 核心修复：必须显式声明 wsList 属性供 ExpandedCardView 传递
     property var wsList: []
 
     readonly property bool isVisibleOnScreen: wsPageRoot.visible && wsPageRoot.opacity > 0.1
     readonly property int effectiveTotal: Math.max(1, (wsList && wsList.length > 0) ? wsList.length : totalWs)
 
-    // Main 严格作为 0 号起始
     function getWorkspaceNumber(itemData, idx) {
         if (itemData && typeof itemData === "object") {
             if (itemData.id !== undefined && itemData.id !== null && !isNaN(Number(itemData.id))) {
@@ -28,7 +28,6 @@ Item {
         return idx
     }
 
-    // 当前活跃工作区的真实编号
     readonly property int displayCurrentNumber: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
@@ -41,7 +40,6 @@ Item {
         return currentWs
     }
 
-    // 当前在列表中的槽位索引
     readonly property int currentSlotIndex: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
@@ -84,7 +82,7 @@ Item {
         spacing: 12
 
         // =====================================================================
-        // 1. 左侧【苹果 Bento 紧凑空间卡片】
+        // 1. 左侧 Bento 空间卡片
         // =====================================================================
         Rectangle {
             id: leftDashboard
@@ -100,7 +98,6 @@ Item {
                 anchors.margins: 10
                 spacing: 9
 
-                // 1. 顶栏：微型状态标签与当前进度指示
                 Item {
                     width: parent.width
                     height: 16
@@ -122,7 +119,7 @@ Item {
                             font.weight: Font.Black
                             font.letterSpacing: 0.8
                             color: Theme.workspace
-                            font.family: wsPageRoot.chosenFont
+                            font.family: wsPageRoot.effectiveFont
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -142,12 +139,11 @@ Item {
                             color: Qt.rgba(1, 1, 1, 0.6)
                             font.pixelSize: 9
                             font.weight: Font.Bold
-                            font.family: "Monospace"
+                            font.family: wsPageRoot.effectiveMonoFont
                         }
                     }
                 }
 
-                // 2. 核心聚焦区：紧凑饱满的活跃工作区展示卡
                 Rectangle {
                     width: parent.width
                     height: 82
@@ -179,7 +175,7 @@ Item {
                                     color: "white"
                                     font.pixelSize: 13
                                     font.weight: Font.Black
-                                    font.family: (wsPageRoot.chosenFont !== "") ? wsPageRoot.chosenFont : "Monospace"
+                                    font.family: wsPageRoot.effectiveMonoFont
 
                                     Behavior on text {
                                         SequentialAnimation {
@@ -196,7 +192,7 @@ Item {
                                 color: "white"
                                 font.pixelSize: 15
                                 font.weight: Font.Black
-                                font.family: wsPageRoot.chosenFont
+                                font.family: wsPageRoot.effectiveFont
                                 elide: Text.ElideRight
                                 width: parent.parent.width - 34
                                 anchors.verticalCenter: parent.verticalCenter
@@ -228,7 +224,7 @@ Item {
                                     color: "#34d399"
                                     font.pixelSize: 9
                                     font.weight: Font.Bold
-                                    font.family: wsPageRoot.chosenFont
+                                    font.family: wsPageRoot.effectiveFont
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                             }
@@ -236,7 +232,6 @@ Item {
                     }
                 }
 
-                // 3. 底部一体化控制舱
                 Rectangle {
                     width: parent.width
                     height: 32
@@ -332,7 +327,7 @@ Item {
         }
 
         // =====================================================================
-        // 2. 右侧【macOS Spaces 矩阵】
+        // 2. 右侧 Spaces 矩阵
         // =====================================================================
         Item {
             width: parent.width - 152
@@ -412,7 +407,7 @@ Item {
                                         color: isActive ? "white" : Qt.rgba(1, 1, 1, 0.7)
                                         font.pixelSize: 11
                                         font.weight: Font.Black
-                                        font.family: "Monospace"
+                                        font.family: wsPageRoot.effectiveMonoFont
                                     }
                                 }
 
@@ -421,7 +416,7 @@ Item {
                                     color: isActive ? "white" : Qt.rgba(1, 1, 1, 0.8)
                                     font.pixelSize: 11
                                     font.weight: isActive ? Font.Black : Font.Bold
-                                    font.family: wsPageRoot.chosenFont
+                                    font.family: wsPageRoot.effectiveFont
                                     elide: Text.ElideRight
                                     width: parent.width - 50
                                     anchors.verticalCenter: parent.verticalCenter

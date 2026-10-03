@@ -5,6 +5,17 @@ Item {
     id: mediaRoot
 
     property string chosenFont: ""
+    readonly property string effectiveFont: {
+        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
+            return Config.fontFamily
+        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
+            return chosenFont
+        }
+        return ""
+    }
+    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+
     property string title: "等待播放..."
     property string artist: "未知歌手"
     property string status: "Paused"
@@ -44,9 +55,7 @@ Item {
         anchors.centerIn: parent
         spacing: 10
 
-        // =====================================================================
-        // 1. 媒体头栏信息（专辑封面与点击唤醒播放器）
-        // =====================================================================
+        // 1. 媒体头栏信息
         Item {
             width: parent.width
             height: 48
@@ -55,7 +64,6 @@ Item {
                 anchors.fill: parent
                 spacing: 12
 
-                // 专辑封面
                 Rectangle {
                     width: 48
                     height: 48
@@ -109,7 +117,6 @@ Item {
                     }
                 }
 
-                // 歌曲名与歌手信息
                 Column {
                     width: parent.width - 60
                     anchors.verticalCenter: parent.verticalCenter
@@ -122,7 +129,7 @@ Item {
                         Text {
                             text: mediaRoot.title ? mediaRoot.title : "等待播放..."
                             color: mediaPortalHover.containsMouse ? mediaRoot.dominantColor : "white"
-                            font.family: mediaRoot.chosenFont
+                            font.family: mediaRoot.effectiveFont
                             font.pixelSize: 13
                             font.weight: Font.Black
                             elide: Text.ElideRight
@@ -142,7 +149,7 @@ Item {
                     Text {
                         text: (mediaRoot.artist ? mediaRoot.artist : "未知歌手") + (mediaPortalHover.containsMouse ? " · 点击聚焦音乐客户端" : "")
                         color: Theme.textSecondary
-                        font.family: mediaRoot.chosenFont
+                        font.family: mediaRoot.effectiveFont
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
@@ -151,7 +158,6 @@ Item {
                 }
             }
 
-            // 🚀 点击封面/歌名直接拉起真正的音乐播放器
             MouseArea {
                 id: mediaPortalHover
                 anchors.fill: parent
@@ -166,9 +172,7 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. 音乐播放时间轴与进度条
-        // =====================================================================
+        // 2. 音乐播放时间轴与进度条（彻底响应用户字体）
         Item {
             width: parent.width
             height: 12
@@ -179,7 +183,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 text: mediaRoot.formatMediaTime(mediaRoot.position, mediaRoot.duration >= 3600)
                 color: Theme.textMuted
-                font.family: "Monospace"
+                font.family: mediaRoot.displayFont
                 font.pixelSize: 10
                 font.weight: Font.Bold
             }
@@ -210,15 +214,13 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 text: mediaRoot.formatMediaTime(mediaRoot.duration)
                 color: Theme.textMuted
-                font.family: "Monospace"
+                font.family: mediaRoot.displayFont
                 font.pixelSize: 10
                 font.weight: Font.Bold
             }
         }
 
-        // =====================================================================
-        // 3. 音乐播控区：零字体偏差、100% 居中纯矢量按键
-        // =====================================================================
+        // 3. 播控按键区
         Item {
             width: parent.width
             height: 42
@@ -227,7 +229,6 @@ Item {
                 anchors.centerIn: parent
                 spacing: 36
 
-                // ⏮ 上一首
                 Rectangle {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
@@ -245,13 +246,11 @@ Item {
                         ShapePath {
                             fillColor: "white"
                             strokeColor: "transparent"
-
                             startX: 2.0; startY: 2.5
                             PathLine { x: 3.5; y: 2.5 }
                             PathLine { x: 3.5; y: 11.5 }
                             PathLine { x: 2.0; y: 11.5 }
                             PathLine { x: 2.0; y: 2.5 }
-
                             PathMove { x: 12.0; y: 2.5 }
                             PathLine { x: 4.5; y: 7.0 }
                             PathLine { x: 12.0; y: 11.5 }
@@ -266,7 +265,6 @@ Item {
                     }
                 }
 
-                // ⏯ 播放/暂停
                 Rectangle {
                     id: playBtnContainer
                     width: 42; height: 42; radius: 21
@@ -288,7 +286,6 @@ Item {
                         anchors.centerIn: parent
                         spacing: 4.5
                         visible: mediaRoot.status === "Playing"
-
                         Rectangle { width: 3.5; height: 13; radius: 1.75; color: "white" }
                         Rectangle { width: 3.5; height: 13; radius: 1.75; color: "white" }
                     }
@@ -307,7 +304,6 @@ Item {
                             strokeWidth: 1.0
                             joinStyle: ShapePath.RoundJoin
                             capStyle: ShapePath.RoundCap
-
                             startX: 3.0; startY: 1.8
                             PathLine { x: 12.0; y: 7.0 }
                             PathLine { x: 3.0; y: 12.2 }
@@ -322,7 +318,6 @@ Item {
                     }
                 }
 
-                // ⏭ 下一首
                 Rectangle {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
@@ -340,12 +335,10 @@ Item {
                         ShapePath {
                             fillColor: "white"
                             strokeColor: "transparent"
-
                             startX: 2.0; startY: 2.5
                             PathLine { x: 9.5; y: 7.0 }
                             PathLine { x: 2.0; y: 11.5 }
                             PathLine { x: 2.0; y: 2.5 }
-
                             PathMove { x: 10.5; y: 2.5 }
                             PathLine { x: 12.0; y: 2.5 }
                             PathLine { x: 12.0; y: 11.5 }

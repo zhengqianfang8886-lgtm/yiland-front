@@ -5,11 +5,21 @@ Rectangle {
     id: capsuleRoot
 
     property string chosenFont: ""
+    readonly property string effectiveFont: {
+        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
+            return Config.fontFamily
+        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
+            return chosenFont
+        }
+        return ""
+    }
+
     property bool isExpanded: false
     property bool isCollapsing: false
     property var enabledTabs: []
 
-    // 🚀 全岛隐藏状态
+    // 全岛隐藏状态
     property bool isIslandHidden: false
 
     property alias expandedTab: expandedCardView.expandedTab
@@ -86,10 +96,10 @@ Rectangle {
         }
     }
 
-    // 🚀 真正“结束”本次计时的方法
-    function endTimer() {
+    // 🚀【核心方法】：像灵动岛一样平滑直接关闭消失，不弹打扰提示
+    function dismissTimer() {
         if (expandedCardView.timerPageRef) {
-            expandedCardView.timerPageRef.endTimer()
+            expandedCardView.timerPageRef.dismissTimer()
         }
     }
 
@@ -117,7 +127,6 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // 🚀 流体宽度自适应：弹窗内容自适应贴合，彻底消除右侧死黑留空
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -130,7 +139,6 @@ Rectangle {
         return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
     }
 
-    // 🚀 弹窗高度调优：通知弹窗采用 48px/64px 黄金比例
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "SEDENTARY") return 108
@@ -180,7 +188,6 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
-    // 🚀 流体阻尼宽度动画：退场采用 180ms Easing.OutCubic，消除生硬抽搐与卡顿切感
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
@@ -198,7 +205,6 @@ Rectangle {
         }
     }
 
-    // 🚀 流体阻尼高度动画：退场采用 160ms Easing.OutCubic，完美匹配内容消融时钟回场的节奏
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
@@ -278,7 +284,9 @@ Rectangle {
         }
     }
 
-    function cancelCollapse() { leaveGraceTimer.stop() }
+    function cancelCollapse() {
+        leaveGraceTimer.stop()
+    }
 
     function requestCollapse() {
         if (isExpanded) {
@@ -290,19 +298,15 @@ Rectangle {
         if (!isExpanded) return
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
-
         isCollapsing = true
         isExpanded = false
-
         if (activeTransient === "ALERT") activeTransient = ""
         capsuleRoot.maskCommitRequested()
     }
 
     function handleWheelAction(deltaY) {
         if (capsuleRoot.isCalling || capsuleRoot.activeTransient === "SEDENTARY") return
-        if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") {
-            return
-        }
+        if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") return
 
         if (!capsuleRoot.isExpanded) {
             hoverDwellTimer.stop()
@@ -319,7 +323,6 @@ Rectangle {
     MouseArea {
         id: hitSensorArea
         anchors.fill: parent
-        anchors.topMargin: 0
         z: (capsuleRoot.isExpanded || capsuleRoot.isNoticeActive) ? -1 : 1
         hoverEnabled: true
 
@@ -356,42 +359,38 @@ Rectangle {
                 return
             }
 
-            if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
-            if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
-
+            if (capsuleRoot.isCalling) {
+                capsuleRoot.requestExpand("media")
+                return
+            }
+            if (capsuleRoot.activeTransient === "ALERT") {
+                capsuleRoot.requestExpand("notification")
+                return
+            }
             capsuleRoot.requestExpand("time")
         }
     }
 
-    // =========================================================================
-    // 1. 常态与所有瞬态弹窗视图
-    // =========================================================================
     CompactCapsuleView {
         id: compactCapsuleView
-        // 🚀 锁定在顶部 36px 区域，展开时不拉扯子视图下移，根除残影
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         height: capsuleRoot.isExpanded ? 36 : parent.height
         clip: true
-
-        // 🚀 展开时降权，保证被大卡片绝对覆盖
         z: capsuleRoot.isExpanded ? 1 : 5
 
-        // 🚀 展开时立断可见性，收缩时柔和过渡
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed
-        chosenFont: capsuleRoot.chosenFont
+        chosenFont: capsuleRoot.effectiveFont
         activeTransient: capsuleRoot.activeTransient
         status: capsuleRoot.status
         isCalling: capsuleRoot.isCalling
         isExpanded: capsuleRoot.isExpanded
         isCollapsing: capsuleRoot.isCollapsing
-
-        // 🚀 透传 Python 大写键硬件状态
         isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
 
         wsName: capsuleRoot.wsName
@@ -417,27 +416,13 @@ Rectangle {
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
-        Behavior on opacity {
-            NumberAnimation {
-                duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant
-                easing.type: Easing.OutQuad
-            }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: capsuleRoot.isExpanded ? 0 : Theme.animFast
-                easing.type: Easing.OutQuad
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animFast; easing.type: Easing.OutQuad } }
     }
 
-    // =========================================================================
-    // 2. 展开大卡片视图容器
-    // =========================================================================
     Item {
         anchors.fill: parent
         clip: false
-        // 🚀 显式赋予 z: 10，完全凌驾于收缩胶囊之上
         z: 10
 
         ExpandedCardView {
@@ -451,7 +436,7 @@ Rectangle {
             visible: opacity > 0.01
             opacity: (capsuleRoot.isExpanded && capsuleRoot.height > 100) ? 1.0 : 0.0
             scale: capsuleRoot.isExpanded ? 1.0 : 0.94
-            chosenFont: capsuleRoot.chosenFont
+            chosenFont: capsuleRoot.effectiveFont
 
             enabledTabs: capsuleRoot.enabledTabs
             dominantColor: capsuleRoot.dominantColor
@@ -480,12 +465,8 @@ Rectangle {
             onStartCollapse: capsuleRoot.startCollapse()
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
 
-            Behavior on opacity {
-                NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad }
-            }
-            Behavior on scale {
-                NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle }
-            }
+            Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad } }
+            Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
         }
     }
 }
