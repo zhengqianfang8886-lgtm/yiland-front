@@ -161,7 +161,6 @@ Rectangle {
         ColorAnimation { duration: 200 }
     }
 
-    // 🚀 精准生命周期控制动画
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
@@ -264,7 +263,6 @@ Rectangle {
         }
     }
 
-    // 🚀【秒级淡出】：开始收折瞬间立刻把大卡片内容透明度打入 0，绝不让它在被压缩的容器中露出一截残尸！
     function startCollapse() {
         if (!isExpanded) return
         hoverDwellTimer.stop()
@@ -295,11 +293,12 @@ Rectangle {
         }
     }
 
+    // 🚀 确保弹窗出现时，透明感应层不会遮挡弹窗内的点击
     MouseArea {
         id: hitSensorArea
         anchors.fill: parent
         anchors.topMargin: 0
-        z: (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") ? -1 : 10
+        z: (capsuleRoot.isExpanded || capsuleRoot.isNoticeActive) ? -1 : 1
         hoverEnabled: true
 
         acceptedButtons: capsuleRoot.isExpanded ? Qt.NoButton : (Qt.LeftButton | Qt.RightButton)
@@ -338,14 +337,16 @@ Rectangle {
         }
     }
 
-    // 1. 常态小胶囊视图
+    // 1. 常态与所有瞬态弹窗视图 (ALERT, SEDENTARY, OSD, WORKSPACE, CALL)
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
+        z: 5
 
-        // 只有当高度真正缩回平底且非展开状态才显现
+        // 🚀【核心修复】：移除 height <= 44 的致命判定！
+        // 只要不是点击展开大卡片，所有小胶囊弹窗均无条件渲染显示
         visible: opacity > 0.01
-        opacity: (!capsuleRoot.isExpanded && capsuleRoot.height <= 44) ? 1.0 : 0.0
+        opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
@@ -365,10 +366,9 @@ Rectangle {
         Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutQuad } }
     }
 
-    // 2. 展开卡片视图容器
+    // 2. 展开大卡片视图容器 (仅在主动点击展开时呈现)
     Item {
         anchors.fill: parent
-        // 🚀【核心防护】：移除暴力截断的 clip: true，改由 ExpandedCardView 自主淡出，避免自下而上削掉半截！
         clip: false
 
         ExpandedCardView {
@@ -379,7 +379,6 @@ Rectangle {
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
 
-            // 展开时 140ms 优雅浮现，收拢开始时 40ms 极速隐去，绝无半截残尸留存！
             visible: opacity > 0.01
             opacity: (capsuleRoot.isExpanded && capsuleRoot.height > 100) ? 1.0 : 0.0
             scale: capsuleRoot.isExpanded ? 1.0 : 0.94

@@ -65,19 +65,37 @@ Rectangle {
 
     onProgressChanged: progressCanvas.requestPaint()
     onStateAccentColorChanged: progressCanvas.requestPaint()
-    onCurrentStateChanged: progressCanvas.requestPaint()
+    onCurrentStateChanged: {
+        progressCanvas.requestPaint()
+        // 🚀 核心修复：一旦切出暂停状态，无条件重置内容层透明度为 100%
+        if (currentState !== "paused") {
+            contentRow.opacity = 1.0
+        }
+    }
 
     Row {
         id: contentRow
         anchors.centerIn: parent
         spacing: 6
+        opacity: 1.0
 
-        // 暂停与完成时的微动效
-        SequentialAnimation on opacity {
+        Behavior on opacity {
+            enabled: timerBubbleRoot.currentState !== "paused"
+            NumberAnimation { duration: 120 }
+        }
+
+        // 🚀 核心修复：通过独立控制器管理呼吸动效，停止时触发强制复位，绝不定格在灰色
+        SequentialAnimation {
+            id: pauseBreatheAnim
             running: timerBubbleRoot.currentState === "paused"
             loops: Animation.Infinite
-            NumberAnimation { to: 0.55; duration: 800; easing.type: Easing.InOutSine }
-            NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+            NumberAnimation { target: contentRow; property: "opacity"; to: 0.55; duration: 750; easing.type: Easing.InOutSine }
+            NumberAnimation { target: contentRow; property: "opacity"; to: 1.0; duration: 750; easing.type: Easing.InOutSine }
+            onRunningChanged: {
+                if (!running) {
+                    contentRow.opacity = 1.0
+                }
+            }
         }
 
         // =====================================================================
@@ -148,7 +166,7 @@ Rectangle {
         }
 
         // =====================================================================
-        // 等宽紧凑时间大字
+        // 等宽紧凑时间大字 (字号严格使用整型 12/14)
         // =====================================================================
         Text {
             anchors.verticalCenter: parent.verticalCenter
@@ -156,7 +174,7 @@ Rectangle {
             color: timerBubbleRoot.currentState === "paused" ? "#fcd34d" :
                    (timerBubbleRoot.currentState === "completed" ? "#6ee7b7" : "white")
             font.family: (timerBubbleRoot.chosenFont !== "") ? timerBubbleRoot.chosenFont : "Monospace"
-            font.pixelSize: timerBubbleRoot.hasHours ? 12.5 : 14.5
+            font.pixelSize: timerBubbleRoot.hasHours ? 12 : 14
             font.weight: Font.Black
             font.letterSpacing: 0.3
         }
@@ -164,13 +182,13 @@ Rectangle {
 
     HoverHandler { id: bubbleHover; cursorShape: Qt.PointingHandCursor }
 
-    // 🚀【左键单击】：切换 暂停 / 继续
+    // 左键单击：切换 暂停 / 继续
     TapHandler {
         acceptedButtons: Qt.LeftButton
         onTapped: timerBubbleRoot.togglePause()
     }
 
-    // 🚀【右键单击】：唯一退出/消除小岛的操作（重置并退场）
+    // 右键单击：重置并退场
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: timerBubbleRoot.dismissTimer()

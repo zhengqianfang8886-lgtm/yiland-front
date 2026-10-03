@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: IslandMaskController.qml (全面防切终极版)
+// ==========================================
 import QtQuick
 
 Item {
@@ -16,11 +19,10 @@ Item {
     property bool isCollapsing: false
     property bool isMorphing: false
 
-    // 保留属性以兼容 Island.qml 的绑定调用
     property int targetW: 150
     property int targetH: 36
 
-    // 🚀【核心机制】：只要动效一开始，立刻完全释放系统遮罩！
+    // 1. 主胶囊动效监听
     onIsExpandedChanged: handleMotionChange()
     onIsCollapsingChanged: handleMotionChange()
     onIsMorphingChanged: handleMotionChange()
@@ -31,15 +33,29 @@ Item {
         var inMotion = isExpanded || isCollapsing || isMorphing
 
         if (inMotion) {
-            // 动效期间彻底清除剪刀！让 GPU 进行 100% 完整流畅的物理绘制
             settleTimer.stop()
-            if (Bridge.clearMask) {
-                Bridge.clearMask()
-            }
+            if (Bridge.clearMask) Bridge.clearMask()
         } else {
-            // 动画完全停稳后，等待 80ms 确保 GPU 双缓冲彻底静止，再执行唯一一次精细镂空
             settleTimer.restart()
         }
+    }
+
+    // 🚀【核心新增】：副岛平移与退场防切中枢
+    // 只要有任何副岛出现、消失或滑移，立即放开遮罩，等滑行彻底结束再收紧！
+    function notifyIslandMoving() {
+        if (!maskActive || typeof Bridge === "undefined") return
+
+        // 立即清除遮罩，让副岛在无剪刀干扰的全透明 GPU 画布上平滑滑行
+        if (Bridge.clearMask) Bridge.clearMask()
+        // 180ms 刚好覆盖副岛 150ms 的滑动动画 + 30ms 缓冲区
+        islandSlideTimer.restart()
+    }
+
+    Timer {
+        id: islandSlideTimer
+        interval: 180
+        repeat: false
+        onTriggered: maskCtrl.commitPreciseMask()
     }
 
     Timer {
@@ -49,10 +65,10 @@ Item {
         onTriggered: maskCtrl.commitPreciseMask()
     }
 
-    // 🚀【静止态唯一收束口】：此时所有岛屿都在绝对静止位置，绝不撕裂
+    // 🚀【绝对静止态精准镂空】：此时主岛和所有副岛都停稳了，绝不产生切面
     function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
-        if (isExpanded || isCollapsing || isMorphing) return
+        if (isExpanded || isCollapsing || isMorphing || islandSlideTimer.running) return
 
         var margin = 2
         var rectList = []
@@ -66,7 +82,7 @@ Item {
             r: Math.round(capsuleItem.radius) + margin
         })
 
-        // 2. 所有静止的在场副岛（自动兼容满编与自定义）
+        // 2. 所有处于静止状态的副岛
         function addBubble(bubble) {
             if (!bubble || !bubble.active || bubble.opacity < 0.2) return
             rectList.push({

@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: Island.qml (全面防切终极版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 
@@ -8,9 +11,7 @@ Item {
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    // 🚀【精准修复】：彻底剔除 isMorphing！
-    // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛；
-    // 切换桌面（WORKSPACE 瞬态）仅为主胶囊微扩，副岛绝不消失，自然随动！
+    // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing)
     readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
@@ -222,6 +223,10 @@ Item {
         }
     }
 
+    // =========================================================================
+    // 5 大副岛组件（位移或隐现均向 maskController 报备，彻底告别切断残影）
+    // =========================================================================
+
     MemoryBubbleView {
         id: bubbleMemory; z: 1
         x: root.getIslandX("memory", width)
@@ -242,8 +247,10 @@ Item {
         memoryTotalGb: relay.memoryTotalGb
 
         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
+
+        // 🚀 核心联动：位移或显隐立即放开遮罩
+        onActiveChanged: maskController.notifyIslandMoving()
+        onXChanged: maskController.notifyIslandMoving()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
@@ -262,8 +269,9 @@ Item {
         spec4: relay.spec4
 
         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
+
+        onActiveChanged: maskController.notifyIslandMoving()
+        onXChanged: maskController.notifyIslandMoving()
         onClicked: root.expandToTab("media")
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
@@ -278,8 +286,9 @@ Item {
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
 
         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
+
+        onActiveChanged: maskController.notifyIslandMoving()
+        onXChanged: maskController.notifyIslandMoving()
 
         onWheelAdjusted: (mode, delta) => {
             root.handleSubBubbleInteracted()
@@ -324,8 +333,9 @@ Item {
         isCompleted: capsule.timerIsCompleted
 
         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
+
+        onActiveChanged: maskController.notifyIslandMoving()
+        onXChanged: maskController.notifyIslandMoving()
 
         onTogglePause: capsule.toggleTimerPause()
         onDismissTimer: capsule.resetTimer()
@@ -341,8 +351,9 @@ Item {
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
         Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
+
+        onActiveChanged: maskController.notifyIslandMoving()
+        onXChanged: maskController.notifyIslandMoving()
         onClicked: root.expandToTab("notification")
         onRightClicked: root.expandToTab("notification")
     }
