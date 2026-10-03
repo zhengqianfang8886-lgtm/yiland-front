@@ -76,7 +76,6 @@ def process_notification_avatar(raw_avatar_url: str) -> str:
 
 
 def to_compact_speed(speed_str: str) -> str:
-    """输出标准、美观、带明确单位的紧凑网速 (如 0.0 KB/s, 128 KB/s, 2.4 MB/s)"""
     if not speed_str:
         return "0.0 KB/s"
     parts = speed_str.strip().split()
@@ -87,7 +86,6 @@ def to_compact_speed(speed_str: str) -> str:
             if "M" in unit:
                 return f"{f:.1f} MB/s"
             elif "K" in unit:
-                # 超过 100K 采用整数，小于 100K 保留一位小数增强灵敏感知
                 return f"{int(f)} KB/s" if f >= 100 else f"{f:.1f} KB/s"
             elif "B" in unit:
                 return f"{int(f)} B/s" if f > 0 else "0.0 KB/s"
@@ -114,6 +112,7 @@ class IslandBridge(QObject):
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
+    callIncomingTriggered = Signal(str, str, str)
     callEndedTriggered = Signal()
     syncDataUpdated = Signal("QVariantMap")
     netSpeedUpdated = Signal(str, str, str, str, str)
@@ -143,7 +142,6 @@ class IslandBridge(QObject):
         self._curr_art = ""
         self._curr_dominant_color = "#22c55e"
 
-        # 硬件三通道数值缓存（严格限制 0 ~ 100）
         self._cached_volume = 50
         self._vol_muted = False
         self._cached_brightness = 70
@@ -151,7 +149,6 @@ class IslandBridge(QObject):
         self._cached_mic = 80
         self._mic_muted = False
 
-        # 🚀 核心状态机：用户主动调控保护锁（阻断后台旧回声报文覆盖）
         self._last_user_vol_adjust_time = 0.0
         self._last_user_bright_adjust_time = 0.0
         self._last_user_mic_adjust_time = 0.0
@@ -177,7 +174,6 @@ class IslandBridge(QObject):
         self._memory_timer.timeout.connect(self._poll_memory_usage)
         self._memory_timer.start()
 
-        # 🚀 硬件执行汇聚定时器（将极速滚动操作合并，防止子进程乱序竞争）
         self._vol_flush_timer = QTimer(self)
         self._vol_flush_timer.setSingleShot(True)
         self._vol_flush_timer.setInterval(25)
@@ -263,37 +259,27 @@ class IslandBridge(QObject):
 
         self._pool.submit(_cava_worker)
 
-    # =========================================================================
-    # 🚀 核心控制：乐观 UI 立即反馈 + 回声静默防护 + 汇聚执行
-    # =========================================================================
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         now = time.monotonic()
-
         if mode == 0:
             self._last_user_vol_adjust_time = now
-
-            # 🚀 状态机规则 1：若当前处于静音态，用户向上滚动滚轮直接【自动唤醒并解除静音】
             if self._vol_muted:
                 self._vol_muted = False
                 self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
                 self._execute_local_volume_mute(False)
-                # 若原本记忆音量为 0%，唤醒时基准音量提升至 15%
                 if self._cached_volume == 0:
                     self._cached_volume = 15
 
-            # 封顶限制
             if delta > 0 and self._cached_volume >= 100:
                 self.osdTriggered.emit("🔊", "Volume", 100)
                 return
             if delta < 0 and self._cached_volume <= 0:
-                # 🚀 状态机规则 2：纯零音量态，明确显示 🔈 0%，而非静音
                 self.osdTriggered.emit("🔈", "Volume", 0)
                 return
 
             new_val = max(0, min(100, self._cached_volume + delta))
             self._cached_volume = new_val
-
             icon = "🔈" if new_val == 0 else "🔊"
             self.osdTriggered.emit(icon, "Volume", new_val)
             self._vol_flush_timer.start()
@@ -328,12 +314,10 @@ class IslandBridge(QObject):
             self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
 
             if self._vol_muted:
-                # 🚀 状态机规则 3：静音态，主岛 OSD 明确发射 🔇 图标与 0，QML 自动呈现红字“静音”
                 self.osdTriggered.emit("🔇", "Volume", 0)
                 self.sendIpcCmd("VOLUME_MUTE_TOGGLE")
                 self._execute_local_volume_mute(True)
             else:
-                # 🚀 状态机规则 4：取消静音，满血恢复原记忆音量；若此前是 0% 则智能保护到 20%
                 if self._cached_volume == 0:
                     self._cached_volume = 20
                 self.osdTriggered.emit("🔊", "Volume", self._cached_volume)
@@ -360,13 +344,12 @@ class IslandBridge(QObject):
             self.osdTriggered.emit("🚫" if self._mic_muted else "🎙️", "Microphone", disp_val)
             self.sendIpcCmd("MIC_MUTE_TOGGLE")
             self._execute_local_mic_mute(self._mic_muted)
+
     def _flush_volume_to_hardware(self):
-        """汇聚完成后的单次最终执行，彻底解决并发线程颠倒问题"""
         final_val = self._cached_volume
         self.sendIpcCmd("VOLUME_SET", value=final_val)
         self._execute_local_volume(final_val)
 
-    
     @Slot(int)
     def adjustVolume(self, delta_pct: int):
         self.adjustHardware(0, delta_pct)
@@ -605,16 +588,12 @@ class IslandBridge(QObject):
             if "list" in ws_info:
                 self.workspaceListUpdated.emit(ws_info.get("list", []))
 
-        # =====================================================================
-        # 🚀 关键修复：主动调控保护期内，严禁后台旧报文回弹覆盖
-        # =====================================================================
         if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
             sys_info = data["system"]
             raw_vol = int(sys_info.get("volume", self._cached_volume))
             real_vol = max(0, min(100, raw_vol))
             is_muted = bool(sys_info.get("muted", False))
 
-            # 如果用户在最近 600ms 内滚动过滚轮，判定此报文为陈旧延迟回声，直接忽略！
             if (now - self._last_user_vol_adjust_time) > 0.6:
                 self._cached_volume = real_vol
                 self._vol_muted = is_muted
@@ -667,7 +646,18 @@ class IslandBridge(QObject):
             elif m_type == "VPN_DISCONNECTED":
                 self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
-        if m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "TEAMS_CALL_INCOMING"):
+        # 🚀 核心修复：分离来电与普通通知，彻底阻断通知误入通话态
+        if m_type == "TEAMS_CALL_INCOMING":
+            if "notification" in data:
+                noti = data["notification"]
+                t_title = noti.get("title", "").strip() or "Teams 来电"
+                t_sub = noti.get("content", "").strip() or "正在呼叫..."
+                raw_avatar = noti.get("avatar", "")
+                safe_avatar = process_notification_avatar(raw_avatar) if raw_avatar else ""
+                self.callIncomingTriggered.emit(t_title, t_sub, safe_avatar)
+                self.view.raise_()
+
+        elif m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION"):
             if "notification" in data:
                 noti = data["notification"]
                 t_title = noti.get("title", "").strip()
@@ -687,16 +677,9 @@ class IslandBridge(QObject):
                         "time": now_str,
                         "read": False,
                     })
-                    if m_type == "TEAMS_CALL_INCOMING":
-                        self.alertTriggered.emit(noti.get("icon", "📞"), t_title, t_sub or "正在呼叫...", 0, safe_avatar)
-                        self.view.raise_()
-                    else:
-                        self.alertTriggered.emit(noti.get("icon", "🔔"), t_title, t_sub, 4500, safe_avatar)
+                    self.alertTriggered.emit(noti.get("icon", "🔔"), t_title, t_sub, 4500, safe_avatar)
 
         elif m_type == "TEAMS_CALL_ENDED":
-            if "notification" in data:
-                noti = data["notification"]
-                self.alertTriggered.emit("📞", noti.get("title", "") or "Teams 通话", noti.get("content", "") or "呼叫已完成", 1500, "")
             self.callEndedTriggered.emit()
 
         self.syncDataUpdated.emit(data)
@@ -850,22 +833,22 @@ class IslandBridge(QObject):
     def focusTeamsWindow(self):
         self.sendIpcCmd("TEAMS_FOCUS")
         def _focus():
-            candidates = ["teams-for-linux", "Microsoft Teams", "Teams", "teams", "crx_cifhbcnohmdccbgoicgdjpfamggdegmo"]
+            candidates = ["teams-for-linux", "Microsoft Teams", "crx_cifhbcnohmdccbgoicgdjpfamggdegmo"]
             for kw in candidates:
                 try:
                     if shutil.which("wmctrl"):
-                        if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
-                            return
-                    if shutil.which("xdotool"):
-                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
-                        if res.returncode == 0:
+                        if subprocess.run(["wmctrl", "-x", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
                             return
                     if shutil.which("hyprctl"):
-                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
                         if res.returncode == 0:
                             return
                     if shutil.which("swaymsg"):
-                        if subprocess.run(["swaymsg", f'[class="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                        if subprocess.run(["swaymsg", f'[class="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
+                            return
+                    if shutil.which("xdotool"):
+                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+                        if res.returncode == 0:
                             return
                 except subprocess.TimeoutExpired:
                     continue
@@ -973,38 +956,51 @@ class IslandBridge(QObject):
                         app_logger.warning(f"调起蓝牙设置程序异常: {e}")
         self._pool.submit(_open)
 
+    # =========================================================================
+    # 🚀 核心重构：精准唤醒音乐播放器，杜绝误唤醒 Teams
+    # =========================================================================
     @Slot(str, str)
     def focusMediaWindow(self, title="", artist=""):
+        # 1. 优先通过 IPC 发给后端，后端通过 MPRIS Raise 原生拉起正在播放的客户端
+        self.sendIpcCmd("MEDIA_FOCUS")
+
         def _focus():
-            candidates = []
-            if title and title != "等待播放...":
-                clean_title = title.split(" - ")[0].split("—")[0].strip()
-                if len(clean_title) >= 2:
-                    candidates.append(clean_title)
-            if artist and artist != "未知歌手":
-                candidates.append(artist.strip())
+            # 2. 原生 DBus 标准 MPRIS Raise 直呼
+            try:
+                if shutil.which("playerctl"):
+                    subprocess.run(["playerctl", "raise"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+            except Exception:
+                pass
 
-            players = ["Spotify", "netease-cloud-music", "yesplaymusic", "qqmusic", "QQMusic", "music", "VLC", "Chrome", "Chromium", "Firefox"]
-            candidates.extend(players)
+            # 3. 严格限定精准的音乐播放器类名，坚决剔除 "music", "Chrome", "Firefox" 等通配词
+            pure_players = [
+                "Spotify",
+                "spotify",
+                "netease-cloud-music",
+                "yesplaymusic",
+                "qqmusic",
+                "QQMusic",
+                "cloud-music",
+                "com.netease.cloudmusic",
+                "vlc",
+                "rhythmbox",
+                "audacious",
+                "feishin"
+            ]
 
-            for kw in candidates:
-                if not kw:
-                    continue
+            for kw in pure_players:
                 try:
-                    if shutil.which("wmctrl"):
-                        if subprocess.run(["wmctrl", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
-                            return
-                    if shutil.which("xdotool"):
-                        res = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
-                        if res.returncode == 0:
-                            return
                     if shutil.which("hyprctl"):
-                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"title:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5)
+                        res = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(?i)({kw})"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8)
                         if res.returncode == 0:
                             return
                     if shutil.which("swaymsg"):
-                        if subprocess.run(["swaymsg", f'[title="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.5).returncode == 0:
+                        if subprocess.run(["swaymsg", f'[app_id="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8).returncode == 0:
                             return
-                except subprocess.TimeoutExpired:
+                    if shutil.which("wmctrl"):
+                        if subprocess.run(["wmctrl", "-x", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.8).returncode == 0:
+                            return
+                except Exception:
                     continue
+
         self._pool.submit(_focus)

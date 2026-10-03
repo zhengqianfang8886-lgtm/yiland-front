@@ -53,7 +53,7 @@ Item {
 
         var isLargeCard = isExpanded || isCollapsing || (capsuleItem.height > 60) || (targetH > 60)
 
-        // 🚀 核心黑科技：四周各外扩 2px，彻底避开抗锯齿羽化边缘被 1-bit 遮罩切成狗牙
+        // 四周外扩 2px 羽化防狗牙
         var margin = 2
 
         if (isLargeCard) {
@@ -72,7 +72,6 @@ Item {
             return
         }
 
-        // 常态紧凑态：同样留出 2px 的安全外扩羽化区
         var rectList = []
 
         rectList.push({

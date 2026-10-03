@@ -10,6 +10,7 @@ Item {
 
     property bool isRunning: false
     property bool isPaused: false
+    property bool isCompleted: false
 
     property int remainingSeconds: 1500
     property int totalSeconds: 1500
@@ -26,7 +27,7 @@ Item {
 
     readonly property string formattedTime: formatTime(displaySec)
     readonly property real progress: isCountUp ? ((elapsedSeconds % 60) / 60.0) : (totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 0)
-    readonly property color accentColor: isCountUp ? "#38bdf8" : (currentMode === "break" ? "#10b981" : "#f97316")
+    readonly property color accentColor: isCountUp ? "#38bdf8" : (isCompleted ? "#10b981" : (currentMode === "break" ? "#10b981" : "#f97316"))
 
     signal timerCompleted(string title, string message)
 
@@ -50,6 +51,7 @@ Item {
 
     function adjustTime(deltaSec) {
         if (isRunning || isCountUp) return
+        isCompleted = false
         var target = Math.max(0, remainingSeconds + deltaSec)
         remainingSeconds = target
         totalSeconds = Math.max(target, 1)
@@ -62,6 +64,7 @@ Item {
         totalSeconds = sec
         remainingSeconds = sec
         currentMode = mode
+        isCompleted = false
         isPaused = false
         isRunning = true
         tickTimer.restart()
@@ -76,6 +79,10 @@ Item {
     }
 
     function togglePause() {
+        if (isCompleted) {
+            resetTimer()
+            return
+        }
         if (!isRunning && !isPaused) {
             isRunning = true
             tickTimer.restart()
@@ -93,6 +100,7 @@ Item {
     function resetTimer() {
         isRunning = false
         isPaused = false
+        isCompleted = false
         tickTimer.stop()
         if (isCountUp) {
             elapsedSeconds = 0
@@ -117,6 +125,7 @@ Item {
                     timerRoot.remainingSeconds = 0
                     timerRoot.isRunning = false
                     timerRoot.isPaused = false
+                    timerRoot.isCompleted = true
                     tickTimer.stop()
 
                     if (timerRoot.currentMode === "break") {
@@ -154,16 +163,17 @@ Item {
                         color: timerRoot.accentColor
                         anchors.verticalCenter: parent.verticalCenter
                         SequentialAnimation on opacity {
-                            running: timerRoot.isRunning
+                            running: timerRoot.isRunning || timerRoot.isCompleted
                             loops: Animation.Infinite
                             NumberAnimation { to: 0.3; duration: 600 }
                             NumberAnimation { to: 1.0; duration: 600 }
                         }
                     }
                     Text {
-                        text: timerRoot.isCountUp ?
+                        text: timerRoot.isCompleted ? "COMPLETED" :
+                              (timerRoot.isCountUp ?
                               (timerRoot.isRunning ? "STOPWATCH RUNNING" : (timerRoot.isPaused ? "STOPWATCH PAUSED" : "STOPWATCH READY")) :
-                              (timerRoot.isRunning ? (timerRoot.currentMode === "break" ? "TAKING A BREAK" : "FOCUSING (LOCKED)") : (timerRoot.isPaused ? "PAUSED" : "SCROLL TO EDIT"))
+                              (timerRoot.isRunning ? (timerRoot.currentMode === "break" ? "TAKING A BREAK" : "FOCUSING (LOCKED)") : (timerRoot.isPaused ? "PAUSED" : "SCROLL TO EDIT")))
                         font.pixelSize: 9
                         font.weight: Font.Black
                         color: timerRoot.accentColor
@@ -255,7 +265,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     Rectangle {
-                        width: parent.width * Math.min(1.0, Math.max(0.0, timerRoot.progress))
+                        width: parent.width * Math.min(1.0, Math.max(0.0, timerRoot.isCompleted ? 1.0 : timerRoot.progress))
                         height: parent.height
                         radius: 99
                         color: timerRoot.accentColor
@@ -271,7 +281,6 @@ Item {
             height: parent.height
             spacing: 8
 
-            // 🚀 高级分段选择器（完全采用微像素级矢量图形）
             Rectangle {
                 id: segContainer
                 width: parent.width
@@ -291,7 +300,6 @@ Item {
                     }
                 }
 
-                // 物理动态滑动胶囊
                 Rectangle {
                     x: timerRoot.isCountUp ? parent.width / 2 + 2 : 2
                     y: 2
@@ -310,7 +318,6 @@ Item {
                 Row {
                     anchors.fill: parent
 
-                    // 1. 倒计时 Tab（精密矢量沙漏）
                     Item {
                         width: parent.width / 2; height: parent.height
 
@@ -326,7 +333,6 @@ Item {
                             anchors.centerIn: parent
                             spacing: 6
 
-                            // 纯矢量精细沙漏
                             Shape {
                                 width: 11; height: 12
                                 anchors.verticalCenter: parent.verticalCenter
@@ -383,7 +389,6 @@ Item {
                         }
                     }
 
-                    // 2. 正向计时 Tab（精密矢量秒表盘）
                     Item {
                         width: parent.width / 2; height: parent.height
 
@@ -399,12 +404,10 @@ Item {
                             anchors.centerIn: parent
                             spacing: 6
 
-                            // 纯矢量精细秒表
                             Shape {
                                 width: 12; height: 12
                                 anchors.verticalCenter: parent.verticalCenter
 
-                                // 表盘圆环
                                 ShapePath {
                                     strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
                                     strokeWidth: 1.3
@@ -416,7 +419,6 @@ Item {
                                     PathArc { x: 6; y: 2.8; radiusX: 4.2; radiusY: 4.2; useLargeArc: false }
                                 }
 
-                                // 顶部按键顶杆
                                 ShapePath {
                                     strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
                                     strokeWidth: 1.3
@@ -427,7 +429,6 @@ Item {
                                     PathLine { x: 7.5; y: 1.0 }
                                 }
 
-                                // 表盘指针
                                 ShapePath {
                                     strokeColor: timerRoot.isCountUp ? "#38bdf8" : (swHover.hovered ? "#7dd3fc" : Qt.rgba(1, 1, 1, 0.45))
                                     strokeWidth: 1.2
@@ -474,7 +475,6 @@ Item {
                 }
             }
 
-            // 预设模式选择块
             Item {
                 width: parent.width
                 height: 80
@@ -541,7 +541,6 @@ Item {
                 }
             }
 
-            // 正向计时打点计次
             Item {
                 width: parent.width
                 height: 80
@@ -597,13 +596,12 @@ Item {
                 }
             }
 
-            // 底部主按键
             Row {
                 width: parent.width
                 spacing: 6
 
                 Rectangle {
-                    width: (timerRoot.isRunning || timerRoot.isPaused) ? (timerRoot.isCountUp && timerRoot.isRunning ? parent.width - 86 : parent.width - 44) : parent.width
+                    width: (timerRoot.isRunning || timerRoot.isPaused || timerRoot.isCompleted) ? (timerRoot.isCountUp && timerRoot.isRunning ? parent.width - 86 : parent.width - 44) : parent.width
                     height: 36
                     radius: 18
                     color: mainTap.pressed ? Qt.darker(timerRoot.accentColor, 1.25) : (mainHover.hovered ? Qt.lighter(timerRoot.accentColor, 1.12) : timerRoot.accentColor)
@@ -613,7 +611,7 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: timerRoot.isRunning ? "暂停" : (timerRoot.isPaused ? "继续" : (timerRoot.isCountUp ? "开始计时" : "开始专注"))
+                        text: timerRoot.isCompleted ? "重置完成" : (timerRoot.isRunning ? "暂停" : (timerRoot.isPaused ? "继续" : (timerRoot.isCountUp ? "开始计时" : "开始专注")))
                         color: "white"
                         font.family: timerRoot.chosenFont
                         font.pixelSize: 12
@@ -639,7 +637,7 @@ Item {
 
                 Rectangle {
                     width: 38; height: 36; radius: 18
-                    visible: timerRoot.isRunning || timerRoot.isPaused
+                    visible: timerRoot.isRunning || timerRoot.isPaused || timerRoot.isCompleted
                     color: resetTap.pressed ? Qt.rgba(1, 1, 1, 0.25) : (resetHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08))
                     scale: resetTap.pressed ? 0.92 : (resetHover.hovered ? 1.04 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 120 } }

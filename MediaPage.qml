@@ -5,10 +5,6 @@ Item {
     id: mediaRoot
 
     property string chosenFont: ""
-    property bool isCalling: false
-    property string callTitle: ""
-    property string callSubtitle: ""
-    property string callAvatar: ""
     property string title: "等待播放..."
     property string artist: "未知歌手"
     property string status: "Paused"
@@ -43,14 +39,13 @@ Item {
         return m + ":" + (s < 10 ? "0" : "") + s
     }
 
-    // 🚀 整体紧凑型流式布局
     Column {
         width: parent.width
         anchors.centerIn: parent
-        spacing: mediaRoot.isCalling ? 10 : 10
+        spacing: 10
 
         // =====================================================================
-        // 1. 媒体头栏信息（精炼紧凑 48px）
+        // 1. 媒体头栏信息（专辑封面与点击唤醒播放器）
         // =====================================================================
         Item {
             width: parent.width
@@ -65,8 +60,8 @@ Item {
                     width: 48
                     height: 48
                     radius: 10
-                    color: mediaRoot.isCalling ? "#4F46E5" : "#242428"
-                    border.color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? mediaRoot.dominantColor : Theme.borderSubtle
+                    color: "#242428"
+                    border.color: mediaPortalHover.containsMouse ? mediaRoot.dominantColor : Theme.borderSubtle
                     border.width: 1
                     clip: true
 
@@ -74,7 +69,6 @@ Item {
                         id: coverImg
                         anchors.fill: parent
                         source: {
-                            if (mediaRoot.isCalling) return mediaRoot.callAvatar
                             if (!mediaRoot.artUrl) return ""
                             var base = mediaRoot.artUrl.indexOf("://") !== -1 ? mediaRoot.artUrl : ("file://" + mediaRoot.artUrl)
                             var sep = base.indexOf("?") !== -1 ? "&" : "?"
@@ -100,10 +94,9 @@ Item {
                         }
                     }
 
-                    // 缺省封面音符
                     Text {
                         anchors.centerIn: parent
-                        text: mediaRoot.isCalling ? "📞" : "🎵"
+                        text: "🎵"
                         font.pixelSize: 18
                         visible: coverImg.status !== Image.Ready || coverImg.opacity <= 0.5
                     }
@@ -111,12 +104,12 @@ Item {
                     Rectangle {
                         anchors.fill: parent; radius: 10
                         color: Qt.rgba(0, 0, 0, 0.45)
-                        visible: !mediaRoot.isCalling && mediaPortalHover.containsMouse
+                        visible: mediaPortalHover.containsMouse
                         Text { anchors.centerIn: parent; text: "↗"; color: "white"; font.pixelSize: 16; font.weight: Font.Bold }
                     }
                 }
 
-                // 歌曲与歌手信息
+                // 歌曲名与歌手信息
                 Column {
                     width: parent.width - 60
                     anchors.verticalCenter: parent.verticalCenter
@@ -127,13 +120,13 @@ Item {
                         spacing: 4
 
                         Text {
-                            text: mediaRoot.isCalling ? mediaRoot.callTitle : (mediaRoot.title ? mediaRoot.title : "等待播放...")
-                            color: (!mediaRoot.isCalling && mediaPortalHover.containsMouse) ? mediaRoot.dominantColor : "white"
+                            text: mediaRoot.title ? mediaRoot.title : "等待播放..."
+                            color: mediaPortalHover.containsMouse ? mediaRoot.dominantColor : "white"
                             font.family: mediaRoot.chosenFont
                             font.pixelSize: 13
                             font.weight: Font.Black
                             elide: Text.ElideRight
-                            width: (!mediaRoot.isCalling) ? (parent.width - 20) : parent.width
+                            width: parent.width - 20
                         }
 
                         Text {
@@ -141,14 +134,14 @@ Item {
                             color: mediaRoot.dominantColor
                             font.pixelSize: 11
                             font.weight: Font.Bold
-                            visible: !mediaRoot.isCalling && mediaPortalHover.containsMouse
+                            visible: mediaPortalHover.containsMouse
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
 
                     Text {
-                        text: mediaRoot.isCalling ? mediaRoot.callSubtitle : ((mediaRoot.artist ? mediaRoot.artist : "未知歌手") + (mediaPortalHover.containsMouse ? " · 点击聚焦客户端" : ""))
-                        color: mediaRoot.isCalling ? Theme.media : Theme.textSecondary
+                        text: (mediaRoot.artist ? mediaRoot.artist : "未知歌手") + (mediaPortalHover.containsMouse ? " · 点击聚焦音乐客户端" : "")
+                        color: Theme.textSecondary
                         font.family: mediaRoot.chosenFont
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
@@ -158,55 +151,27 @@ Item {
                 }
             }
 
+            // 🚀 点击封面/歌名直接拉起真正的音乐播放器
             MouseArea {
                 id: mediaPortalHover
                 anchors.fill: parent
-                enabled: !mediaRoot.isCalling
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    Bridge.focusMediaWindow(mediaRoot.title, mediaRoot.artist)
+                    if (typeof Bridge !== "undefined" && Bridge.focusMediaWindow) {
+                        Bridge.focusMediaWindow(mediaRoot.title, mediaRoot.artist)
+                    }
                     mediaRoot.startCollapse()
                 }
             }
         }
 
         // =====================================================================
-        // 2. 来电跳转专区 (Calling Mode)
-        // =====================================================================
-        Column {
-            width: parent.width
-            spacing: 6
-            visible: mediaRoot.isCalling
-
-            Rectangle {
-                width: parent.width; height: 38; radius: 19
-                color: callPortalArea.pressed ? "#15803d" : (callPortalArea.containsMouse ? "#16a34a" : Theme.media)
-                scale: callPortalArea.pressed ? 0.98 : 1.0
-                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
-
-                Row {
-                    anchors.centerIn: parent; spacing: 6
-                    Text { text: "📞"; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "唤起 Teams 窗口接听"; color: "white"; font.family: mediaRoot.chosenFont; font.pixelSize: 13; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "↗"; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 13; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                MouseArea {
-                    id: callPortalArea
-                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: { Bridge.focusTeamsWindow(); mediaRoot.startCollapse() }
-                }
-            }
-        }
-
-        // =====================================================================
-        // 3. 音乐播放时间轴与进度条（紧凑 12px）
+        // 2. 音乐播放时间轴与进度条
         // =====================================================================
         Item {
             width: parent.width
             height: 12
-            visible: !mediaRoot.isCalling
 
             Text {
                 id: posText
@@ -252,18 +217,17 @@ Item {
         }
 
         // =====================================================================
-        // 4. 音乐播控区：零字体偏差、100% 居中纯矢量按键
+        // 3. 音乐播控区：零字体偏差、100% 居中纯矢量按键
         // =====================================================================
         Item {
             width: parent.width
             height: 42
-            visible: !mediaRoot.isCalling
 
             Row {
                 anchors.centerIn: parent
                 spacing: 36
 
-                // ⏮ 上一首 (纯矢量精密双构件)
+                // ⏮ 上一首
                 Rectangle {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
@@ -282,14 +246,12 @@ Item {
                             fillColor: "white"
                             strokeColor: "transparent"
 
-                            // 左竖挡杆
                             startX: 2.0; startY: 2.5
                             PathLine { x: 3.5; y: 2.5 }
                             PathLine { x: 3.5; y: 11.5 }
                             PathLine { x: 2.0; y: 11.5 }
                             PathLine { x: 2.0; y: 2.5 }
 
-                            // 倒向三角
                             PathMove { x: 12.0; y: 2.5 }
                             PathLine { x: 4.5; y: 7.0 }
                             PathLine { x: 12.0; y: 11.5 }
@@ -304,7 +266,7 @@ Item {
                     }
                 }
 
-                // ⏯ 核心播放/暂停键（数学级绝对居中）
+                // ⏯ 播放/暂停
                 Rectangle {
                     id: playBtnContainer
                     width: 42; height: 42; radius: 21
@@ -322,25 +284,15 @@ Item {
                     Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                     Behavior on color { ColorAnimation { duration: Theme.animInstant } }
 
-                    // 1. 暂停态：双立柱纯矩形（彻底杜绝 Unicode 字体倾斜偏心）
                     Row {
                         anchors.centerIn: parent
                         spacing: 4.5
                         visible: mediaRoot.status === "Playing"
 
-                        Rectangle {
-                            width: 3.5; height: 13
-                            radius: 1.75
-                            color: "white"
-                        }
-                        Rectangle {
-                            width: 3.5; height: 13
-                            radius: 1.75
-                            color: "white"
-                        }
+                        Rectangle { width: 3.5; height: 13; radius: 1.75; color: "white" }
+                        Rectangle { width: 3.5; height: 13; radius: 1.75; color: "white" }
                     }
 
-                    // 2. 播放态：实心矢量三角（带 +1.2px 视觉重心补偿，绝不往左塌）
                     Shape {
                         anchors.centerIn: parent
                         anchors.horizontalCenterOffset: 1.2
@@ -370,7 +322,7 @@ Item {
                     }
                 }
 
-                // ⏭ 下一首 (纯矢量精密双构件)
+                // ⏭ 下一首
                 Rectangle {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
@@ -389,13 +341,11 @@ Item {
                             fillColor: "white"
                             strokeColor: "transparent"
 
-                            // 正向三角
                             startX: 2.0; startY: 2.5
                             PathLine { x: 9.5; y: 7.0 }
                             PathLine { x: 2.0; y: 11.5 }
                             PathLine { x: 2.0; y: 2.5 }
 
-                            // 右竖挡杆
                             PathMove { x: 10.5; y: 2.5 }
                             PathLine { x: 12.0; y: 2.5 }
                             PathLine { x: 12.0; y: 11.5 }

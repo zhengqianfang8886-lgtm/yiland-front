@@ -77,7 +77,6 @@ Item {
         function onAudioSpectrumUpdated(s1, s2, s3, s4) {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
         }
-        // 🚀 核心修复：纯正标准的 Qt 6 Connections 信号函数语法
         function onClipboardTriggered(icon, title, detail, ms) {
             relay.triggerClipboard(icon, title, detail, ms)
         }
@@ -90,17 +89,29 @@ Item {
             relay.triggerWorkspace(curr, tot, name)
         }
         function onWorkspaceListUpdated(list) { relay.wsList = list }
+
+        // 🚀 核心修复：普通 Alert 仅做通知展示，绝不可触碰 isCalling 状态机！
         function onAlertTriggered(icon, t, sub, ms, avatar) {
-            if (icon === "📞" || ms <= 0) {
-                relay.isCalling = true; relay.callTitle = t; relay.callSubtitle = sub || "正在通话..."
-                relay.callAvatar = avatar || ""
-            }
             relay.triggerAlert(icon, t, sub, ms, avatar)
         }
+
+        // 🚀 核心修复：只有真正的来电专属通道才能激活 isCalling
+        function onCallIncomingTriggered(title, sub, avatar) {
+            relay.isCalling = true
+            relay.callTitle = title || "Teams 来电"
+            relay.callSubtitle = sub || "正在呼叫..."
+            relay.callAvatar = avatar || ""
+            relay.triggerAlert("📞", relay.callTitle, relay.callSubtitle, 0, relay.callAvatar)
+        }
+
         function onCallEndedTriggered() {
             relay.isCalling = false
+            relay.callTitle = ""
+            relay.callSubtitle = ""
+            relay.callAvatar = ""
             relay.callEnded()
         }
+
         function onNetSpeedUpdated(down, up, downComp, upComp, ip) {
             relay.downSpeedStr = down; relay.upSpeedStr = up
             relay.downSpeedCompact = downComp; relay.upSpeedCompact = upComp

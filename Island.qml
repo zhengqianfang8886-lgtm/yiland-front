@@ -10,12 +10,12 @@ Item {
 
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY")
     readonly property bool hasMusicIsland: (relay.status === "Playing") && !isBlockingTransient
-    readonly property bool hasTimerIsland: capsule.timerRunning && !isBlockingTransient
+    // 🚀 核心修改：运行中、暂停中、完成待消除状态均保持常驻，暂停绝不消失！
+    readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
 
     readonly property var enabledTabs: {
         var list = []
-        // 🚀 注入全能时间仪表盘选项
         list.push({ key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
 
         if (typeof Config === "undefined" || Config.showWorkspaceTab !== false) {
@@ -307,7 +307,7 @@ Item {
     }
 
     // =========================================================================
-    // 🚀 倒计时浮岛：接入暂停状态与左键一键暂停直控
+    // 🚀 倒计时浮岛：四态状态机 + 暂停驻留 + 禁用滚轮 + 右键消除
     // =========================================================================
     TimerBubbleView {
         id: bubbleTimer; z: 1
@@ -320,18 +320,20 @@ Item {
         isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
         remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
 
-        // 绑定状态
+        // 状态机绑定
         isRunning: capsule.timerRunning
         isPaused: capsule.timerIsPaused
+        isCompleted: capsule.timerIsCompleted
 
         Behavior on x { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
         onActiveChanged: maskController.commit()
         onXChanged: maskController.commit()
 
-        // 核心交互：左键单击切换暂停/继续，右键展开大面板
+        // 核心交互：左键单击切换暂停/继续
         onTogglePause: capsule.toggleTimerPause()
-        onRequestExpand: root.expandToTab("timer")
-        onWheelAdjust: root.handleSubBubbleInteracted()
+
+        // 核心交互：右键单击为唯一消除触发口，直接重置并使小岛退场消失
+        onDismissTimer: capsule.resetTimer()
     }
 
     NotificationBubbleView {

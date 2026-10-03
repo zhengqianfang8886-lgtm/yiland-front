@@ -66,9 +66,10 @@ Rectangle {
         clipGlowAnim.restart()
     }
 
-    // 🚀 计时器状态与直控暴露
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
+    readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
+    readonly property bool timerActive: timerRunning || timerIsPaused || timerIsCompleted
     readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
     readonly property bool timerHasHours: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.hasHours : false
     readonly property bool timerIsCountUp: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCountUp : false
@@ -79,6 +80,12 @@ Rectangle {
     function toggleTimerPause() {
         if (expandedCardView.timerPageRef) {
             expandedCardView.timerPageRef.togglePause()
+        }
+    }
+
+    function resetTimer() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.resetTimer()
         }
     }
 
@@ -166,7 +173,8 @@ Rectangle {
                 capsuleRoot.maskCommitRequested()
                 if (!running) {
                     if (!capsuleRoot.isExpanded) cooldownTimer.restart()
-                    if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver && !capsuleRoot.isCalling) {
+                    // 🚀 核心优化 3：解除 !isCalling 限制，动画结束未悬停即可收起
+                    if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver) {
                         capsuleRoot.startCollapse()
                     }
                 }
@@ -183,7 +191,7 @@ Rectangle {
             onRunningChanged: {
                 capsuleRoot.isMorphing = running || widthNumAnim.running
                 capsuleRoot.maskCommitRequested()
-                if (!running && capsuleRoot.isExpanded && !capsuleRoot.isMouseOver && !capsuleRoot.isCalling) {
+                if (!running && capsuleRoot.isExpanded && !capsuleRoot.isMouseOver) {
                     capsuleRoot.startCollapse()
                 }
             }
@@ -257,11 +265,12 @@ Rectangle {
         }
     }
 
+    // 🚀 核心优化 3：鼠标移出后 180ms 自动折叠回收，即便在 isCalling 通话中也正常生效
     Timer {
         id: leaveGraceTimer
         interval: 180
         onTriggered: {
-            if (!capsuleRoot.isCalling && !capsuleRoot.isMouseOver && capsuleRoot.isExpanded) {
+            if (!capsuleRoot.isMouseOver && capsuleRoot.isExpanded) {
                 capsuleRoot.startCollapse()
             }
         }
@@ -281,8 +290,9 @@ Rectangle {
 
     function cancelCollapse() { leaveGraceTimer.stop() }
 
+    // 🚀 核心优化 3：解除 !isCalling 阻断，支持来电态鼠标移出折叠
     function requestCollapse() {
-        if (!isCalling && isExpanded) {
+        if (isExpanded) {
             leaveGraceTimer.restart()
         }
     }
@@ -321,7 +331,7 @@ Rectangle {
         id: hitSensorArea
         anchors.fill: parent
         anchors.topMargin: 0
-        z: (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isCalling) ? -1 : 10
+        z: (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") ? -1 : 10
         hoverEnabled: true
 
         acceptedButtons: capsuleRoot.isExpanded ? Qt.NoButton : (Qt.LeftButton | Qt.RightButton)
@@ -346,16 +356,16 @@ Rectangle {
             }
         }
         onClicked: (mouse) => {
-            if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isCalling) return
+            if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") return
 
             hoverDwellTimer.stop()
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
 
             if (mouse.button === Qt.RightButton) { capsuleRoot.requestSettings(); return }
+            if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
 
-            // 🚀 单击常态灵动岛胶囊，直接秒级展开专属“时间仪表盘”！
             capsuleRoot.requestExpand("time")
         }
     }
@@ -405,7 +415,7 @@ Rectangle {
             dominantColor: capsuleRoot.dominantColor
 
             isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
-            title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
+            title: capsuleRoot.title; artist: cardRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
             wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal; wsName: capsuleRoot.wsName; wsList: capsuleRoot.wsList
             downSpeedStr: capsuleRoot.downSpeedStr; upSpeedStr: capsuleRoot.upSpeedStr; localIp: capsuleRoot.localIp; activeTransient: capsuleRoot.activeTransient
 

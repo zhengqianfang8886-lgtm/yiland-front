@@ -114,7 +114,7 @@ Item {
 
             Item {
                 anchors.left: parent.left
-                anchors.right: powerQuickBtn.left
+                anchors.right: cardRoot.isCalling ? parent.right : powerQuickBtn.left
                 anchors.rightMargin: 8
                 anchors.verticalCenter: parent.verticalCenter
                 height: 24
@@ -193,6 +193,7 @@ Item {
                 }
             }
 
+            // 🚀 核心优化 1：来电呼叫态下彻底隐藏电源开关按钮，防止误触
             Rectangle {
                 id: powerQuickBtn
                 anchors.right: tabTrackContainer.left
@@ -201,6 +202,7 @@ Item {
                 width: 24
                 height: 24
                 radius: 12
+                visible: !cardRoot.isCalling
                 readonly property bool isPowerActive: (cardRoot.expandedTab === "power")
                 color: isPowerActive ? Qt.rgba(239, 68, 68, 0.35) : (powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.22) : Qt.rgba(1, 1, 1, 0.08))
                 border.color: isPowerActive || powerBtnHover.hovered ? "#ef4444" : Theme.borderSubtle
@@ -307,7 +309,9 @@ Item {
             width: parent.width
             height: parent.height - 38
 
+            // =================================================================
             // 1. 来电全屏专属卡片
+            // =================================================================
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -344,40 +348,74 @@ Item {
                                 }
                             }
 
-                            Rectangle {
+                            // 🚀 核心优化 2：来电大头像全面引入 Canvas 绝对正圆裁切，根除平底直角
+                            Item {
                                 anchors.fill: parent
-                                radius: 30
-                                color: cardAvatarImg.visible ? "transparent" : "#4F46E5"
-                                border.color: Qt.rgba(255, 255, 255, 0.15)
-                                border.width: 1.5
-                                clip: true
 
                                 Image {
-                                    id: cardAvatarImg
-                                    anchors.fill: parent
+                                    id: cardAvatarRawImg
                                     source: cardRoot.callAvatar
-                                    fillMode: Image.PreserveAspectCrop
-                                    visible: cardRoot.callAvatar !== "" && status === Image.Ready
-                                    sourceSize.width: 120; sourceSize.height: 120
-                                    asynchronous: true; cache: true
-                                    smooth: true
+                                    visible: false
+                                    cache: true
+                                    asynchronous: true
+                                    onStatusChanged: {
+                                        if (status === Image.Ready) {
+                                            cardAvatarCanvas.requestPaint()
+                                        }
+                                    }
                                 }
 
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: {
-                                        if (cardAvatarImg.visible) return ""
-                                        if (cardRoot.callTitle && cardRoot.callTitle.length > 0) {
-                                            var parts = cardRoot.callTitle.trim().split(" ")
-                                            return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : cardRoot.callTitle.trim().charAt(0).toUpperCase()
-                                        }
-                                        return "📞"
+                                Canvas {
+                                    id: cardAvatarCanvas
+                                    anchors.fill: parent
+                                    renderTarget: Canvas.FramebufferObject
+                                    renderStrategy: Canvas.Threaded
+                                    visible: cardAvatarRawImg.status === Image.Ready
+
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        ctx.reset()
+                                        ctx.clearRect(0, 0, width, height)
+                                        if (cardAvatarRawImg.status !== Image.Ready) return
+
+                                        ctx.save()
+                                        ctx.beginPath()
+                                        ctx.arc(width / 2.0, height / 2.0, width / 2.0 - 0.5, 0, 2 * Math.PI, false)
+                                        ctx.closePath()
+                                        ctx.clip()
+                                        ctx.drawImage(cardAvatarRawImg, 0, 0, width, height)
+                                        ctx.restore()
                                     }
-                                    color: "white"
-                                    font.family: cardRoot.chosenFont
-                                    font.pixelSize: 22
-                                    font.weight: Font.Black
-                                    visible: !cardAvatarImg.visible
+                                }
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: width / 2
+                                    color: "#4F46E5"
+                                    visible: cardAvatarRawImg.status !== Image.Ready
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: {
+                                            if (cardRoot.callTitle && cardRoot.callTitle.length > 0) {
+                                                var parts = cardRoot.callTitle.trim().split(" ")
+                                                return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : cardRoot.callTitle.trim().charAt(0).toUpperCase()
+                                            }
+                                            return "📞"
+                                        }
+                                        color: "white"
+                                        font.family: cardRoot.chosenFont
+                                        font.pixelSize: 22
+                                        font.weight: Font.Black
+                                    }
+                                }
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: width / 2
+                                    color: "transparent"
+                                    border.color: Qt.rgba(255, 255, 255, 0.2)
+                                    border.width: 1.5
                                 }
                             }
                         }
@@ -468,7 +506,6 @@ Item {
                 }
             }
 
-            // 2. 🚀 新增全能时间详情页面 (TimeDetailPage)
             TimeDetailPage {
                 anchors.fill: parent
                 chosenFont: cardRoot.chosenFont
@@ -482,7 +519,7 @@ Item {
             }
 
             MediaPage {
-                anchors.fill: parent; chosenFont: cardRoot.chosenFont; isCalling: false
+                anchors.fill: parent; chosenFont: cardRoot.chosenFont
                 title: cardRoot.title; artist: cardRoot.artist; status: cardRoot.status; artUrl: cardRoot.artUrl
                 position: cardRoot.position; duration: cardRoot.duration
                 dominantColor: cardRoot.dominantColor
