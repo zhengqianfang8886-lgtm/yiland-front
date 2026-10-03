@@ -21,7 +21,7 @@ Item {
         return h >= 6 && h < 18
     }
 
-    // 1. 今日核心流逝与倒数（实用为主：算清今天到底还剩几小时几分）
+    // 1. 今日核心流逝与倒数
     readonly property var dayInfo: {
         var d = timeDetailRoot.currentTime
         var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds()
@@ -33,16 +33,16 @@ Item {
         return {
             progress: passedSec / totalSec,
             percent: Math.round((passedSec / totalSec) * 100),
-            // 核心大字：直接显示剩余时间
-            heroRemaining: remH + "h " + (remM < 10 ? "0" : "") + remM + "m",
+            remH: remH,
+            remM: remM,
             passedStr: "已过 " + h + "小时" + m + "分"
         }
     }
 
-    // 2. 本周工作日/周末倒计时（实用为主：清晰掌握本周阶段）
+    // 2. 本周工作日/周末倒计时
     readonly property var weekInfo: {
         var d = timeDetailRoot.currentTime
-        var dayOfWeek = d.getDay() // 0 是周日，1 是周一...
+        var dayOfWeek = d.getDay()
         var currentIdx = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1)
         var daysToWeekend = Math.max(0, 5 - currentIdx)
         var isWeekend = (currentIdx >= 5)
@@ -51,13 +51,12 @@ Item {
             currentIdx: currentIdx,
             isWeekend: isWeekend,
             todayName: dayNames[currentIdx],
-            // 核心大字：周末显示放假状态，工作日直接显示倒数天数
-            heroText: isWeekend ? (currentIdx === 5 ? "周六 · 周末" : "周日 · 周末") : ("距周末 " + daysToWeekend + " 天"),
-            subText: isWeekend ? "享受自由休整时光" : ("工作日已过 " + (currentIdx + 1) + " 天")
+            daysToWeekend: daysToWeekend,
+            subText: isWeekend ? "愚顽人安逸，必害己命" : ("工作日已过 " + (currentIdx + 1) + " 天")
         }
     }
 
-    // 3. 年度倒计时（实用为主：直接看今年剩余天数）
+    // 3. 年度倒计时
     readonly property var yearInfo: {
         var now = timeDetailRoot.currentTime
         var year = now.getFullYear()
@@ -75,14 +74,11 @@ Item {
             totalDays: totalDays,
             week: weekNum,
             progress: dayOfYear / totalDays,
-            percent: Math.round((dayOfYear / totalDays) * 100),
-            // 核心大字：直接显示剩余天数
-            heroRemaining: daysLeft + " 天",
-            subText: "第 " + dayOfYear + " 天 · " + Math.round((dayOfYear / totalDays) * 100) + "%"
+            percent: Math.round((dayOfYear / totalDays) * 100)
         }
     }
 
-    // 4. 真实作息节律（实用为主：提供切实的日常作息阶段建议，杜绝空洞语录）
+    // 4. 真实作息节律
     readonly property var rhythmInfo: {
         var h = timeDetailRoot.currentTime.getHours()
         if (h >= 6 && h < 9) {
@@ -127,7 +123,6 @@ Item {
                     Text { text: "LOCAL TIME"; font.pixelSize: 9; font.weight: Font.Black; color: Theme.calendar; font.letterSpacing: 0.8 }
                 }
 
-                // 大字时钟
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 1
@@ -162,7 +157,6 @@ Item {
                     }
                 }
 
-                // 独立秒数指示
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 44; height: 18; radius: 9
@@ -212,7 +206,7 @@ Item {
         }
 
         // =====================================================================
-        // 2. 右侧 4 卡 Bento 网格（大字体、高实用性、硬核时钟数据）
+        // 2. 右侧 4 卡 Bento 网格（严格消除字形空隙、精准基线对齐）
         // =====================================================================
         Grid {
             width: parent.width - 152
@@ -221,7 +215,7 @@ Item {
             spacing: 8
 
             // -------------------------------------------------------------
-            // 卡片 1：今日剩余可用时间（大字：余 5h 04m）
+            // 卡片 1：今日剩余（数字与单位严格咬合）
             // -------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
@@ -236,7 +230,7 @@ Item {
                 Column {
                     anchors.fill: parent
                     anchors.margins: 9
-                    spacing: 4
+                    spacing: 3
 
                     Item {
                         width: parent.width; height: 16
@@ -252,13 +246,45 @@ Item {
                         }
                     }
 
-                    // 🚀 大字直显今日剩余时长（实用第一）
-                    Text {
-                        text: timeDetailRoot.dayInfo.heroRemaining
-                        color: "white"
-                        font.pixelSize: 19
-                        font.weight: Font.Black
-                        font.family: "Monospace"
+                    // 🚀 数字与单位基线对齐，严防等宽字体留白
+                    Row {
+                        spacing: 2
+                        anchors.left: parent.left
+
+                        Text {
+                            id: remHNum
+                            text: timeDetailRoot.dayInfo.remH
+                            color: "white"
+                            font.pixelSize: 21
+                            font.weight: Font.Black
+                            font.family: (timeDetailRoot.chosenFont !== "") ? timeDetailRoot.chosenFont : "Monospace"
+                        }
+                        Text {
+                            text: "h"
+                            color: Theme.calendar
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                            font.family: timeDetailRoot.chosenFont
+                            anchors.baseline: remHNum.baseline
+                            rightPadding: 2
+                        }
+                        Text {
+                            id: remMNum
+                            text: (timeDetailRoot.dayInfo.remM < 10 ? "0" : "") + timeDetailRoot.dayInfo.remM
+                            color: "white"
+                            font.pixelSize: 21
+                            font.weight: Font.Black
+                            font.family: (timeDetailRoot.chosenFont !== "") ? timeDetailRoot.chosenFont : "Monospace"
+                            anchors.baseline: remHNum.baseline
+                        }
+                        Text {
+                            text: "m"
+                            color: Theme.calendar
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                            font.family: timeDetailRoot.chosenFont
+                            anchors.baseline: remHNum.baseline
+                        }
                     }
 
                     Rectangle {
@@ -286,7 +312,7 @@ Item {
             }
 
             // -------------------------------------------------------------
-            // 卡片 2：本周状态与假期倒数（大字：周六·周末 / 距周末2天）
+            // 卡片 2：本周状态
             // -------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
@@ -301,7 +327,7 @@ Item {
                 Column {
                     anchors.fill: parent
                     anchors.margins: 9
-                    spacing: 4
+                    spacing: 3
 
                     Item {
                         width: parent.width; height: 16
@@ -317,13 +343,27 @@ Item {
                         }
                     }
 
-                    // 🚀 大字直显放假/工作日核心状态
-                    Text {
-                        text: timeDetailRoot.weekInfo.heroText
-                        color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : "white"
-                        font.pixelSize: 18
-                        font.weight: Font.Black
-                        font.family: timeDetailRoot.chosenFont
+                    Row {
+                        spacing: 4
+                        anchors.left: parent.left
+
+                        Text {
+                            id: weekHeroMain
+                            text: timeDetailRoot.weekInfo.isWeekend ? timeDetailRoot.weekInfo.todayName : "工作日"
+                            color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : "white"
+                            font.pixelSize: 19
+                            font.weight: Font.Black
+                            font.family: timeDetailRoot.chosenFont
+                        }
+
+                        Text {
+                            text: timeDetailRoot.weekInfo.isWeekend ? "· 休息日" : ("· 距周末" + timeDetailRoot.weekInfo.daysToWeekend + "天")
+                            color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : Theme.workspace
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                            font.family: timeDetailRoot.chosenFont
+                            anchors.baseline: weekHeroMain.baseline
+                        }
                     }
 
                     Item { height: 1 }
@@ -338,7 +378,7 @@ Item {
             }
 
             // -------------------------------------------------------------
-            // 卡片 3：年度倒计（大字：余 89 天）
+            // 卡片 3：年度倒计（彻底消灭 89 与 天 之间的大空隙！）
             // -------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
@@ -353,7 +393,7 @@ Item {
                 Column {
                     anchors.fill: parent
                     anchors.margins: 9
-                    spacing: 4
+                    spacing: 3
 
                     Item {
                         width: parent.width; height: 16
@@ -365,17 +405,33 @@ Item {
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             text: timeDetailRoot.yearInfo.percent + "%"
-                            color: "#10b981"; font.pixelSize: 10; font.family: "Monospace"; font.weight: Font.Bold
+                            color: "#10b981"; font.pixelSize: 10; font.weight: Font.Bold; font.family: "Monospace"
                         }
                     }
 
-                    // 🚀 大字直显今年还剩多少天
-                    Text {
-                        text: timeDetailRoot.yearInfo.heroRemaining
-                        color: "white"
-                        font.pixelSize: 19
-                        font.weight: Font.Black
-                        font.family: "Monospace"
+                    // 🚀 核心修复：数字与中文解耦，基线咬合，彻底杜绝等宽留白 Bug
+                    Row {
+                        spacing: 2
+                        anchors.left: parent.left
+
+                        Text {
+                            id: yearDayNum
+                            text: timeDetailRoot.yearInfo.daysLeft
+                            color: "white"
+                            font.pixelSize: 22
+                            font.weight: Font.Black
+                            font.family: (timeDetailRoot.chosenFont !== "") ? timeDetailRoot.chosenFont : "Monospace"
+                        }
+
+                        Text {
+                            text: "天"
+                            color: Theme.textSecondary
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                            font.family: timeDetailRoot.chosenFont
+                            anchors.baseline: yearDayNum.baseline
+                            leftPadding: 1
+                        }
                     }
 
                     Rectangle {
@@ -394,7 +450,7 @@ Item {
                     }
 
                     Text {
-                        text: timeDetailRoot.yearInfo.subText
+                        text: "第" + timeDetailRoot.yearInfo.day + "天 · 全年" + timeDetailRoot.yearInfo.totalDays + "天"
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.family: timeDetailRoot.chosenFont
@@ -403,7 +459,7 @@ Item {
             }
 
             // -------------------------------------------------------------
-            // 卡片 4：生理作息时相与指引（拒绝鸡汤，切实作息提示）
+            // 卡片 4：真实作息时相与建议
             // -------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
@@ -418,7 +474,7 @@ Item {
                 Column {
                     anchors.fill: parent
                     anchors.margins: 9
-                    spacing: 4
+                    spacing: 3
 
                     Item {
                         width: parent.width; height: 16
@@ -434,7 +490,6 @@ Item {
                         }
                     }
 
-                    // 🚀 大字直显当前时相
                     Text {
                         text: timeDetailRoot.rhythmInfo.hero
                         color: "white"
@@ -445,7 +500,6 @@ Item {
 
                     Item { height: 1 }
 
-                    // 🚀 真实的作息指引（清晰 10px，不折断、无省略号）
                     Text {
                         text: timeDetailRoot.rhythmInfo.tip
                         color: timeDetailRoot.rhythmInfo.color

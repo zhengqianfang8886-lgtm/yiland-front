@@ -68,6 +68,7 @@ Rectangle {
         clipGlowAnim.restart()
     }
 
+    // 计时器属性与代理
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
     readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
@@ -85,7 +86,7 @@ Rectangle {
         }
     }
 
-    // 🚀 新增暴露给外部的结束计时接口
+    // 🚀 暴露真正“结束”本次计时的方法
     function endTimer() {
         if (expandedCardView.timerPageRef) {
             expandedCardView.timerPageRef.endTimer()
@@ -108,8 +109,6 @@ Rectangle {
     signal requestSettings()
     signal maskCommitRequested()
     signal timerAlert(string title, string msg)
-    
-    // 🚀 右键隐藏灵动岛信号
     signal requestHideIsland()
 
     readonly property bool isLongAlert: {
@@ -118,22 +117,24 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // 🚀 流体宽度自适应：消除常态与通知弹窗的死黑留空
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
         if (capsuleRoot.activeTransient === "SEDENTARY") return 520
         if (capsuleRoot.activeTransient === "ALERT") {
-            var dynamicW = compactCapsuleView.alertContentImplicitWidth + 34
-            return Math.min(450, Math.max(260, dynamicW))
+            var dynamicW = compactCapsuleView.alertContentImplicitWidth + 26
+            return Math.min(420, Math.max(160, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
         return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
     }
 
+    // 🚀 弹窗高度调优：通知弹窗采用 48px/64px 黄金比例
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "SEDENTARY") return 108
-        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 68 : 52
+        if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 64 : 48
         return capsuleRoot.isCalling ? 44 : 36
     }
 
@@ -144,7 +145,6 @@ Rectangle {
 
     z: 2
     anchors.top: parent.top
-    // 🚀 隐藏时胶囊平滑滑出顶边界
     anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 12) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
     Behavior on anchors.topMargin { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
 
@@ -154,10 +154,9 @@ Rectangle {
 
     width: targetWidth
     height: targetHeight
-    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 20 : Math.min(height / 2, 27))))
+    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : Math.min(height / 2, 27))))
     clip: false
 
-    // 🚀 全局隐藏时淡出
     opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
     visible: opacity > 0.001
     Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
@@ -346,7 +345,6 @@ Rectangle {
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
 
-            // 🚀 右击主胶囊：触发全岛系统沉浸隐藏
             if (mouse.button === Qt.RightButton) {
                 capsuleRoot.requestHideIsland()
                 return
@@ -364,47 +362,66 @@ Rectangle {
     // =========================================================================
     CompactCapsuleView {
         id: compactCapsuleView
-        // 🚀 核心优化 1：收缩视图锁定在顶部 36px 区域，严禁跟随父级撑大并拉扯时间下移！
+        // 🚀 锁定在顶部 36px 区域，严禁跟随父级撑大并拉扯时间下移！
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         height: capsuleRoot.isExpanded ? 36 : parent.height
         clip: true
 
-        // 🚀 核心优化 2：展开时降权，保证绝对被大卡片覆盖
+        // 🚀 展开时降权，保证绝对被大卡片覆盖
         z: capsuleRoot.isExpanded ? 1 : 5
 
-        // 🚀 核心优化 3：展开时立断可见性
+        // 🚀 展开时立断可见性，彻底消除残影
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
 
-        showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
-        status: capsuleRoot.status; isCalling: capsuleRoot.isCalling; isExpanded: capsuleRoot.isExpanded; isCollapsing: capsuleRoot.isCollapsing
+        showNetSpeed: Config.showNetSpeed
+        chosenFont: capsuleRoot.chosenFont
+        activeTransient: capsuleRoot.activeTransient
+        status: capsuleRoot.status
+        isCalling: capsuleRoot.isCalling
+        isExpanded: capsuleRoot.isExpanded
+        isCollapsing: capsuleRoot.isCollapsing
+
+        // 🚀 透传 Python 大写键硬件状态
         isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
-        wsName: capsuleRoot.wsName; wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal
-        osdIcon: capsuleRoot.osdIcon; osdValue: capsuleRoot.osdValue
-        alertTitle: capsuleRoot.alertTitle; alertSubtitle: capsuleRoot.alertSubtitle; alertAvatar: capsuleRoot.alertAvatar; alertIcon: capsuleRoot.alertIcon
-        callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
-        displayDate: capsuleRoot.displayDate; displayTime: capsuleRoot.displayTime; displaySeconds: capsuleRoot.displaySeconds; displayPeriod: capsuleRoot.displayPeriod
-        downCompact: capsuleRoot.downCompact; upCompact: capsuleRoot.upCompact
+
+        wsName: capsuleRoot.wsName
+        wsCurrent: capsuleRoot.wsCurrent
+        wsTotal: capsuleRoot.wsTotal
+        osdIcon: capsuleRoot.osdIcon
+        osdValue: capsuleRoot.osdValue
+        alertTitle: capsuleRoot.alertTitle
+        alertSubtitle: capsuleRoot.alertSubtitle
+        alertAvatar: capsuleRoot.alertAvatar
+        alertIcon: capsuleRoot.alertIcon
+        callTitle: capsuleRoot.callTitle
+        callSubtitle: capsuleRoot.callSubtitle
+        callAvatar: capsuleRoot.callAvatar
+        displayDate: capsuleRoot.displayDate
+        displayTime: capsuleRoot.displayTime
+        displaySeconds: capsuleRoot.displaySeconds
+        displayPeriod: capsuleRoot.displayPeriod
+        downCompact: capsuleRoot.downCompact
+        upCompact: capsuleRoot.upCompact
 
         continuousSitMinutes: capsuleRoot.continuousSitMinutes
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
-        // 展开时 0ms 瞬间淡出，收缩时保持原有平滑动效
-        Behavior on opacity { 
-            NumberAnimation { 
+        Behavior on opacity {
+            NumberAnimation {
                 duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant
-                easing.type: Easing.OutQuad 
-            } 
+                easing.type: Easing.OutQuad
+            }
         }
-        Behavior on scale { 
-            NumberAnimation { 
+        Behavior on scale {
+            NumberAnimation {
                 duration: capsuleRoot.isExpanded ? 0 : Theme.animFast
-                easing.type: Easing.OutQuad 
-            } 
+                easing.type: Easing.OutQuad
+            }
         }
     }
 
@@ -414,12 +431,13 @@ Rectangle {
     Item {
         anchors.fill: parent
         clip: false
-        // 🚀 核心优化 4：容器显式赋予 z: 10，彻底高于收缩态视图层级，杜绝任何图层穿透
+        // 🚀 容器显式赋予 z: 10，彻底高于收缩态视图层级，杜绝任何图层穿透
         z: 10
 
         ExpandedCardView {
             id: expandedCardView
-            width: 398; height: 208
+            width: 398
+            height: 208
             anchors.top: parent.top
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
@@ -432,10 +450,24 @@ Rectangle {
             enabledTabs: capsuleRoot.enabledTabs
             dominantColor: capsuleRoot.dominantColor
 
-            isCalling: capsuleRoot.isCalling; callTitle: capsuleRoot.callTitle; callSubtitle: capsuleRoot.callSubtitle; callAvatar: capsuleRoot.callAvatar
-            title: capsuleRoot.title; artist: capsuleRoot.artist; status: capsuleRoot.status; artUrl: capsuleRoot.artUrl; position: capsuleRoot.position; duration: capsuleRoot.duration
-            wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal; wsName: capsuleRoot.wsName; wsList: capsuleRoot.wsList
-            downSpeedStr: capsuleRoot.downSpeedStr; upSpeedStr: capsuleRoot.upSpeedStr; localIp: capsuleRoot.localIp; activeTransient: capsuleRoot.activeTransient
+            isCalling: capsuleRoot.isCalling
+            callTitle: capsuleRoot.callTitle
+            callSubtitle: capsuleRoot.callSubtitle
+            callAvatar: capsuleRoot.callAvatar
+            title: capsuleRoot.title
+            artist: capsuleRoot.artist
+            status: capsuleRoot.status
+            artUrl: capsuleRoot.artUrl
+            position: capsuleRoot.position
+            duration: capsuleRoot.duration
+            wsCurrent: capsuleRoot.wsCurrent
+            wsTotal: capsuleRoot.wsTotal
+            wsName: capsuleRoot.wsName
+            wsList: capsuleRoot.wsList
+            downSpeedStr: capsuleRoot.downSpeedStr
+            upSpeedStr: capsuleRoot.upSpeedStr
+            localIp: capsuleRoot.localIp
+            activeTransient: capsuleRoot.activeTransient
 
             onCancelCollapse: capsuleRoot.cancelCollapse()
             onRequestCollapse: capsuleRoot.requestCollapse()
