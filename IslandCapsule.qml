@@ -9,6 +9,9 @@ Rectangle {
     property bool isCollapsing: false
     property var enabledTabs: []
 
+    // 🚀 全岛隐藏状态
+    property bool isIslandHidden: false
+
     property alias expandedTab: expandedCardView.expandedTab
     property alias drillDownPage: expandedCardView.drillDownPage
 
@@ -98,6 +101,9 @@ Rectangle {
     signal requestSettings()
     signal maskCommitRequested()
     signal timerAlert(string title, string msg)
+    
+    // 🚀 右键隐藏灵动岛信号
+    signal requestHideIsland()
 
     readonly property bool isLongAlert: {
         if (capsuleRoot.activeTransient !== "ALERT") return false
@@ -126,15 +132,14 @@ Rectangle {
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
-    // 🚀 切换工作区模式同样归为形态扩张动效，获得丝滑回弹与正确的物理响应
     readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE")
-
-    // 🚀 响应式声明：只要宽度或高度处于动画中，即刻判定为正在 Morphing，零时序延迟
     readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
 
     z: 2
     anchors.top: parent.top
-    anchors.topMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6
+    // 🚀 隐藏时胶囊平滑滑出顶边界
+    anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 12) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
+    Behavior on anchors.topMargin { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
 
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: Config.offsetX
@@ -144,6 +149,11 @@ Rectangle {
     height: targetHeight
     radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 20 : Math.min(height / 2, 27))))
     clip: false
+
+    // 🚀 全局隐藏时淡出
+    opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
+    visible: opacity > 0.001
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
 
     antialiasing: true
     smooth: true
@@ -329,7 +339,12 @@ Rectangle {
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
 
-            if (mouse.button === Qt.RightButton) { capsuleRoot.requestSettings(); return }
+            // 🚀 右击主胶囊：触发全岛系统沉浸隐藏
+            if (mouse.button === Qt.RightButton) {
+                capsuleRoot.requestHideIsland()
+                return
+            }
+
             if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
 

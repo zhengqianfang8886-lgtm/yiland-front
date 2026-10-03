@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandMaskController.qml (全面防切终极版)
+// 📄 File: IslandMaskController.qml (全面防切与绝对穿透终极版)
 // ==========================================
 import QtQuick
 
@@ -19,16 +19,39 @@ Item {
     property bool isCollapsing: false
     property bool isMorphing: false
 
+    // 🚀 响应全岛隐藏状态
+    property bool isIslandHidden: false
+    onIsIslandHiddenChanged: handleHideState()
+
     property int targetW: 150
     property int targetH: 36
 
-    // 1. 主胶囊动效监听
     onIsExpandedChanged: handleMotionChange()
     onIsCollapsingChanged: handleMotionChange()
     onIsMorphingChanged: handleMotionChange()
 
+    function handleHideState() {
+        if (!maskActive || typeof Bridge === "undefined") return
+        if (isIslandHidden) {
+            settleTimer.stop()
+            islandSlideTimer.stop()
+            // 🚀 隐藏的一瞬间：立刻通知底层设置离屏穿透遮罩，零延迟放行鼠标点击
+            if (Bridge.setPassthrough) {
+                Bridge.setPassthrough()
+            } else if (Bridge.updateCompositeMask) {
+                Bridge.updateCompositeMask([])
+            }
+        } else {
+            settleTimer.restart()
+        }
+    }
+
     function handleMotionChange() {
         if (!maskActive || typeof Bridge === "undefined") return
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
+            if (Bridge.setPassthrough) Bridge.setPassthrough()
+            return
+        }
 
         var inMotion = isExpanded || isCollapsing || isMorphing
 
@@ -40,14 +63,14 @@ Item {
         }
     }
 
-    // 🚀【核心新增】：副岛平移与退场防切中枢
-    // 只要有任何副岛出现、消失或滑移，立即放开遮罩，等滑行彻底结束再收紧！
     function notifyIslandMoving() {
         if (!maskActive || typeof Bridge === "undefined") return
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
+            if (Bridge.setPassthrough) Bridge.setPassthrough()
+            return
+        }
 
-        // 立即清除遮罩，让副岛在无剪刀干扰的全透明 GPU 画布上平滑滑行
         if (Bridge.clearMask) Bridge.clearMask()
-        // 180ms 刚好覆盖副岛 150ms 的滑动动画 + 30ms 缓冲区
         islandSlideTimer.restart()
     }
 
@@ -65,9 +88,17 @@ Item {
         onTriggered: maskCtrl.commitPreciseMask()
     }
 
-    // 🚀【绝对静止态精准镂空】：此时主岛和所有副岛都停稳了，绝不产生切面
+    // 绝对静止态精准镂空
     function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
+        
+        // 🚀 处于隐藏状态时，永远保持 100% 绝对穿透
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
+            if (Bridge.setPassthrough) Bridge.setPassthrough()
+            else Bridge.updateCompositeMask([])
+            return
+        }
+
         if (isExpanded || isCollapsing || isMorphing || islandSlideTimer.running) return
 
         var margin = 2
@@ -104,6 +135,10 @@ Item {
     }
 
     function commit() {
-        handleMotionChange()
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
+            handleHideState()
+        } else {
+            handleMotionChange()
+        }
     }
 }

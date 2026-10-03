@@ -36,6 +36,9 @@ class ConfigManager(QObject):
     showHardwareBubbleChanged = Signal(bool)
     volumeStepChanged = Signal(int)
 
+    # 🚀 主胶囊右键隐藏时长（秒数）
+    autoHideDurationSecondsChanged = Signal(int)
+
     # 内存小岛与久坐关怀专用信号
     showMemoryBubbleChanged = Signal(bool)
     memoryThresholdChanged = Signal(int)
@@ -78,6 +81,9 @@ class ConfigManager(QObject):
         self._clipboardMonitorEnabled = True
         self._showHardwareBubble = True
         self._volumeStep = 5
+
+        # 🚀 默认右键隐藏 5 秒后自动复原
+        self._autoHideDurationSeconds = 5
 
         self._showMemoryBubble = True
         self._memoryThreshold = 75
@@ -163,6 +169,7 @@ class ConfigManager(QObject):
                 self._clipboardMonitorEnabled = data.get("clipboardMonitorEnabled", True)
                 self._showHardwareBubble = data.get("showHardwareBubble", True)
                 self._volumeStep = data.get("volumeStep", 5)
+                self._autoHideDurationSeconds = data.get("autoHideDurationSeconds", 5)
 
                 self._showMemoryBubble = data.get("showMemoryBubble", True)
                 self._memoryThreshold = data.get("memoryThreshold", 75)
@@ -211,6 +218,7 @@ class ConfigManager(QObject):
                     "clipboardMonitorEnabled": self._clipboardMonitorEnabled,
                     "showHardwareBubble": self._showHardwareBubble,
                     "volumeStep": self._volumeStep,
+                    "autoHideDurationSeconds": self._autoHideDurationSeconds,
 
                     "showMemoryBubble": self._showMemoryBubble,
                     "memoryThreshold": self._memoryThreshold,
@@ -235,6 +243,14 @@ class ConfigManager(QObject):
             os.replace(tmp_file, CONFIG_FILE)
         except Exception as e:
             app_logger.warning(f"保存配置失败: {e}")
+
+    @Property(int, notify=autoHideDurationSecondsChanged)
+    def autoHideDurationSeconds(self): return self._autoHideDurationSeconds
+    @autoHideDurationSeconds.setter
+    def autoHideDurationSeconds(self, val):
+        val = max(1, min(60, int(val)))
+        if self._autoHideDurationSeconds != val:
+            self._autoHideDurationSeconds = val; self.save(); self.autoHideDurationSecondsChanged.emit(self._autoHideDurationSeconds)
 
     @Property(int, notify=volumeStepChanged)
     def volumeStep(self): return self._volumeStep

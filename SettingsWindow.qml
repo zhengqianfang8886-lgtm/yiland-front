@@ -6,7 +6,7 @@ Window {
     id: settingsWin
     title: "Alcove Island 偏好设置"
     width: 420
-    height: 860
+    height: 880
     minimumWidth: 400
     minimumHeight: 600
     color: "#18181b"
@@ -192,9 +192,70 @@ Window {
                                 width: 14; height: 14; radius: 7; color: dwellSlider.pressed ? "#7dd3fc" : "#38bdf8"; border.color: "#ffffff"; border.width: 1.5
                             }
                         }
+                    }
+
+                    // 3. 🚀 主胶囊右键隐藏时长滑块
+                    Column {
+                        width: parent.width
+                        spacing: 6
+
+                        Item {
+                            width: parent.width; height: 16
+                            Text { text: "主胶囊右键隐藏时长 (Auto-hide)"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; anchors.left: parent.left }
+                            Text {
+                                text: ((typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds : 5) + " 秒"
+                                color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Black; font.family: "Monospace"; anchors.right: parent.right
+                            }
+                        }
+
+                        Slider {
+                            id: autoHideSlider
+                            width: parent.width; height: 22
+                            from: 1; to: 30; stepSize: 1
+                            value: (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds : 5
+                            onMoved: if (typeof Config !== "undefined") Config.autoHideDurationSeconds = Math.round(value)
+
+                            background: Rectangle {
+                                x: autoHideSlider.leftPadding
+                                y: autoHideSlider.topPadding + autoHideSlider.availableHeight / 2 - height / 2
+                                width: autoHideSlider.availableWidth; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.12)
+                                Rectangle { width: autoHideSlider.visualPosition * parent.width; height: parent.height; radius: 2; color: "#38bdf8" }
+                            }
+                            handle: Rectangle {
+                                x: autoHideSlider.leftPadding + autoHideSlider.visualPosition * (autoHideSlider.availableWidth - width)
+                                y: autoHideSlider.topPadding + autoHideSlider.availableHeight / 2 - height / 2
+                                width: 14; height: 14; radius: 7; color: autoHideSlider.pressed ? "#7dd3fc" : "#38bdf8"; border.color: "#ffffff"; border.width: 1.5
+                            }
+                        }
+
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [3, 5, 10, 15]
+                                Rectangle {
+                                    width: 44; height: 20; radius: 10
+                                    readonly property bool isSel: (typeof Config !== "undefined" && Config.autoHideDurationSeconds === modelData)
+                                    color: isSel ? Qt.rgba(56, 189, 248, 0.28) : Qt.rgba(1, 1, 1, 0.08)
+                                    border.color: isSel ? "#38bdf8" : "transparent"
+                                    border.width: 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: modelData + "s"
+                                        color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                                        font.pixelSize: 10; font.weight: Font.Bold
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        onClicked: if (typeof Config !== "undefined") Config.autoHideDurationSeconds = modelData
+                                    }
+                                }
+                            }
+                        }
 
                         Text {
-                            text: "💡 较短延时反应极快；较长延时（如 300ms）可有效防止鼠标快速划过屏幕上方时误展开。"
+                            text: "💡 右键点击主胶囊可立即让全岛系统淡出（完全穿透底层），到达秒数后自动复原，轻触屏幕顶边缘也可随时提前呼醒。"
                             color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 9
                         }
                     }
@@ -827,9 +888,7 @@ Window {
 
                     Item { height: 4 }
 
-                    // ==========================================
-                    // 🚀 核心新增：滚轮音量调节步长配置
-                    // ==========================================
+                    // 滚轮音量调节步长配置
                     Column {
                         width: parent.width
                         spacing: 6
@@ -929,7 +988,7 @@ Window {
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showNetSpeed !== undefined) ? Config.showNetSpeed : true
-                            onToggled: if (typeof Config !== "undefined" && Config.showNetSpeed !== undefined) Config.showNetSpeed = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showNetSpeed = checked
                         }
                     }
 
@@ -939,7 +998,7 @@ Window {
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showDate !== undefined) ? Config.showDate : false
-                            onToggled: if (typeof Config !== "undefined" && Config.showDate !== undefined) Config.showDate = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showDate = checked
                         }
                     }
 
@@ -949,7 +1008,7 @@ Window {
                         Switch {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             checked: (typeof Config !== "undefined" && Config.showSeconds !== undefined) ? Config.showSeconds : false
-                            onToggled: if (typeof Config !== "undefined" && Config.showSeconds !== undefined) Config.showSeconds = checked
+                            onToggled: if (typeof Config !== "undefined") Config.showSeconds = checked
                         }
                     }
                 }

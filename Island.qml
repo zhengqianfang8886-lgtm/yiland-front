@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml (全面防切终极版)
+// 📄 File: Island.qml (全面防切与绝对穿透终极版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -11,8 +11,42 @@ Item {
     readonly property string chosenFont: (!Config.fontFamily || Config.fontFamily.indexOf("系统默认") !== -1) ? "" : Config.fontFamily
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    // 只有在全屏大卡片展开/收缩、来电打断、久坐打断时才隐藏副岛
-    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing)
+    // 全岛隐藏状态管理
+    property bool isIslandHidden: false
+
+    Timer {
+        id: autoRestoreTimer
+        interval: (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds * 1000 : 5000
+        repeat: false
+        onTriggered: {
+            root.isIslandHidden = false
+            maskController.commit()
+        }
+    }
+
+    function triggerHideIsland() {
+        if (capsule.isExpanded) {
+            capsule.startCollapse()
+        }
+        root.isIslandHidden = true
+        var sec = (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds : 5
+        autoRestoreTimer.interval = Math.max(1000, sec * 1000)
+        autoRestoreTimer.restart()
+        
+        // 🚀 触发隐藏的第 0 毫秒：立即执行离屏穿透，绝不让底层产生任何点击阻塞
+        if (typeof Bridge !== "undefined" && Bridge.setPassthrough) {
+            Bridge.setPassthrough()
+        }
+        maskController.commit()
+    }
+
+    function wakeIsland() {
+        autoRestoreTimer.stop()
+        root.isIslandHidden = false
+        maskController.commit()
+    }
+
+    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || root.isIslandHidden)
 
     // 音乐小岛延时 5 秒消失逻辑
     property bool musicRetained: relay.status === "Playing"
@@ -122,6 +156,16 @@ Item {
         onLoaded: { item.show(); item.raise(); item.requestActivate() }
     }
 
+    function openSettingsWindow() {
+        if (settingsLoader.status === Loader.Ready && settingsLoader.item) {
+            settingsLoader.item.show()
+            settingsLoader.item.raise()
+            settingsLoader.item.requestActivate()
+        } else {
+            settingsLoader.active = true
+        }
+    }
+
     Timer { id: transientTimer; onTriggered: capsule.activeTransient = "" }
     function triggerTransient(mode, ms) {
         if (capsule.isExpanded) return
@@ -133,6 +177,7 @@ Item {
         }
     }
 
+    // 🚀 将隐藏状态直接透传给遮罩控制器
     IslandMaskController {
         id: maskController
         rootItem: root; capsuleItem: capsule
@@ -142,6 +187,7 @@ Item {
         rightBubble: bubbleTimer
         notifBubble: bubbleNotif
         isExpanded: capsule.isExpanded; isCollapsing: capsule.isCollapsing; isMorphing: capsule.isMorphing
+        isIslandHidden: root.isIslandHidden
         targetW: capsule.targetWidth; targetH: capsule.targetHeight
     }
 
@@ -182,15 +228,14 @@ Item {
         displayDate: timeService.displayDate; displayTime: timeService.displayTime; displaySeconds: timeService.displaySeconds; displayPeriod: timeService.displayPeriod
         downCompact: relay.downSpeedCompact; upCompact: relay.upSpeedCompact; downSpeedStr: relay.downSpeedStr; upSpeedStr: relay.upSpeedStr; localIp: relay.localIp
 
+        isIslandHidden: root.isIslandHidden
+        onRequestHideIsland: root.triggerHideIsland()
+
         onSedentaryRested: sedentaryService.markRested()
         onSedentarySnooze: sedentaryService.snooze()
 
         onRequestExpand: (t) => root.expandToTab(t)
-        onRequestSettings: {
-            if (settingsLoader.status === Loader.Ready && settingsLoader.item) {
-                settingsLoader.item.show(); settingsLoader.item.raise(); settingsLoader.item.requestActivate()
-            } else { settingsLoader.active = true }
-        }
+        onRequestSettings: root.openSettingsWindow()
         onMaskCommitRequested: maskController.commit()
         onTimerAlert: (t, msg) => {
             capsule.alertIcon = "⏰"; capsule.alertTitle = t; capsule.alertSubtitle = msg; triggerTransient("ALERT", 6000); Bridge.forceRaise()
@@ -253,7 +298,7 @@ Item {
     }
 
     // =========================================================================
-    // 5 大副岛组件（胶囊 Morphing 期间禁用二次滤波，彻底杜绝穿模碰撞）
+    // 5 大副岛组件
     // =========================================================================
 
     MemoryBubbleView {
@@ -313,10 +358,10 @@ Item {
     }
 
     HardwareBubbleView {
-        id: bubbleHardware; z: 1
+        id: bubbleHardware; z: 5
         x: root.getIslandX("hardware", width)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: root.getIslandSide("hardware") === "left" ? Item.Right : Item.Left
+        y: capsule.y + Math.round((capsule.height - 34) / 2)
+        transformOrigin: Item.Top
 
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
@@ -329,6 +374,9 @@ Item {
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
+        onHeightChanged: maskController.notifyIslandMoving()
+
+        onRequestSettings: root.openSettingsWindow()
 
         onWheelAdjusted: (mode, delta) => {
             root.handleSubBubbleInteracted()

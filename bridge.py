@@ -745,11 +745,13 @@ class IslandBridge(QObject):
             return None
 
     # =========================================================================
-    # 🚀 核心修复：更新遮罩后强制全视口透明清屏（彻底根除桌面残留残影）
+    # 🚀 核心修复：支持 100% 绝对点击穿透（使用离屏 1 像素区域，消除阻挡）
     # =========================================================================
     @Slot("QVariantList")
     def updateCompositeMask(self, rects):
+        # 如果没有传入任何区域（例如全岛隐藏），立刻设置离屏单像素遮罩，实现 100% 绝对点击穿透
         if not rects:
+            self.setPassthrough()
             return
 
         composite = QRegion()
@@ -774,15 +776,35 @@ class IslandBridge(QObject):
                 poly = path.toFillPolygon().toPolygon()
                 composite = composite.united(QRegion(poly))
 
-        if not composite.isEmpty() and composite != self._last_applied_mask:
-            self._last_applied_mask = composite
-            self.view.setMask(composite)
-            # 🚀 关键：通知合成器立即执行 glClear 擦除剔除区域的脏数据，不留残影
+        if not composite.isEmpty():
+            if composite != self._last_applied_mask:
+                self._last_applied_mask = composite
+                self.view.setMask(composite)
+                self.view.requestUpdate()
+        else:
+            self.setPassthrough()
+
+    @Slot()
+    def setPassthrough(self):
+        """
+        🚀 终极穿透：在屏幕可视区外 (-10, -10, 1, 1) 设置有效遮罩。
+        Qt 不会将其判定为“空遮罩/恢复全矩形拦截”，且窗口在可见范围内的拦截面积为严格的 0！
+        """
+        passthrough_region = QRegion(-10, -10, 1, 1)
+        if self._last_applied_mask != passthrough_region:
+            self._last_applied_mask = passthrough_region
+            self.view.setMask(passthrough_region)
             self.view.requestUpdate()
 
     @Slot()
+    def clearMask(self):
+        """动画期间释放遮罩"""
+        self._last_applied_mask = QRegion()
+        self.view.setMask(QRegion())
+        self.view.requestUpdate()
+
+    @Slot()
     def forceClearWindow(self):
-        """收缩完成时的终极擦除"""
         self.view.requestUpdate()
 
     @Slot(result=str)
@@ -1007,10 +1029,3 @@ class IslandBridge(QObject):
                     continue
 
         self._pool.submit(_focus)
-        
-    @Slot()
-    def clearMask(self):
-        """动画期间彻底释放遮罩，交由 GPU 纯净透明渲染，消灭一切物理切割与黑斑"""
-        self._last_applied_mask = QRegion()
-        self.view.setMask(QRegion())
-        self.view.requestUpdate()
