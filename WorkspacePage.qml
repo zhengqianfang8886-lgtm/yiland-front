@@ -8,12 +8,14 @@ Item {
     property int currentWs: 0
     property int totalWs: 5
     property string currentWsName: "Main"
+
+    // 🚀 核心修复：必须显式声明 wsList 属性供 ExpandedCardView 传递
     property var wsList: []
 
     readonly property bool isVisibleOnScreen: wsPageRoot.visible && wsPageRoot.opacity > 0.1
     readonly property int effectiveTotal: Math.max(1, (wsList && wsList.length > 0) ? wsList.length : totalWs)
 
-    // 🚀【核心修复】：Main 严格作为 0 号起始，多空间编号全局一致
+    // Main 严格作为 0 号起始
     function getWorkspaceNumber(itemData, idx) {
         if (itemData && typeof itemData === "object") {
             if (itemData.id !== undefined && itemData.id !== null && !isNaN(Number(itemData.id))) {
@@ -26,7 +28,7 @@ Item {
         return idx
     }
 
-    // 当前活跃工作区的真实编号（从 0 开始）
+    // 当前活跃工作区的真实编号
     readonly property int displayCurrentNumber: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
@@ -39,7 +41,7 @@ Item {
         return currentWs
     }
 
-    // 当前在列表中的槽位索引（0 ~ total-1）
+    // 当前在列表中的槽位索引
     readonly property int currentSlotIndex: {
         if (wsList && wsList.length > 0) {
             for (var i = 0; i < wsList.length; i++) {
@@ -82,26 +84,26 @@ Item {
         spacing: 12
 
         // =====================================================================
-        // 1. 左侧【苹果 Bento 空间聚焦卡片】（零文字截断、苹果分页点）
+        // 1. 左侧【苹果 Bento 紧凑空间卡片】
         // =====================================================================
         Rectangle {
             id: leftDashboard
-            width: 136
+            width: 140
             height: parent.height
             radius: Theme.radiusCard
-            color: Qt.rgba(1, 1, 1, 0.04)
-            border.color: Qt.rgba(255, 255, 255, 0.1)
+            color: Theme.bgCardItem
+            border.color: Theme.borderSubtle
             border.width: 1
 
             Column {
                 anchors.fill: parent
                 anchors.margins: 10
-                spacing: 0
+                spacing: 9
 
-                // 顶栏：微型状态标签与当前序号
+                // 1. 顶栏：微型状态标签与当前进度指示
                 Item {
                     width: parent.width
-                    height: 18
+                    height: 16
 
                     Row {
                         anchors.left: parent.left
@@ -109,55 +111,64 @@ Item {
                         spacing: 5
 
                         Rectangle {
-                            width: 5; height: 5; radius: 2.5
+                            width: 6; height: 6; radius: 3
                             color: Theme.workspace
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
                         Text {
-                            text: "当前空间"
-                            font.pixelSize: 10
-                            font.weight: Font.DemiBold
-                            color: Qt.rgba(1, 1, 1, 0.5)
+                            text: "WORKSPACE"
+                            font.pixelSize: 9
+                            font.weight: Font.Black
+                            font.letterSpacing: 0.8
+                            color: Theme.workspace
                             font.family: wsPageRoot.chosenFont
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
 
-                    Text {
+                    Rectangle {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: (wsPageRoot.currentSlotIndex + 1) + " of " + wsPageRoot.effectiveTotal
-                        color: Qt.rgba(1, 1, 1, 0.35)
-                        font.pixelSize: 9
-                        font.weight: Font.Bold
-                        font.family: "Monospace"
+                        width: pageNumText.implicitWidth + 8
+                        height: 16
+                        radius: 8
+                        color: Qt.rgba(1, 1, 1, 0.06)
+
+                        Text {
+                            id: pageNumText
+                            anchors.centerIn: parent
+                            text: (wsPageRoot.currentSlotIndex + 1) + "/" + wsPageRoot.effectiveTotal
+                            color: Qt.rgba(1, 1, 1, 0.6)
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                            font.family: "Monospace"
+                        }
                     }
                 }
 
-                Item { height: 6 }
-
-                // 核心英雄区：纵向层次排版（彻底解决 Pers... 截断硬伤）
+                // 2. 核心聚焦区：紧凑饱满的活跃工作区展示卡
                 Rectangle {
                     width: parent.width
-                    height: 60
-                    radius: 10
-                    color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.14)
-                    border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.32)
+                    height: 82
+                    radius: 12
+                    color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.12)
+                    border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.35)
                     border.width: 1
 
                     Column {
                         anchors.centerIn: parent
                         width: parent.width - 16
-                        spacing: 2
+                        spacing: 8
 
                         Row {
-                            spacing: 6
+                            spacing: 8
                             anchors.horizontalCenter: parent.horizontalCenter
+                            width: Math.min(parent.width, heroNumRect.width + wsTitleText.implicitWidth + 8)
 
-                            // 0 起始数字徽标
                             Rectangle {
-                                width: 20; height: 20; radius: 6
+                                id: heroNumRect
+                                width: 26; height: 26; radius: 8
                                 color: Theme.workspace
                                 anchors.verticalCenter: parent.verticalCenter
 
@@ -166,98 +177,91 @@ Item {
                                     anchors.centerIn: parent
                                     text: wsPageRoot.displayCurrentNumber
                                     color: "white"
-                                    font.pixelSize: 11
+                                    font.pixelSize: 13
                                     font.weight: Font.Black
                                     font.family: (wsPageRoot.chosenFont !== "") ? wsPageRoot.chosenFont : "Monospace"
 
                                     Behavior on text {
                                         SequentialAnimation {
-                                            NumberAnimation { target: heroNumText; property: "scale"; to: 0.85; duration: 40; easing.type: Easing.OutQuad }
-                                            NumberAnimation { target: heroNumText; property: "scale"; to: 1.0; duration: 110; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
+                                            NumberAnimation { target: heroNumText; property: "scale"; to: 0.8; duration: 40; easing.type: Easing.OutQuad }
+                                            NumberAnimation { target: heroNumText; property: "scale"; to: 1.0; duration: 110; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
                                         }
                                     }
                                 }
                             }
 
-                            // 完整无截断桌面名称
                             Text {
+                                id: wsTitleText
                                 text: wsPageRoot.currentWsName ? wsPageRoot.currentWsName : ("桌面 " + wsPageRoot.displayCurrentNumber)
                                 color: "white"
-                                font.pixelSize: 14
+                                font.pixelSize: 15
                                 font.weight: Font.Black
                                 font.family: wsPageRoot.chosenFont
                                 elide: Text.ElideRight
-                                width: parent.parent.width - 30
+                                width: parent.parent.width - 34
                                 anchors.verticalCenter: parent.verticalCenter
                             }
                         }
 
-                        Text {
-                            text: "活跃工作区"
-                            color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.9)
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                            font.family: wsPageRoot.chosenFont
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-                    }
-                }
-
-                Item { height: 8 }
-
-                // 苹果同款分页微胶囊（根据空间总数自动舒展与高亮）
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 4
-                    height: 6
-
-                    Repeater {
-                        model: wsPageRoot.effectiveTotal
-
                         Rectangle {
-                            readonly property bool isCurrent: (index === wsPageRoot.currentSlotIndex)
-                            width: isCurrent ? 14 : 4
-                            height: 4
-                            radius: 2
-                            color: isCurrent ? Theme.workspace : Qt.rgba(1, 1, 1, 0.22)
-                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            height: 18
+                            width: activeRow.implicitWidth + 12
+                            radius: 9
+                            color: Qt.rgba(16, 185, 129, 0.16)
+                            border.color: Qt.rgba(16, 185, 129, 0.35)
+                            border.width: 1
 
-                            Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
-                            Behavior on color { ColorAnimation { duration: 120 } }
+                            Row {
+                                id: activeRow
+                                anchors.centerIn: parent
+                                spacing: 4
+
+                                Rectangle {
+                                    width: 5; height: 5; radius: 2.5
+                                    color: "#34d399"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                Text {
+                                    text: "当前活跃空间"
+                                    color: "#34d399"
+                                    font.pixelSize: 9
+                                    font.weight: Font.Bold
+                                    font.family: wsPageRoot.chosenFont
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                            }
                         }
                     }
                 }
 
-                Item { height: 8 }
-
-                // 底部切页操作微胶囊
+                // 3. 底部一体化控制舱
                 Rectangle {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    width: parent.width - 4
-                    height: 26
-                    radius: 13
+                    width: parent.width
+                    height: 32
+                    radius: 16
                     color: Qt.rgba(1, 1, 1, 0.05)
-                    border.color: Qt.rgba(1, 1, 1, 0.12)
+                    border.color: Qt.rgba(1, 1, 1, 0.10)
                     border.width: 1
 
                     Row {
                         anchors.fill: parent
 
                         Rectangle {
-                            width: parent.width / 2; height: parent.height; radius: 13
+                            width: 28; height: parent.height; radius: 16
                             color: prevBtnMouse.pressed ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.35) :
-                                   (prevBtnMouse.containsMouse ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.18) : "transparent")
-                            scale: prevBtnMouse.pressed ? 0.94 : 1.0
+                                   (prevBtnMouse.containsMouse ? Qt.rgba(255, 255, 255, 0.12) : "transparent")
+                            scale: prevBtnMouse.pressed ? 0.92 : 1.0
                             Behavior on scale { NumberAnimation { duration: 100 } }
                             Behavior on color { ColorAnimation { duration: 120 } }
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "‹ 上个"
-                                font.pixelSize: 10
+                                text: "‹"
+                                font.pixelSize: 16
                                 font.weight: Font.Bold
-                                color: prevBtnMouse.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.7)
-                                font.family: wsPageRoot.chosenFont
+                                color: prevBtnMouse.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.6)
                             }
                             MouseArea {
                                 id: prevBtnMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -265,23 +269,57 @@ Item {
                             }
                         }
 
-                        Rectangle { width: 1; height: 12; color: Qt.rgba(1, 1, 1, 0.12); anchors.verticalCenter: parent.verticalCenter }
+                        Item {
+                            width: parent.width - 56
+                            height: parent.height
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 4
+
+                                Repeater {
+                                    model: wsPageRoot.effectiveTotal
+
+                                    Rectangle {
+                                        readonly property bool isCurrent: (index === wsPageRoot.currentSlotIndex)
+                                        width: isCurrent ? 12 : 4
+                                        height: 4
+                                        radius: 2
+                                        color: isCurrent ? Theme.workspace : (dotTapArea.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.25))
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+                                        Behavior on color { ColorAnimation { duration: 120 } }
+
+                                        MouseArea {
+                                            id: dotTapArea
+                                            anchors.fill: parent; anchors.margins: -4
+                                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                if (typeof Bridge !== "undefined") {
+                                                    Bridge.switchWorkspace(index)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         Rectangle {
-                            width: parent.width / 2; height: parent.height; radius: 13
+                            width: 28; height: parent.height; radius: 16
                             color: nextBtnMouse.pressed ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.35) :
-                                   (nextBtnMouse.containsMouse ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.18) : "transparent")
-                            scale: nextBtnMouse.pressed ? 0.94 : 1.0
+                                   (nextBtnMouse.containsMouse ? Qt.rgba(255, 255, 255, 0.12) : "transparent")
+                            scale: nextBtnMouse.pressed ? 0.92 : 1.0
                             Behavior on scale { NumberAnimation { duration: 100 } }
                             Behavior on color { ColorAnimation { duration: 120 } }
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "下个 ›"
-                                font.pixelSize: 10
+                                text: "›"
+                                font.pixelSize: 16
                                 font.weight: Font.Bold
-                                color: nextBtnMouse.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.7)
-                                font.family: wsPageRoot.chosenFont
+                                color: nextBtnMouse.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.6)
                             }
                             MouseArea {
                                 id: nextBtnMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -294,10 +332,10 @@ Item {
         }
 
         // =====================================================================
-        // 2. 右侧【macOS Spaces 矩阵】（0-indexed 对齐、苹果微光质感）
+        // 2. 右侧【macOS Spaces 矩阵】
         // =====================================================================
         Item {
-            width: parent.width - 148
+            width: parent.width - 152
             height: parent.height
 
             Flickable {
@@ -328,8 +366,6 @@ Item {
                         Rectangle {
                             id: itemCard
                             readonly property var itemData: (wsPageRoot.wsList && wsPageRoot.wsList.length > 0) ? modelData : null
-                            
-                            // 🚀 严格以 0 号为基准（Main 为 0）
                             readonly property int displayBadge: wsPageRoot.getWorkspaceNumber(itemData, index)
                             readonly property string wsTitle: (itemData && typeof itemData === "object") ? (itemData.name || ("桌面 " + displayBadge)) : (typeof itemData === "string" ? itemData : ("桌面 " + displayBadge))
                             readonly property bool isActive: (itemData && typeof itemData === "object" && itemData.active !== undefined) ? (itemData.active === true) : (displayBadge === wsPageRoot.displayCurrentNumber)
@@ -346,7 +382,6 @@ Item {
                             height: 42
                             radius: 10
 
-                            // 苹果质感微光背景与描边
                             color: isActive ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.16) :
                                    (itemHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.035))
                             border.color: isActive ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.72) :
@@ -365,7 +400,6 @@ Item {
                                 anchors.leftMargin: 10; anchors.rightMargin: 10
                                 spacing: 8
 
-                                // 编号微胶囊
                                 Rectangle {
                                     width: 22; height: 22; radius: 6
                                     anchors.verticalCenter: parent.verticalCenter
@@ -382,7 +416,6 @@ Item {
                                     }
                                 }
 
-                                // 空间标题
                                 Text {
                                     text: wsTitle
                                     color: isActive ? "white" : Qt.rgba(1, 1, 1, 0.8)
@@ -398,7 +431,6 @@ Item {
                                     width: 8; height: 8
                                     anchors.verticalCenter: parent.verticalCenter
 
-                                    // 当前空间状态绿点
                                     Rectangle {
                                         anchors.centerIn: parent
                                         width: 5; height: 5; radius: 2.5

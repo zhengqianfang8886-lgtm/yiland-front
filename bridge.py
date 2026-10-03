@@ -2,6 +2,7 @@ import os
 import gc
 import json
 import time
+import glob
 import socket
 import shutil
 import struct
@@ -126,6 +127,10 @@ class IslandBridge(QObject):
     unreadCountChanged = Signal(int)
 
     hardwareMuteStateChanged = Signal(bool, bool)
+    volumeChanged = Signal(int)
+
+    # 🚀 大写锁定状态变更信号
+    capsLockChanged = Signal(bool)
 
     _sig_daemon_payload = Signal(str, str)
 
@@ -152,6 +157,11 @@ class IslandBridge(QObject):
         self._last_user_vol_adjust_time = 0.0
         self._last_user_bright_adjust_time = 0.0
         self._last_user_mic_adjust_time = 0.0
+
+        # 大写锁定状态机与物理文件路径缓存
+        self._is_caps_lock = False
+        self._caps_led_paths = []
+        self._init_caps_lock_monitor()
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
@@ -190,6 +200,57 @@ class IslandBridge(QObject):
         self._start_cava_spectrum_monitor()
 
         atexit.register(self.cleanup)
+
+    def _init_caps_lock_monitor(self):
+        self._refresh_caps_paths()
+        self._caps_timer = QTimer(self)
+        self._caps_timer.setInterval(150)  # 150ms 极速物理轮询，单次耗时 < 0.02ms
+        self._caps_timer.timeout.connect(self._check_caps_lock)
+        self._caps_timer.start()
+
+    def _refresh_caps_paths(self):
+        try:
+            self._caps_led_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
+        except Exception:
+            self._caps_led_paths = []
+
+    def _check_caps_lock(self):
+        if not self._caps_led_paths:
+            self._refresh_caps_paths()
+
+        active = False
+        found = False
+        for p in self._caps_led_paths:
+            try:
+                with open(p, "r") as fp:
+                    val = fp.read().strip()
+                    found = True
+                    if val and int(val) > 0:
+                        active = True
+                        break
+            except Exception:
+                continue
+
+        # 针对部分虚拟机或特殊键盘驱动的备用检测
+        if not found and shutil.which("xset"):
+            try:
+                res = subprocess.run(["xset", "q"], capture_output=True, text=True, timeout=0.3)
+                if "Caps Lock:   on" in res.stdout:
+                    active = True
+            except Exception:
+                pass
+
+        if active != self._is_caps_lock:
+            self._is_caps_lock = active
+            self.capsLockChanged.emit(self._is_caps_lock)
+
+    @Property(bool, notify=capsLockChanged)
+    def isCapsLock(self):
+        return self._is_caps_lock
+
+    @Property(int, notify=volumeChanged)
+    def currentVolume(self):
+        return self._cached_volume
 
     def cleanup(self):
         if self._cava_proc:
@@ -270,6 +331,7 @@ class IslandBridge(QObject):
                 self._execute_local_volume_mute(False)
                 if self._cached_volume == 0:
                     self._cached_volume = 15
+                    self.volumeChanged.emit(self._cached_volume)
 
             if delta > 0 and self._cached_volume >= 100:
                 self.osdTriggered.emit("🔊", "Volume", 100)
@@ -280,6 +342,7 @@ class IslandBridge(QObject):
 
             new_val = max(0, min(100, self._cached_volume + delta))
             self._cached_volume = new_val
+            self.volumeChanged.emit(self._cached_volume)
             icon = "🔈" if new_val == 0 else "🔊"
             self.osdTriggered.emit(icon, "Volume", new_val)
             self._vol_flush_timer.start()
@@ -320,6 +383,7 @@ class IslandBridge(QObject):
             else:
                 if self._cached_volume == 0:
                     self._cached_volume = 20
+                    self.volumeChanged.emit(self._cached_volume)
                 self.osdTriggered.emit("🔊", "Volume", self._cached_volume)
                 self.sendIpcCmd("VOLUME_MUTE_TOGGLE")
                 self._execute_local_volume_mute(False)
@@ -595,7 +659,9 @@ class IslandBridge(QObject):
             is_muted = bool(sys_info.get("muted", False))
 
             if (now - self._last_user_vol_adjust_time) > 0.6:
-                self._cached_volume = real_vol
+                if self._cached_volume != real_vol:
+                    self._cached_volume = real_vol
+                    self.volumeChanged.emit(self._cached_volume)
                 self._vol_muted = is_muted
                 self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
                 if m_type == "VOLUME_UPDATE":
@@ -744,12 +810,8 @@ class IslandBridge(QObject):
         except Exception:
             return None
 
-    # =========================================================================
-    # 🚀 核心修复：支持 100% 绝对点击穿透（使用离屏 1 像素区域，消除阻挡）
-    # =========================================================================
     @Slot("QVariantList")
     def updateCompositeMask(self, rects):
-        # 如果没有传入任何区域（例如全岛隐藏），立刻设置离屏单像素遮罩，实现 100% 绝对点击穿透
         if not rects:
             self.setPassthrough()
             return
@@ -786,10 +848,6 @@ class IslandBridge(QObject):
 
     @Slot()
     def setPassthrough(self):
-        """
-        🚀 终极穿透：在屏幕可视区外 (-10, -10, 1, 1) 设置有效遮罩。
-        Qt 不会将其判定为“空遮罩/恢复全矩形拦截”，且窗口在可见范围内的拦截面积为严格的 0！
-        """
         passthrough_region = QRegion(-10, -10, 1, 1)
         if self._last_applied_mask != passthrough_region:
             self._last_applied_mask = passthrough_region
@@ -798,7 +856,6 @@ class IslandBridge(QObject):
 
     @Slot()
     def clearMask(self):
-        """动画期间释放遮罩"""
         self._last_applied_mask = QRegion()
         self.view.setMask(QRegion())
         self.view.requestUpdate()

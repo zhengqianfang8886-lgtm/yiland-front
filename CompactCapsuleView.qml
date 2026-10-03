@@ -13,6 +13,9 @@ Item {
 
     property bool showNetSpeed: true
 
+    // 🚀 大写锁定状态绑定
+    property bool isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
+
     property string wsName: ""
     property int wsCurrent: 1
     property int wsTotal: 4
@@ -101,7 +104,7 @@ Item {
         id: sedentaryAlertContainer
         anchors.fill: parent
         anchors.margins: 12
-        visible: compactRoot.activeTransient === "SEDENTARY" && !compactRoot.isCalling
+        visible: compactRoot.activeTransient === "SEDENTARY" && !compactRoot.isCalling && !compactRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.88
 
@@ -242,7 +245,7 @@ Item {
     Item {
         id: callCapsuleItem
         anchors.fill: parent
-        visible: compactRoot.isCalling
+        visible: compactRoot.isCalling && !compactRoot.isExpanded
 
         Row {
             anchors.fill: parent
@@ -264,7 +267,7 @@ Item {
                     border.width: 1.5
 
                     SequentialAnimation {
-                        running: compactRoot.isCalling
+                        running: compactRoot.isCalling && !compactRoot.isExpanded
                         loops: Animation.Infinite
                         ParallelAnimation {
                             NumberAnimation { target: pulseRing; property: "scale"; from: 0.9; to: 1.35; duration: 1200; easing.type: Easing.OutQuad }
@@ -325,7 +328,7 @@ Item {
                         transformOrigin: Item.Center
 
                         SequentialAnimation {
-                            running: compactRoot.isCalling
+                            running: compactRoot.isCalling && !compactRoot.isExpanded
                             loops: Animation.Infinite
                             NumberAnimation { target: phoneRingIcon; property: "rotation"; from: -16; to: 16; duration: 90; easing.type: Easing.InOutQuad }
                             NumberAnimation { target: phoneRingIcon; property: "rotation"; from: 16; to: -16; duration: 90; easing.type: Easing.InOutQuad }
@@ -363,7 +366,7 @@ Item {
                         Rectangle {
                             width: 2; height: 8; radius: 1; color: Theme.media
                             SequentialAnimation on height {
-                                running: compactRoot.isCalling; loops: Animation.Infinite
+                                running: compactRoot.isCalling && !compactRoot.isExpanded; loops: Animation.Infinite
                                 NumberAnimation { to: 11; duration: 240; easing.type: Easing.InOutSine }
                                 NumberAnimation { to: 4; duration: 240; easing.type: Easing.InOutSine }
                             }
@@ -371,7 +374,7 @@ Item {
                         Rectangle {
                             width: 2; height: 5; radius: 1; color: Theme.media
                             SequentialAnimation on height {
-                                running: compactRoot.isCalling; loops: Animation.Infinite
+                                running: compactRoot.isCalling && !compactRoot.isExpanded; loops: Animation.Infinite
                                 NumberAnimation { to: 12; duration: 310; easing.type: Easing.InOutSine }
                                 NumberAnimation { to: 3; duration: 270; easing.type: Easing.InOutSine }
                             }
@@ -379,7 +382,7 @@ Item {
                         Rectangle {
                             width: 2; height: 9; radius: 1; color: Theme.media
                             SequentialAnimation on height {
-                                running: compactRoot.isCalling; loops: Animation.Infinite
+                                running: compactRoot.isCalling && !compactRoot.isExpanded; loops: Animation.Infinite
                                 NumberAnimation { to: 4; duration: 260; easing.type: Easing.InOutSine }
                                 NumberAnimation { to: 10; duration: 260; easing.type: Easing.InOutSine }
                             }
@@ -455,7 +458,7 @@ Item {
         id: wsLayoutRow
         anchors.centerIn: parent
         spacing: 9
-        visible: compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling
+        visible: compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling && !compactRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
         scale: visible ? 1.0 : 0.90
         Behavior on opacity { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
@@ -545,13 +548,13 @@ Item {
     }
 
     // =========================================================================
-    // 3. 🚀【极速原位流体音量/静音 OSD】：精确区分“0%”与“静音”状态机
+    // 3. 极速原位流体音量/静音 OSD
     // =========================================================================
     Row {
         id: osdLayoutRow
         anchors.centerIn: parent
         spacing: 8
-        visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling
+        visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling && !compactRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
         scale: opacity > 0.4 ? 1.0 : 0.94
 
@@ -560,7 +563,6 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 100; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack; easing.overshoot: 1.04 } }
 
-        // 滑轨槽底
         Rectangle {
             id: osdTrack
             width: Math.max(54, Math.min(94, compactRoot.width - 64))
@@ -576,7 +578,6 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 height: parent.height
                 radius: parent.radius
-                // 静音态滑块收束归零
                 color: osdLayoutRow.isHardwareMuted ? Theme.danger : "white"
 
                 width: osdLayoutRow.isHardwareMuted ?
@@ -593,7 +594,6 @@ Item {
             }
         }
 
-        // 读数百分比：静音态明确显示红字“静音”，0% 状态显示正常“0%”
         Text {
             id: osdValText
             text: osdLayoutRow.isHardwareMuted ?
@@ -623,15 +623,15 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
 
-        visible: opacity > 0.001
-        opacity: compactRoot.isAlertActive ? 1.0 : 0.0
+        visible: !compactRoot.isExpanded && opacity > 0.001
+        opacity: (!compactRoot.isExpanded && compactRoot.isAlertActive) ? 1.0 : 0.0
         scale: compactRoot.isAlertActive ? 1.0 : 0.92
 
         anchors.leftMargin: compactRoot.isAlertActive ? 14 : 6
         anchors.rightMargin: 14
 
-        Behavior on opacity { NumberAnimation { duration: compactRoot.isAlertActive ? 180 : 120; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: compactRoot.isAlertActive ? 240 : 130; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on opacity { NumberAnimation { duration: compactRoot.isExpanded ? 0 : (compactRoot.isAlertActive ? 180 : 120); easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: compactRoot.isExpanded ? 0 : (compactRoot.isAlertActive ? 240 : 130); easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
         Behavior on anchors.leftMargin { NumberAnimation { duration: compactRoot.isAlertActive ? 220 : 110; easing.type: Easing.OutCubic } }
 
         Item {
@@ -720,32 +720,88 @@ Item {
     }
 
     // =========================================================================
-    // 5. 常态时钟与网络
+    // 5. 常态时钟、网络与大写锁定指示器
     // =========================================================================
     Row {
         id: compactTimeRow
         anchors.centerIn: parent
-        spacing: 7
+        spacing: 6
 
-        visible: opacity > 0.001
-        opacity: (compactRoot.activeTransient === "" && !compactRoot.isCalling) ? 1.0 : 0.0
+        visible: !compactRoot.isExpanded && (opacity > 0.001)
+        opacity: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling) ? 1.0 : 0.0
         scale: opacity > 0.4 ? 1.0 : 0.92
 
-        Behavior on opacity { NumberAnimation { duration: 130; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on opacity {
+            NumberAnimation {
+                duration: compactRoot.isExpanded ? 0 : 130
+                easing.type: Easing.OutQuad
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: compactRoot.isExpanded ? 0 : 150
+                easing.type: Easing.OutCubic
+            }
+        }
 
         // =====================================================================
-        // 🚀 核心重构：专业级微型网速胶囊卡片（带独立微槽与标准 KB/s 单位）
+        // 🚀【核心新增】：macOS 同款天蓝微光 ⇪ 大写锁定智能药丸
         // =====================================================================
+        Rectangle {
+            id: capsLockBadge
+            height: 22
+            radius: 6
+            anchors.verticalCenter: parent.verticalCenter
+
+            // 仅在大写锁定时自适应舒展展开，不锁定时 0 宽淡出
+            width: compactRoot.isCapsLock ? (capsInnerRow.implicitWidth + 12) : 0
+            visible: width > 0
+            clip: true
+
+            color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
+            border.color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.50)
+            border.width: 1
+
+            Behavior on width {
+                NumberAnimation {
+                    duration: 160
+                    easing.type: Easing.OutBack
+                    easing.overshoot: 1.15
+                }
+            }
+
+            Row {
+                id: capsInnerRow
+                anchors.centerIn: parent
+                spacing: 3
+
+                Text {
+                    text: "⇪"
+                    color: "#38bdf8"
+                    font.pixelSize: 11
+                    font.weight: Font.Black
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                    text: "大写"
+                    color: "white"
+                    font.pixelSize: 9
+                    font.weight: Font.Bold
+                    font.family: compactRoot.chosenFont
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+
+        // 实时网速小卡片
         Rectangle {
             id: netSpeedItem
             visible: compactRoot.showNetSpeed
             width: compactRoot.showNetSpeed ? (speedCol.implicitWidth + 10) : 0
-            height: 24
+            height: 22
             radius: 5
             anchors.verticalCenter: parent.verticalCenter
-
-            // 极简微槽背景，彻底告别文字裸奔悬空
             color: Qt.rgba(1, 1, 1, 0.06)
             border.color: Qt.rgba(1, 1, 1, 0.1)
             border.width: 1
@@ -755,7 +811,6 @@ Item {
                 anchors.centerIn: parent
                 spacing: 1
 
-                // 1. 下行速率 (绿色)
                 Row {
                     spacing: 3
                     anchors.left: parent.left
@@ -778,7 +833,6 @@ Item {
                     }
                 }
 
-                // 2. 上行速率 (蓝色)
                 Row {
                     spacing: 3
                     anchors.left: parent.left

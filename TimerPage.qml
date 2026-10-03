@@ -109,6 +109,44 @@ Item {
             remainingSeconds = totalSeconds
         }
     }
+    // 🚀【核心新增】：真正“结束”计时（计算已专注时长、触发灵动岛结算弹窗、关闭任务）
+    function endTimer() {
+        // 1. 如果本就处于完成态 (00:00)，直接复位收尾
+        if (isCompleted) {
+            resetTimer()
+            return
+        }
+
+        // 2. 计算本次实际专注/计时的秒数
+        var spentSec = isCountUp ? elapsedSeconds : Math.max(0, totalSeconds - remainingSeconds)
+        var isBreak = (currentMode === "break")
+
+        // 3. 停止时钟
+        isRunning = false
+        isPaused = false
+        isCompleted = false
+        tickTimer.stop()
+
+        // 4. 只要专注超过 5 秒，即触发灵动岛专属结算通知
+        if (spentSec >= 5) {
+            var timeStr = formatTime(spentSec)
+            if (isBreak) {
+                timerRoot.timerCompleted("休息结束", "本次休息 " + timeStr + " · 精力充沛准备下一次专注吧 🚀")
+            } else if (isCountUp) {
+                timerRoot.timerCompleted("计时结束", "本次总计时长 " + timeStr + " · 记录已归档")
+            } else {
+                timerRoot.timerCompleted("专注已结束", "本次已专注 " + timeStr + " · 保持良好节奏 👏")
+            }
+        }
+
+        // 5. 将数值还原至待命预设
+        if (isCountUp) {
+            elapsedSeconds = 0
+            laps = []
+        } else {
+            remainingSeconds = totalSeconds
+        }
+    }
 
     Timer {
         id: tickTimer

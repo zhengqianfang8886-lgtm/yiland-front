@@ -85,6 +85,13 @@ Rectangle {
         }
     }
 
+    // 🚀 新增暴露给外部的结束计时接口
+    function endTimer() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.endTimer()
+        }
+    }
+
     function resetTimer() {
         if (expandedCardView.timerPageRef) {
             expandedCardView.timerPageRef.resetTimer()
@@ -120,7 +127,7 @@ Rectangle {
             return Math.min(450, Math.max(260, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
-        return Math.max(130, compactCapsuleView.textRowImplicitWidth + 38)
+        return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
     }
 
     readonly property int targetHeight: {
@@ -352,18 +359,29 @@ Rectangle {
         }
     }
 
+    // =========================================================================
     // 1. 常态与所有瞬态弹窗视图
+    // =========================================================================
     CompactCapsuleView {
         id: compactCapsuleView
-        anchors.fill: parent
-        z: 5
+        // 🚀 核心优化 1：收缩视图锁定在顶部 36px 区域，严禁跟随父级撑大并拉扯时间下移！
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: capsuleRoot.isExpanded ? 36 : parent.height
+        clip: true
 
-        visible: opacity > 0.01
+        // 🚀 核心优化 2：展开时降权，保证绝对被大卡片覆盖
+        z: capsuleRoot.isExpanded ? 1 : 5
+
+        // 🚀 核心优化 3：展开时立断可见性
+        visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed; chosenFont: capsuleRoot.chosenFont; activeTransient: capsuleRoot.activeTransient
         status: capsuleRoot.status; isCalling: capsuleRoot.isCalling; isExpanded: capsuleRoot.isExpanded; isCollapsing: capsuleRoot.isCollapsing
+        isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
         wsName: capsuleRoot.wsName; wsCurrent: capsuleRoot.wsCurrent; wsTotal: capsuleRoot.wsTotal
         osdIcon: capsuleRoot.osdIcon; osdValue: capsuleRoot.osdValue
         alertTitle: capsuleRoot.alertTitle; alertSubtitle: capsuleRoot.alertSubtitle; alertAvatar: capsuleRoot.alertAvatar; alertIcon: capsuleRoot.alertIcon
@@ -375,19 +393,33 @@ Rectangle {
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
-        Behavior on opacity { NumberAnimation { duration: Theme.animInstant; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        // 展开时 0ms 瞬间淡出，收缩时保持原有平滑动效
+        Behavior on opacity { 
+            NumberAnimation { 
+                duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant
+                easing.type: Easing.OutQuad 
+            } 
+        }
+        Behavior on scale { 
+            NumberAnimation { 
+                duration: capsuleRoot.isExpanded ? 0 : Theme.animFast
+                easing.type: Easing.OutQuad 
+            } 
+        }
     }
 
+    // =========================================================================
     // 2. 展开大卡片视图容器
+    // =========================================================================
     Item {
         anchors.fill: parent
         clip: false
+        // 🚀 核心优化 4：容器显式赋予 z: 10，彻底高于收缩态视图层级，杜绝任何图层穿透
+        z: 10
 
         ExpandedCardView {
             id: expandedCardView
             width: 398; height: 208
-            z: 20
             anchors.top: parent.top
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter

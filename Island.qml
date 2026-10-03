@@ -430,7 +430,7 @@ Item {
         onWidthChanged: maskController.notifyIslandMoving()
 
         onTogglePause: capsule.toggleTimerPause()
-        onDismissTimer: capsule.resetTimer()
+        onDismissTimer: capsule.endTimer()
     }
 
     NotificationBubbleView {

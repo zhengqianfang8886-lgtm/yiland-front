@@ -10,7 +10,8 @@ Rectangle {
     // 0: 音量 (Volume) | 1: 屏幕亮度 (Brightness) | 2: 麦克风 (Microphone)
     property int currentMode: 0
 
-    // 状态缓存
+    // 状态缓存与当前音量读数
+    property int currentVolume: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property bool isVolMuted: false
     property bool isMicMuted: false
 
@@ -20,12 +21,9 @@ Rectangle {
     signal modeChanged(int newMode)
     signal wheelAdjusted(int mode, int delta)
     signal toggleMuteTriggered(int mode)
-    
-    // 🚀 新增拉起设置界面信号
     signal requestSettings()
 
     readonly property int collapsedHeight: 34
-    // 4 阶槽位（音量、亮度、麦克风、设置）黄金高度
     readonly property int expandedHeight: 152
 
     width: 44
@@ -47,7 +45,6 @@ Rectangle {
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    // 统一 Spring 物理动效
     Behavior on height {
         NumberAnimation {
             duration: Theme.animSpring
@@ -66,12 +63,25 @@ Rectangle {
     }
 
     readonly property bool isCurrentMuted: {
-        if (currentMode === 0) return isVolMuted
+        if (currentMode === 0) return isVolMuted || currentVolume === 0
         if (currentMode === 2) return isMicMuted
         return false
     }
 
-    // 鼠标移出胶囊 240ms 自动平滑收起关闭
+    // 监听底层硬件变化（OSD 与 静音）
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+        function onHardwareMuteStateChanged(volMuted, micMuted) {
+            hwBubbleRoot.isVolMuted = volMuted
+            hwBubbleRoot.isMicMuted = micMuted
+        }
+        function onOsdTriggered(icon, label, val) {
+            if (label === "Volume") {
+                hwBubbleRoot.currentVolume = val
+            }
+        }
+    }
+
     Timer {
         id: mouseLeaveTimer
         interval: 240
@@ -83,7 +93,6 @@ Rectangle {
         }
     }
 
-    // 展开状态下无操作超时兜底
     Timer {
         id: autoCollapseTimer
         interval: 8000
@@ -120,8 +129,9 @@ Rectangle {
 
         Item {
             anchors.centerIn: parent
-            width: 16
-            height: 16
+            // 🚀 核心升级为 18×18，确保 3 道声波拥有完整呼吸空间
+            width: 18
+            height: 18
 
             Loader {
                 anchors.fill: parent
@@ -142,7 +152,7 @@ Rectangle {
     }
 
     // =========================================================================
-    // 2. 纵向长胶囊展开流（支持滚轮滑动与无限扩展槽位）
+    // 2. 纵向长胶囊展开流
     // =========================================================================
     Flickable {
         id: scrollContainer
@@ -164,7 +174,7 @@ Rectangle {
             width: parent.width
             spacing: 4
 
-            // 插槽 1：音量控制 (Mode 0)
+            // 插槽 1：音量控制
             Rectangle {
                 width: 36
                 height: 32
@@ -179,8 +189,8 @@ Rectangle {
 
                 Item {
                     anchors.centerIn: parent
-                    width: 16
-                    height: 16
+                    width: 18
+                    height: 18
                     Loader { anchors.fill: parent; sourceComponent: volumeIconComp }
                 }
 
@@ -207,7 +217,7 @@ Rectangle {
                 }
             }
 
-            // 插槽 2：屏幕亮度 (Mode 1)
+            // 插槽 2：屏幕亮度
             Rectangle {
                 width: 36
                 height: 32
@@ -249,7 +259,7 @@ Rectangle {
                 }
             }
 
-            // 插槽 3：麦克风控制 (Mode 2)
+            // 插槽 3：麦克风控制
             Rectangle {
                 width: 36
                 height: 32
@@ -291,9 +301,7 @@ Rectangle {
                 }
             }
 
-            // =================================================================
-            // 🚀 插槽 4：设置界面专属触控槽位（自动展示点击，一键调出设置）
-            // =================================================================
+            // 插槽 4：设置界面
             Rectangle {
                 width: 36
                 height: 32
@@ -327,7 +335,6 @@ Rectangle {
         }
     }
 
-    // 滚动下滑指示器
     Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 3
@@ -340,14 +347,25 @@ Rectangle {
     }
 
     // =========================================================================
-    // 3. 矢量图标组件库
+    // 3. 矢量图标组件库（精密同心圆声波，绝对不切角）
     // =========================================================================
 
-    // 音量组件
     Component {
         id: volumeIconComp
         Item {
             anchors.fill: parent
+
+            readonly property bool isMutedState: hwBubbleRoot.isVolMuted || hwBubbleRoot.currentVolume <= 0
+
+            // 0: 静音, 1: 低音量 (1~33%), 2: 中音量 (34~66%), 3: 高音量 (67~100%)
+            readonly property int volLevel: {
+                if (isMutedState) return 0
+                if (hwBubbleRoot.currentVolume <= 33) return 1
+                if (hwBubbleRoot.currentVolume <= 66) return 2
+                return 3
+            }
+
+            // 1. 喇叭锥体底座 (18x18 严格居中校准)
             Shape {
                 anchors.fill: parent
                 layer.enabled: true
@@ -359,54 +377,89 @@ Rectangle {
                     capStyle: ShapePath.RoundCap
                     joinStyle: ShapePath.RoundJoin
                     startX: 1.5
-                    startY: 5.8
-                    PathLine { x: 4.2; y: 5.8 }
-                    PathLine { x: 8.0; y: 2.2 }
-                    PathLine { x: 8.0; y: 13.8 }
-                    PathLine { x: 4.2; y: 10.2 }
-                    PathLine { x: 1.5; y: 10.2 }
-                    PathLine { x: 1.5; y: 5.8 }
+                    startY: 6.5
+                    PathLine { x: 4.5; y: 6.5 }
+                    PathLine { x: 8.5; y: 3.0 }
+                    PathLine { x: 8.5; y: 15.0 }
+                    PathLine { x: 4.5; y: 11.5 }
+                    PathLine { x: 1.5; y: 11.5 }
+                    PathLine { x: 1.5; y: 6.5 }
                 }
             }
+
+            // 2. 声波 1（微弧，半径 5.5，绝不溢出）
             Shape {
                 anchors.fill: parent
-                visible: !hwBubbleRoot.isVolMuted
+                visible: !isMutedState
+                opacity: volLevel >= 1 ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: 90 } }
                 layer.enabled: true
                 layer.samples: 4
                 ShapePath {
                     strokeColor: "white"
-                    strokeWidth: 1.5
+                    strokeWidth: 1.4
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
-                    startX: 10.5
-                    startY: 5.5
-                    PathArc { x: 10.5; y: 10.5; radiusX: 3.5; radiusY: 3.5; useLargeArc: false }
-                }
-                ShapePath {
-                    strokeColor: "white"
-                    strokeWidth: 1.5
-                    fillColor: "transparent"
-                    capStyle: ShapePath.RoundCap
-                    startX: 13.2
-                    startY: 3.5
-                    PathArc { x: 13.2; y: 12.5; radiusX: 6.5; radiusY: 6.5; useLargeArc: false }
+                    startX: 10.2
+                    startY: 6.1
+                    PathArc { x: 10.2; y: 11.9; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
                 }
             }
+
+            // 3. 声波 2（中弧，半径 8.0，同心对称）
             Shape {
                 anchors.fill: parent
-                visible: hwBubbleRoot.isVolMuted
+                visible: !isMutedState
+                opacity: volLevel >= 2 ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: 90 } }
                 layer.enabled: true
                 layer.samples: 4
                 ShapePath {
-                    strokeColor: Theme.danger
-                    strokeWidth: 1.6
+                    strokeColor: "white"
+                    strokeWidth: 1.4
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
-                    startX: 10.8
-                    startY: 6.0
-                    PathLine { x: 14.8; y: 10.0 }
-                    PathMove { x: 14.8; y: 6.0 }
-                    PathLine { x: 10.8; y: 10.0 }
+                    startX: 12.1
+                    startY: 4.5
+                    PathArc { x: 12.1; y: 13.5; radiusX: 8.0; radiusY: 8.0; useLargeArc: false }
+                }
+            }
+
+            // 4. 声波 3（大弧，半径 10.5，最高点 x=16.0 距边界留 2px 安全裕量，绝对圆润完整）
+            Shape {
+                anchors.fill: parent
+                visible: !isMutedState
+                opacity: volLevel >= 3 ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: 90 } }
+                layer.enabled: true
+                layer.samples: 4
+                ShapePath {
+                    strokeColor: "white"
+                    strokeWidth: 1.4
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    startX: 14.0
+                    startY: 2.8
+                    PathArc { x: 14.0; y: 15.2; radiusX: 10.5; radiusY: 10.5; useLargeArc: false }
+                }
+            }
+
+            // 5. 静音叉号 ✕（静音态或 0% 时清晰居中）
+            Shape {
+                anchors.fill: parent
+                visible: isMutedState
+                layer.enabled: true
+                layer.samples: 4
+                ShapePath {
+                    strokeColor: hwBubbleRoot.isVolMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.6)
+                    strokeWidth: 1.5
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    startX: 11.0
+                    startY: 6.5
+                    PathLine { x: 15.5; y: 11.5 }
+                    PathMove { x: 15.5; y: 6.5 }
+                    PathLine { x: 11.0; y: 11.5 }
                 }
             }
         }
@@ -541,14 +594,12 @@ Rectangle {
         }
     }
 
-    // 收起状态下的全局快捷操作
     TapHandler {
         enabled: !hwBubbleRoot.isExpanded
         acceptedButtons: Qt.LeftButton
         onTapped: hwBubbleRoot.toggleMuteTriggered(hwBubbleRoot.currentMode)
     }
 
-    // 右键一键切换“纵向长胶囊展开 / 收起”
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {
@@ -557,7 +608,6 @@ Rectangle {
         }
     }
 
-    // 收起状态下的快捷滚轮调节
     WheelHandler {
         enabled: !hwBubbleRoot.isExpanded
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad

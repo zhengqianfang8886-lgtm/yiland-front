@@ -57,13 +57,55 @@ Item {
         return 0
     }
 
+    // 🚀 当前 Tab 的元数据配置（主题色、标题、副标题）
+    readonly property var currentTabMeta: {
+        if (cardRoot.isCalling) {
+            return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
+        }
+        if (cardRoot.expandedTab === "power") {
+            return { title: "SESSION", sub: "系统会话", color: "#ef4444" }
+        }
+        if (cardRoot.expandedTab === "time") {
+            return { title: "LOCAL TIME", sub: "时间与节律", color: Theme.calendar }
+        }
+        if (cardRoot.expandedTab === "workspace") {
+            var name = cardRoot.wsName ? cardRoot.wsName : ("桌面 " + cardRoot.wsCurrent)
+            return { title: "WORKSPACE", sub: name, color: Theme.workspace }
+        }
+        if (cardRoot.expandedTab === "media") {
+            var mediaSub = cardRoot.status === "Playing" ? (cardRoot.title ? cardRoot.title : "正在播放") : "已暂停"
+            return { title: "MEDIA", sub: mediaSub, color: cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted }
+        }
+        if (cardRoot.expandedTab === "calendar") {
+            return { title: "CALENDAR", sub: "日历日程", color: Theme.calendar }
+        }
+        if (cardRoot.expandedTab === "timer") {
+            return { title: "TIMER", sub: "专注计时", color: Theme.timer }
+        }
+        if (cardRoot.expandedTab === "clock") {
+            return { title: "WORLD CLOCK", sub: "世界时钟", color: Theme.clock }
+        }
+        if (cardRoot.expandedTab === "network") {
+            return { title: "NETWORK", sub: "网络监控", color: Theme.network }
+        }
+        if (cardRoot.expandedTab === "bluetooth") {
+            return { title: "BLUETOOTH", sub: "蓝牙外设", color: Theme.bluetooth }
+        }
+        if (cardRoot.expandedTab === "notification") {
+            return { title: "NOTIFICATIONS", sub: "消息归档", color: Theme.notification }
+        }
+        return { title: "ALCOVE ISLAND", sub: "", color: Theme.textSecondary }
+    }
+
+    // 滚轮平滑阻尼累加器
     property real tabWheelAccum: 0
     Timer {
         id: tabWheelResetTimer
-        interval: 260
+        interval: 240
         onTriggered: cardRoot.tabWheelAccum = 0
     }
 
+    // 🚀 全局 Tab 滚轮切换调度器
     function handleTabWheel(wheel) {
         wheel.accepted = true
         tabWheelResetTimer.restart()
@@ -71,7 +113,7 @@ Item {
         var delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y
         cardRoot.tabWheelAccum += delta
 
-        if (Math.abs(cardRoot.tabWheelAccum) >= 70) {
+        if (Math.abs(cardRoot.tabWheelAccum) >= 60) {
             if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length <= 1) return
             var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1
             var nextIndex = (cardRoot.activeTabIndex + dir + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
@@ -92,226 +134,262 @@ Item {
         anchors.fill: parent
         spacing: 12
 
+        // =====================================================================
+        // 🚀 一体化微胶囊顶栏（高度统一定制 26px，支持整行全域平滑切页）
+        // =====================================================================
         Item {
             id: headerArea
             width: parent.width
             height: 26
 
+            // 全行底层滚轮拦截器（点击穿透给子组件，任意区域滚动皆可切页）
             MouseArea {
-                anchors.left: parent.left
-                anchors.right: powerQuickBtn.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                hoverEnabled: true
-                onWheel: (wheel) => {
-                    wheel.accepted = true
-                    if (!cardRoot.isCalling && cardRoot.expandedTab === "workspace" && typeof Bridge !== "undefined") {
-                        if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev()
-                        else if (wheel.angleDelta.y < 0) Bridge.switchWorkspaceNext()
-                    }
-                }
+                anchors.fill: parent
+                z: 0
+                acceptedButtons: Qt.NoButton
+                onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
             }
 
-            Item {
-                anchors.left: parent.left
-                anchors.right: cardRoot.isCalling ? parent.right : powerQuickBtn.left
-                anchors.rightMargin: 8
-                anchors.verticalCenter: parent.verticalCenter
-                height: 24
-
-                Rectangle {
-                    visible: cardRoot.expandedTab === "power" && !cardRoot.isCalling
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: backRow.implicitWidth + 14
-                    height: 22
-                    radius: 11
-                    color: backTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (backHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
-                    border.color: Theme.borderSubtle
-                    border.width: 1
-
-                    Row {
-                        id: backRow
-                        anchors.centerIn: parent
-                        spacing: 4
-                        Text { text: "‹"; color: "#ef4444"; font.pixelSize: 13; font.weight: Font.Black }
-                        Text {
-                            text: "返回工作台"
-                            color: "white"
-                            font.pixelSize: 10
-                            font.weight: Font.Bold
-                            font.family: cardRoot.chosenFont
-                        }
-                    }
-
-                    HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler {
-                        id: backTap
-                        onTapped: cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
-                    }
-                }
-
-                Text {
-                    visible: cardRoot.expandedTab !== "power" || cardRoot.isCalling
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    elide: Text.ElideRight
-
-                    text: {
-                        if (cardRoot.isCalling) return "● INCOMING CALL · TEAMS"
-                        if (cardRoot.expandedTab === "power") return "● SYSTEM POWER · 电源与会话"
-                        if (cardRoot.expandedTab === "time") return "● LOCAL TIME · 时间与节律"
-                        if (cardRoot.expandedTab === "workspace") return "● WORKSPACE · " + (cardRoot.wsName ? cardRoot.wsName : ("DESKTOP " + cardRoot.wsCurrent))
-                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? "● PLAYING" : "⏸ PAUSED"
-                        if (cardRoot.expandedTab === "calendar") return "● CALENDAR · 日历"
-                        if (cardRoot.expandedTab === "timer") return "● TIMER · 专注计时"
-                        if (cardRoot.expandedTab === "clock") return "● WORLD CLOCK · 世界时钟"
-                        if (cardRoot.expandedTab === "network") return "● NETWORK · 网络监控"
-                        if (cardRoot.expandedTab === "bluetooth") return "● BLUETOOTH · 蓝牙外设"
-                        if (cardRoot.expandedTab === "notification") return "● NOTIFICATIONS · 消息归档"
-                        return "● ALCOVE ISLAND"
-                    }
-
-                    color: {
-                        if (cardRoot.isCalling) return Theme.media
-                        if (cardRoot.expandedTab === "time") return Theme.calendar
-                        if (cardRoot.expandedTab === "workspace") return Theme.workspace
-                        if (cardRoot.expandedTab === "media") return cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted
-                        if (cardRoot.expandedTab === "calendar") return Theme.calendar
-                        if (cardRoot.expandedTab === "timer") return Theme.timer
-                        if (cardRoot.expandedTab === "clock") return Theme.clock
-                        if (cardRoot.expandedTab === "network") return Theme.network
-                        if (cardRoot.expandedTab === "bluetooth") return Theme.bluetooth
-                        if (cardRoot.expandedTab === "notification") return Theme.notification
-                        return Theme.textSecondary
-                    }
-
-                    font.family: cardRoot.chosenFont
-                    font.pixelSize: 10
-                    font.weight: Font.Black
-                    font.letterSpacing: 0.8
-                }
-            }
-
-            // 🚀 核心优化 1：来电呼叫态下彻底隐藏电源开关按钮，防止误触
+            // 1. 左侧：面包屑标题微胶囊
             Rectangle {
-                id: powerQuickBtn
-                anchors.right: tabTrackContainer.left
-                anchors.rightMargin: 8
+                id: titleBadge
+                anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                width: 24
-                height: 24
-                radius: 12
-                visible: !cardRoot.isCalling
-                readonly property bool isPowerActive: (cardRoot.expandedTab === "power")
-                color: isPowerActive ? Qt.rgba(239, 68, 68, 0.35) : (powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.22) : Qt.rgba(1, 1, 1, 0.08))
-                border.color: isPowerActive || powerBtnHover.hovered ? "#ef4444" : Theme.borderSubtle
+                height: 26
+                radius: 13
+                z: 1
+
+                readonly property bool isPowerPage: (cardRoot.expandedTab === "power" && !cardRoot.isCalling)
+                width: isPowerPage ? (backRow.implicitWidth + 20) : Math.min(220, titleRow.implicitWidth + 20)
+
+                color: badgeHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04)
+                border.color: badgeHover.hovered ?
+                              Qt.rgba(cardRoot.currentTabMeta.color.r, cardRoot.currentTabMeta.color.g, cardRoot.currentTabMeta.color.b, 0.45) :
+                              Qt.rgba(1, 1, 1, 0.09)
                 border.width: 1
-                scale: powerBtnTap.pressed ? 0.92 : (powerBtnHover.hovered ? 1.05 : 1.0)
-                Behavior on scale { NumberAnimation { duration: 100 } }
-                Behavior on color { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                Text {
-                    anchors.centerIn: parent
-                    text: "⏻"
-                    font.pixelSize: 11
-                    font.weight: Font.Black
-                    color: parent.isPowerActive || powerBtnHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.75)
-                }
+                scale: badgeTap.pressed ? 0.96 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
+                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
 
-                HoverHandler { id: powerBtnHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    id: powerBtnTap
-                    onTapped: {
-                        if (cardRoot.expandedTab === "power") {
-                            cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
-                        } else {
-                            cardRoot.switchRoute("power", "")
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                id: tabTrackContainer
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: dotsLayoutRow.implicitWidth + 14
-                height: 18
-                radius: 9
-                color: Qt.rgba(1, 1, 1, 0.08)
-                border.color: Qt.rgba(1, 1, 1, 0.12)
-                border.width: 1
-                visible: !cardRoot.isCalling && cardRoot.enabledTabs && cardRoot.enabledTabs.length > 1
-                z: 5
-
-                MouseArea {
-                    anchors.fill: parent
-                    z: 0
-                    acceptedButtons: Qt.NoButton
-                    onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
-                }
-
+                // 电源页下显示的“返回”形态
                 Row {
-                    id: dotsLayoutRow
+                    id: backRow
                     anchors.centerIn: parent
                     spacing: 5
-                    z: 1
+                    visible: titleBadge.isPowerPage
 
-                    Repeater {
-                        model: cardRoot.enabledTabs || []
+                    Text { text: "‹"; color: "#ef4444"; font.pixelSize: 14; font.weight: Font.Black }
+                    Text {
+                        text: "返回工作台"
+                        color: "white"
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        font.family: cardRoot.chosenFont
+                    }
+                }
 
-                        Item {
-                            id: tabSlotItem
-                            readonly property bool isCurrent: (cardRoot.expandedTab === modelData.key)
-                            width: isCurrent ? 18 : 5
-                            height: 18
+                // 常态下的分类 + 上下文形态
+                Row {
+                    id: titleRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    visible: !titleBadge.isPowerPage
+                    width: parent.width - 20
 
-                            Behavior on width {
-                                NumberAnimation {
-                                    duration: 200
-                                    easing.type: Easing.OutBack
-                                    easing.overshoot: 1.15
+                    // 呼吸发光圆点
+                    Rectangle {
+                        width: 6; height: 6; radius: 3
+                        color: cardRoot.currentTabMeta.color
+                        anchors.verticalCenter: parent.verticalCenter
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                    }
+
+                    // 模块大写分类标题
+                    Text {
+                        text: cardRoot.currentTabMeta.title
+                        color: cardRoot.currentTabMeta.color
+                        font.pixelSize: 10
+                        font.weight: Font.Black
+                        font.letterSpacing: 0.6
+                        font.family: cardRoot.chosenFont
+                        anchors.verticalCenter: parent.verticalCenter
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                    }
+
+                    // 极简分隔点
+                    Text {
+                        text: "·"
+                        color: Qt.rgba(1, 1, 1, 0.3)
+                        font.pixelSize: 10
+                        font.weight: Font.Black
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: cardRoot.currentTabMeta.sub !== ""
+                    }
+
+                    // 模块细分上下文信息（如桌面名 Main）
+                    Text {
+                        text: cardRoot.currentTabMeta.sub
+                        color: "white"
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        font.family: cardRoot.chosenFont
+                        elide: Text.ElideRight
+                        width: Math.max(20, titleRow.width - 12 - parent.children[1].implicitWidth - (parent.children[2].visible ? parent.children[2].implicitWidth : 0))
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: cardRoot.currentTabMeta.sub !== ""
+                    }
+                }
+
+                HoverHandler { id: badgeHover; cursorShape: titleBadge.isPowerPage ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                TapHandler {
+                    id: badgeTap
+                    onTapped: {
+                        if (titleBadge.isPowerPage) {
+                            cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
+                        }
+                    }
+                }
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (event) => cardRoot.handleTabWheel(event)
+                }
+            }
+
+            // 2. 右侧：一体化中控舱（指示点轨道 + 电源快速入口，统一 26px 规格）
+            Row {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+                z: 1
+
+                // 2.1 Tab 指示点一体舱
+                Rectangle {
+                    id: tabTrackContainer
+                    height: 26
+                    radius: 13
+                    width: dotsLayoutRow.implicitWidth + 18
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: trackHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04)
+                    border.color: trackHover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.09)
+                    border.width: 1
+                    visible: !cardRoot.isCalling && cardRoot.enabledTabs && cardRoot.enabledTabs.length > 1
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                    HoverHandler { id: trackHover }
+                    WheelHandler {
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        onWheel: (event) => cardRoot.handleTabWheel(event)
+                    }
+
+                    Row {
+                        id: dotsLayoutRow
+                        anchors.centerIn: parent
+                        spacing: 4
+
+                        Repeater {
+                            model: cardRoot.enabledTabs || []
+
+                            Item {
+                                id: tabSlotItem
+                                readonly property bool isCurrent: (cardRoot.expandedTab === modelData.key)
+                                width: isCurrent ? 18 : 6
+                                height: 26
+
+                                Behavior on width {
+                                    NumberAnimation {
+                                        duration: 180
+                                        easing.type: Easing.OutBack
+                                        easing.overshoot: 1.15
+                                    }
+                                }
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width
+                                    height: 5
+                                    radius: 2.5
+                                    color: tabSlotItem.isCurrent ?
+                                           (modelData.key === "media" ? cardRoot.dominantColor : (modelData.color ? modelData.color : Theme.workspace)) :
+                                           (tabMouseArea.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.32))
+
+                                    scale: tabSlotItem.isCurrent ? 1.0 : (tabMouseArea.containsMouse ? 1.3 : 1.0)
+
+                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                    Behavior on scale { NumberAnimation { duration: 100 } }
+                                }
+
+                                MouseArea {
+                                    id: tabMouseArea
+                                    anchors.fill: parent
+                                    anchors.margins: -4
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: cardRoot.switchRoute(modelData.key, "")
+                                    onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
                                 }
                             }
+                        }
+                    }
+                }
 
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width
-                                height: 5
-                                radius: 2.5
-                                color: tabSlotItem.isCurrent ?
-                                       (modelData.key === "media" ? cardRoot.dominantColor : (modelData.color ? modelData.color : Theme.workspace)) :
-                                       (tabMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.85) : Qt.rgba(1, 1, 1, 0.35))
+                // 2.2 电源快捷按键（高精度圆形胶囊）
+                Rectangle {
+                    id: powerQuickBtn
+                    width: 26
+                    height: 26
+                    radius: 13
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !cardRoot.isCalling
 
-                                scale: tabSlotItem.isCurrent ? 1.0 : (tabMouseArea.containsMouse ? 1.35 : 1.0)
+                    readonly property bool isPowerActive: (cardRoot.expandedTab === "power")
+                    color: isPowerActive ? Qt.rgba(239, 68, 68, 0.30) : (powerBtnHover.hovered ? Qt.rgba(239, 68, 68, 0.16) : Qt.rgba(1, 1, 1, 0.04))
+                    border.color: (isPowerActive || powerBtnHover.hovered) ? "#ef4444" : Qt.rgba(1, 1, 1, 0.09)
+                    border.width: 1
 
-                                Behavior on color { ColorAnimation { duration: 150 } }
-                                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-                            }
+                    scale: powerBtnTap.pressed ? 0.92 : (powerBtnHover.hovered ? 1.05 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 100 } }
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                            MouseArea {
-                                id: tabMouseArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: cardRoot.switchRoute(modelData.key, "")
-                                onWheel: (wheel) => cardRoot.handleTabWheel(wheel)
+                    Text {
+                        anchors.centerIn: parent
+                        text: "⏻"
+                        font.pixelSize: 11
+                        font.weight: Font.Black
+                        color: (powerQuickBtn.isPowerActive || powerBtnHover.hovered) ? "#ef4444" : Qt.rgba(1, 1, 1, 0.70)
+                    }
+
+                    HoverHandler { id: powerBtnHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        id: powerBtnTap
+                        onTapped: {
+                            if (cardRoot.expandedTab === "power") {
+                                cardRoot.switchRoute(cardRoot.previousTab || "workspace", "")
+                            } else {
+                                cardRoot.switchRoute("power", "")
                             }
                         }
+                    }
+                    WheelHandler {
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                        onWheel: (event) => cardRoot.handleTabWheel(event)
                     }
                 }
             }
         }
 
+        // =====================================================================
+        // 内容子页面视图（保持原有路由完全不变）
+        // =====================================================================
         Item {
             width: parent.width
             height: parent.height - 38
 
-            // =================================================================
             // 1. 来电全屏专属卡片
-            // =================================================================
             Item {
                 id: incomingCallCard
                 anchors.fill: parent
@@ -348,7 +426,6 @@ Item {
                                 }
                             }
 
-                            // 🚀 核心优化 2：来电大头像全面引入 Canvas 绝对正圆裁切，根除平底直角
                             Item {
                                 anchors.fill: parent
 
