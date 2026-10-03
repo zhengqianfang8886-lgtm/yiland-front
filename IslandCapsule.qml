@@ -86,7 +86,7 @@ Rectangle {
         }
     }
 
-    // 🚀 暴露真正“结束”本次计时的方法
+    // 🚀 真正“结束”本次计时的方法
     function endTimer() {
         if (expandedCardView.timerPageRef) {
             expandedCardView.timerPageRef.endTimer()
@@ -117,7 +117,7 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // 🚀 流体宽度自适应：消除常态与通知弹窗的死黑留空
+    // 🚀 流体宽度自适应：弹窗内容自适应贴合，彻底消除右侧死黑留空
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -180,10 +180,13 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
+    // 🚀 流体阻尼宽度动画：退场采用 180ms Easing.OutCubic，消除生硬抽搐与卡顿切感
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.animSlow : Theme.animSpring) : Theme.animFast
+            duration: capsuleRoot.isMorphGrowing ?
+                      (capsuleRoot.isJellyStyle ? 260 : 220) :
+                      (capsuleRoot.isCollapsing ? Theme.animFast : 180)
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
@@ -195,10 +198,13 @@ Rectangle {
         }
     }
 
+    // 🚀 流体阻尼高度动画：退场采用 160ms Easing.OutCubic，完美匹配内容消融时钟回场的节奏
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : Theme.animNormal) : Theme.animFast
+            duration: capsuleRoot.isMorphGrowing ?
+                      (capsuleRoot.isJellyStyle ? 240 : 200) :
+                      (capsuleRoot.isCollapsing ? Theme.animFast : 160)
             easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
@@ -362,17 +368,17 @@ Rectangle {
     // =========================================================================
     CompactCapsuleView {
         id: compactCapsuleView
-        // 🚀 锁定在顶部 36px 区域，严禁跟随父级撑大并拉扯时间下移！
+        // 🚀 锁定在顶部 36px 区域，展开时不拉扯子视图下移，根除残影
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         height: capsuleRoot.isExpanded ? 36 : parent.height
         clip: true
 
-        // 🚀 展开时降权，保证绝对被大卡片覆盖
+        // 🚀 展开时降权，保证被大卡片绝对覆盖
         z: capsuleRoot.isExpanded ? 1 : 5
 
-        // 🚀 展开时立断可见性，彻底消除残影
+        // 🚀 展开时立断可见性，收缩时柔和过渡
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
         scale: opacity > 0.5 ? 1.0 : 0.94
@@ -431,7 +437,7 @@ Rectangle {
     Item {
         anchors.fill: parent
         clip: false
-        // 🚀 容器显式赋予 z: 10，彻底高于收缩态视图层级，杜绝任何图层穿透
+        // 🚀 显式赋予 z: 10，完全凌驾于收缩胶囊之上
         z: 10
 
         ExpandedCardView {

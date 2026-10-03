@@ -7,7 +7,6 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
 
-    // 🚀 核心修复 1：安全留白，彻底避开胶囊的圆角与 3px 描边切边
     anchors.leftMargin: 10
     anchors.rightMargin: 12
 
@@ -16,11 +15,33 @@ Item {
     property string alertSubtitle: ""
     property string alertAvatar: ""
     property color alertThemeColor: Theme.notification
+    property bool isAlertActive: false
 
-    // 动态内容宽度（头像 34 + 间距 9 + 文字实际宽度）
     readonly property int implicitContentWidth: 34 + 9 + Math.max(alertTitleText.implicitWidth, alertSubText.implicitWidth)
 
-    // 1. 头像区（34×34 完美正圆，绝不穿帮切角）
+    // 🚀 核心修复 1：启用视口裁剪，形变缩回时内容绝不溢出胶囊
+    clip: true
+
+    // 🚀 核心修复 2：柔和透明度与微缩放，彻底告别 0ms 硬切
+    visible: opacity > 0.001
+    opacity: alertRoot.isAlertActive ? 1.0 : 0.0
+    scale: alertRoot.isAlertActive ? 1.0 : 0.92
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: alertRoot.isAlertActive ? 160 : 110
+            easing.type: alertRoot.isAlertActive ? Easing.OutQuad : Easing.OutCubic
+        }
+    }
+    Behavior on scale {
+        NumberAnimation {
+            duration: alertRoot.isAlertActive ? 190 : 110
+            easing.type: alertRoot.isAlertActive ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: alertRoot.isAlertActive ? 1.08 : 1.0
+        }
+    }
+
+    // 1. 头像区（34×34 正圆）
     Item {
         id: avatarItem
         width: 34
@@ -64,7 +85,6 @@ Item {
             }
         }
 
-        // 精致微光描边
         Rectangle {
             anchors.fill: parent
             radius: 17
@@ -74,7 +94,7 @@ Item {
         }
     }
 
-    // 2. 文字信息区（标题与内容清晰排版）
+    // 2. 消息文字区
     Column {
         anchors.left: avatarItem.right
         anchors.leftMargin: 9

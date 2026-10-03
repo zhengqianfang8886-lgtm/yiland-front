@@ -107,8 +107,7 @@ Item {
         chosenFont: compactRoot.chosenFont
         alertTitle: compactRoot.alertTitle; alertSubtitle: compactRoot.alertSubtitle; alertAvatar: compactRoot.alertAvatar
         alertThemeColor: compactRoot.alertThemeColor
-        visible: !compactRoot.isExpanded && opacity > 0.001
-        opacity: (!compactRoot.isExpanded && compactRoot.isAlertActive) ? 1.0 : 0.0
+        isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
     // 6. 常态时钟、网络与 ⇪ 大写锁指示行
@@ -116,9 +115,9 @@ Item {
         id: clockView
         anchors.centerIn: parent
         chosenFont: compactRoot.chosenFont
-        isCapsLock: compactRoot.isCapsLock; showNetSpeed: compactRoot.showNetSpeed; isExpanded: compactRoot.isExpanded
+        isCapsLock: compactRoot.isCapsLock; showNetSpeed: compactRoot.showNetSpeed
         downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
         displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
-        opacity: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling) ? 1.0 : 0.0
+        isClockActive: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling)
     }
 }

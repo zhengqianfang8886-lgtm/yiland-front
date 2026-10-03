@@ -13,9 +13,26 @@ Row {
     property string displayTime: "04:53"
     property string displaySeconds: ""
     property string displayPeriod: "pm"
-    property bool isExpanded: false
+    property bool isClockActive: true
 
-    visible: !isExpanded && (opacity > 0.001)
+    // 🚀 核心动效：与弹窗交替淡入淡出，消失时瞬间让位，归来时柔光浮现
+    visible: opacity > 0.001
+    opacity: clockRoot.isClockActive ? 1.0 : 0.0
+    scale: clockRoot.isClockActive ? 1.0 : 0.92
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: clockRoot.isClockActive ? 160 : 70
+            easing.type: Easing.OutQuad
+        }
+    }
+    Behavior on scale {
+        NumberAnimation {
+            duration: clockRoot.isClockActive ? 180 : 70
+            easing.type: clockRoot.isClockActive ? Easing.OutBack : Easing.OutQuad
+            easing.overshoot: clockRoot.isClockActive ? 1.06 : 1.0
+        }
+    }
 
     // 大写锁定微胶囊
     Rectangle {
@@ -80,7 +97,7 @@ Row {
         visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
     }
 
-    // 时间显示区
+    // 时间大字
     Row {
         spacing: 1
         anchors.verticalCenter: parent.verticalCenter
