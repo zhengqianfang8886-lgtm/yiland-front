@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml (磁吸刚体防穿模终极版)
+// 📄 File: Island.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -32,9 +32,7 @@ Item {
         autoRestoreTimer.interval = Math.max(1000, sec * 1000)
         autoRestoreTimer.restart()
         
-        if (typeof Bridge !== "undefined" && Bridge.setPassthrough) {
-            Bridge.setPassthrough()
-        }
+        // 🚀 此处不再立刻裁剪遮罩，将遮罩权力下放给 maskController 保证动画播完
         maskController.commit()
     }
 
@@ -256,9 +254,6 @@ Item {
         return left.indexOf(key) !== -1 ? "left" : "right"
     }
 
-    // =========================================================================
-    // 🚀【核心机制】：计算从胶囊外边缘起算的纯相对位移量（独立于胶囊绝对坐标）
-    // =========================================================================
     function getLeftIslandOffset(key, itemWidth) {
         var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
         var currentOffset = root.splitGap
@@ -294,7 +289,7 @@ Item {
     }
 
     // =========================================================================
-    // 5 大副岛组件：磁吸刚性紧随胶囊外缘，帧率级推挤零延迟，绝不被压
+    // 5 大副岛组件：无 `Behavior on y` 绝对跟随主岛升降
     // =========================================================================
 
     MemoryBubbleView {
@@ -304,7 +299,6 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        // 🚀 核心绑定：直接跟随胶囊边框毫秒级移动，相对位移 currentOffset 平滑滑动
         x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
@@ -372,10 +366,6 @@ Item {
 
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
-
-        Behavior on y {
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
-        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()

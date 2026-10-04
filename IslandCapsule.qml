@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (严丝合缝物理胶囊版)
+// 📄 File: IslandCapsule.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -83,17 +83,9 @@ Rectangle {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
-    function toggleTimerPause() {
-        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.togglePause()
-    }
-
-    function dismissTimer() {
-        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.dismissTimer()
-    }
-
-    function resetTimer() {
-        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.resetTimer()
-    }
+    function toggleTimerPause() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.togglePause() }
+    function dismissTimer() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.dismissTimer() }
+    function resetTimer() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.resetTimer() }
 
     property bool anySubBubbleHovered: false
     property bool subBubbleInteracting: false
@@ -123,7 +115,6 @@ Rectangle {
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
         if (capsuleRoot.activeTransient === "OSD") return 178
-        // 🚀 偶数对齐与下限保障，杜绝奇数抖动
         var baseW = compactCapsuleView.textRowImplicitWidth + 26
         return Math.max(106, Math.ceil(baseW / 2) * 2)
     }
@@ -142,12 +133,19 @@ Rectangle {
 
     z: 2
     anchors.top: parent.top
-    anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 12) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
-    Behavior on anchors.topMargin { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic } }
-
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: Config.offsetX
     Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
+
+    // 🚀【核心机制】：精调上下滑动动效，滑上时先沉后冲，滑下时果冻回弹
+    anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
+    Behavior on anchors.topMargin {
+        NumberAnimation {
+            duration: 350
+            easing.type: capsuleRoot.isIslandHidden ? Easing.InBack : Easing.OutBack
+            easing.overshoot: capsuleRoot.isIslandHidden ? 0.8 : 1.05
+        }
+    }
 
     width: targetWidth
     height: targetHeight
@@ -156,7 +154,12 @@ Rectangle {
 
     opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
     visible: opacity > 0.001
-    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
+    Behavior on opacity {
+        NumberAnimation {
+            duration: capsuleRoot.isIslandHidden ? 200 : 300
+            easing.type: Easing.InOutQuad
+        }
+    }
 
     antialiasing: true
     smooth: true
@@ -178,12 +181,10 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
-    // 🚀【核心机制】：外壳宽度与内部元素同相 180ms OutCubic，绝不产生内外滞后穿模
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ?
-                      (capsuleRoot.isJellyStyle ? 240 : 200) : 180
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 180
             easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {
@@ -196,8 +197,7 @@ Rectangle {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ?
-                      (capsuleRoot.isJellyStyle ? 220 : 190) : 160
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 220 : 190) : 160
             easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {

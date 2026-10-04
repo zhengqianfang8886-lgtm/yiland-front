@@ -1,11 +1,13 @@
 // ==========================================
-// 📄 File: compact/CompactClockView.qml (零穿模流体排布版)
+// 📄 File: compact/CompactClockView.qml (苹果灵动岛呼吸比例版)
 // ==========================================
 import QtQuick
 
 Row {
     id: clockRoot
     spacing: 6
+    leftPadding: 8
+    rightPadding: 8
 
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
@@ -30,22 +32,21 @@ Row {
     Behavior on scale { NumberAnimation { duration: clockRoot.isClockActive ? 170 : 80; easing.type: Easing.OutCubic } }
 
     // =========================================================================
-    // 1. 大写锁定微胶囊 (Caps Lock - 冰蓝微光)
+    // 1. 大写锁定微胶囊 (CAPS LOCK - 19px 极简微悬浮)
     // =========================================================================
     Rectangle {
         id: capsLockBadge
-        height: 22
-        radius: 6
+        height: 19
+        radius: 5
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
-        // 🚀 核心优化：宽高与透明度、缩放精准同相，绝不穿模溢出
-        width: clockRoot.isCapsLock ? 48 : 0
+        width: clockRoot.isCapsLock ? 45 : 0
         opacity: clockRoot.isCapsLock ? 1.0 : 0.0
         scale: clockRoot.isCapsLock ? 1.0 : 0.75
 
-        color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
-        border.color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.50)
+        color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.14)
+        border.color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.40)
         border.width: 1
 
         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -55,27 +56,43 @@ Row {
         Row {
             anchors.centerIn: parent
             spacing: 3
-            Text { text: "⇪"; color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "大写"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: clockRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
+
+            Text {
+                text: "⇪"
+                color: "#38bdf8"
+                font.pixelSize: 10
+                font.weight: Font.Black
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+                text: "CAPS"
+                color: "white"
+                font.pixelSize: 8
+                font.weight: Font.Black
+                font.letterSpacing: 0.6
+                font.family: clockRoot.displayFont
+                anchors.verticalCenter: parent.verticalCenter
+            }
         }
     }
 
     // =========================================================================
-    // 2. 数字锁定微胶囊 (Num Lock - 薄荷绿磨砂)
+    // 2. 数字键盘锁定微胶囊 (NUM LOCK - 19px 薄荷微光)
     // =========================================================================
     Rectangle {
         id: numLockBadge
-        height: 22
-        radius: 6
+        height: 19
+        radius: 5
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
-        width: clockRoot.isNumLock ? 48 : 0
+        width: clockRoot.isNumLock ? 45 : 0
         opacity: clockRoot.isNumLock ? 1.0 : 0.0
         scale: clockRoot.isNumLock ? 1.0 : 0.75
 
-        color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.18)
-        border.color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.50)
+        color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.14)
+        border.color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.40)
         border.width: 1
 
         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -85,27 +102,44 @@ Row {
         Row {
             anchors.centerIn: parent
             spacing: 3
-            Text { text: "123"; color: "#34d399"; font.pixelSize: 10; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "数字"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: clockRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
+
+            Text {
+                text: "123"
+                color: "#34d399"
+                font.pixelSize: 9
+                font.weight: Font.Black
+                font.family: clockRoot.displayFont
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+                text: "NUM"
+                color: "white"
+                font.pixelSize: 8
+                font.weight: Font.Black
+                font.letterSpacing: 0.6
+                font.family: clockRoot.displayFont
+                anchors.verticalCenter: parent.verticalCenter
+            }
         }
     }
 
     // =========================================================================
-    // 3. 实时网速小卡片 (锁宽 48px，防抖退场)
+    // 3. 实时网速微卡片 (19px 高度统一)
     // =========================================================================
     Rectangle {
         id: netSpeedItem
-        height: 22
+        height: 19
         radius: 5
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
-        width: clockRoot.showNetSpeed ? 48 : 0
+        width: clockRoot.showNetSpeed ? 46 : 0
         opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
         scale: clockRoot.showNetSpeed ? 1.0 : 0.80
 
-        color: Qt.rgba(1, 1, 1, 0.06)
-        border.color: Qt.rgba(1, 1, 1, 0.10)
+        color: Qt.rgba(1, 1, 1, 0.055)
+        border.color: Qt.rgba(1, 1, 1, 0.11)
         border.width: 1
 
         Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -114,25 +148,25 @@ Row {
 
         Column {
             anchors.centerIn: parent
-            spacing: 1
+            spacing: 0
 
             Row {
-                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 4
+                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 3
                 Text { text: "↓"; font.pixelSize: 8; font.weight: Font.Black; color: Theme.network; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     text: clockRoot.downCompact
-                    color: "white"; font.pixelSize: 9; font.weight: Font.Black
+                    color: "white"; font.pixelSize: 8; font.weight: Font.Black
                     font.family: clockRoot.displayFont
                     font.features: { "tnum": 1 }
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
             Row {
-                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 4
+                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 3
                 Text { text: "↑"; font.pixelSize: 8; font.weight: Font.Black; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
                 Text {
                     text: clockRoot.upCompact
-                    color: "white"; font.pixelSize: 9; font.weight: Font.Black
+                    color: "white"; font.pixelSize: 8; font.weight: Font.Black
                     font.family: clockRoot.displayFont
                     font.features: { "tnum": 1 }
                     anchors.verticalCenter: parent.verticalCenter
@@ -142,27 +176,58 @@ Row {
     }
 
     // =========================================================================
-    // 4. 日期文本与分隔
+    // 4. 纯净日期卡片 (19px 灵动微岛风格)
     // =========================================================================
-    Text {
-        text: clockRoot.displayDate
-        color: Qt.rgba(1, 1, 1, 0.70)
-        font.family: clockRoot.effectiveFont
-        font.pixelSize: 11
-        font.weight: Font.Bold
-        font.letterSpacing: 0.2
-        visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
-        anchors.verticalCenter: parent.verticalCenter
-    }
-
     Rectangle {
-        width: 1; height: 11; radius: 0.5; color: Qt.rgba(1, 1, 1, 0.14)
+        id: dateCard
+        height: 19
+        radius: 5
         anchors.verticalCenter: parent.verticalCenter
-        visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
+        clip: true
+
+        readonly property bool shouldShow: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
+        width: shouldShow ? (dateText.implicitWidth + 14) : 0
+        opacity: shouldShow ? 1.0 : 0.0
+        scale: shouldShow ? 1.0 : 0.80
+
+        color: Qt.rgba(1, 1, 1, 0.055)
+        border.color: Qt.rgba(1, 1, 1, 0.10)
+        border.width: 1
+
+        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        Text {
+            id: dateText
+            anchors.centerIn: parent
+            text: clockRoot.displayDate
+            color: Qt.rgba(1, 1, 1, 0.85)
+            font.family: clockRoot.effectiveFont
+            font.pixelSize: 10
+            font.weight: Font.Bold
+            font.letterSpacing: 0.2
+        }
     }
 
     // =========================================================================
-    // 5. 主时间行 (等宽数字 tnum + 锁死 20px 秒数槽)
+    // 5. 日期与时间之间的微细分割线
+    // =========================================================================
+    Rectangle {
+        id: dateDivider
+        width: 1
+        height: 10
+        radius: 0.5
+        color: Qt.rgba(1, 1, 1, 0.16)
+        anchors.verticalCenter: parent.verticalCenter
+        visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
+        opacity: dateCard.opacity
+
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+    }
+
+    // =========================================================================
+    // 6. 核心时间行 (时间样式完全不变)
     // =========================================================================
     Row {
         spacing: 1

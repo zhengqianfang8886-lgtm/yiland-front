@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: IslandMaskController.qml
+// ==========================================
 import QtQuick
 
 Item {
@@ -22,7 +25,6 @@ Item {
     property int targetW: 150
     property int targetH: 36
 
-    // 🚀 核心修复：副岛（如硬件控制岛）展开悬浮时，立即清除二进制遮罩，呈现抗锯齿平滑边缘
     readonly property bool isAnySubExpanded: (hwBubble && hwBubble.isExpanded)
 
     onIsExpandedChanged: handleMotionChange()
@@ -30,29 +32,42 @@ Item {
     onIsMorphingChanged: handleMotionChange()
     onIsAnySubExpandedChanged: handleMotionChange()
 
+    // 🚀 核心控制：留出 350ms 的动画播放时间，等胶囊彻底滑走后才做鼠标穿透
+    Timer {
+        id: passthroughTimer
+        interval: 350
+        repeat: false
+        onTriggered: {
+            if (isIslandHidden && typeof Bridge !== "undefined") {
+                if (Bridge.setPassthrough) Bridge.setPassthrough()
+                else Bridge.updateCompositeMask([])
+            }
+        }
+    }
+
     function handleHideState() {
         if (!maskActive || typeof Bridge === "undefined") return
         if (isIslandHidden) {
             settleTimer.stop()
             islandSlideTimer.stop()
-            if (Bridge.setPassthrough) {
-                Bridge.setPassthrough()
-            } else if (Bridge.updateCompositeMask) {
-                Bridge.updateCompositeMask([])
-            }
+            // 动画开始前，彻底放开遮罩供渲染
+            if (Bridge.clearMask) Bridge.clearMask()
+            passthroughTimer.restart()
         } else {
-            settleTimer.restart()
+            passthroughTimer.stop()
+            // 出现动画开始前，彻底放开遮罩让胶囊降落
+            if (Bridge.clearMask) Bridge.clearMask()
+            islandSlideTimer.interval = 350
+            islandSlideTimer.restart()
         }
     }
 
     function handleMotionChange() {
         if (!maskActive || typeof Bridge === "undefined") return
         if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
-            if (Bridge.setPassthrough) Bridge.setPassthrough()
             return
         }
 
-        // 🚀 当主岛或控制中心副岛处于展开状态时，完全放开遮罩
         var inMotion = isExpanded || isCollapsing || isMorphing || isAnySubExpanded
 
         if (inMotion) {
@@ -65,12 +80,10 @@ Item {
 
     function notifyIslandMoving() {
         if (!maskActive || typeof Bridge === "undefined") return
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
-            if (Bridge.setPassthrough) Bridge.setPassthrough()
-            return
-        }
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) return
 
         if (Bridge.clearMask) Bridge.clearMask()
+        islandSlideTimer.interval = 180
         islandSlideTimer.restart()
     }
 
@@ -91,11 +104,7 @@ Item {
     function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
         
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
-            if (Bridge.setPassthrough) Bridge.setPassthrough()
-            else Bridge.updateCompositeMask([])
-            return
-        }
+        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) return
 
         if (isExpanded || isCollapsing || isMorphing || isAnySubExpanded || islandSlideTimer.running) return
 
