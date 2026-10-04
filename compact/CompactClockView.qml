@@ -284,4 +284,22 @@ Row {
             leftPadding: 2
         }
     }
+
+    Component.onCompleted: printClockItemWidths()
+
+    // 当大写锁、数字锁、日期变化时重新打印
+    onIsCapsLockChanged: printClockItemWidths()
+    onIsNumLockChanged: printClockItemWidths()
+
+    function printClockItemWidths() {
+        console.log("------ [CLOCK VIEW 各项宽度细分] ------")
+        console.log("  Row 总 implicitWidth : " + clockRoot.implicitWidth)
+        console.log("  Row 内部间距 (spacing): " + clockRoot.spacing + " | leftPadding: " + clockRoot.leftPadding + " | rightPadding: " + clockRoot.rightPadding)
+        console.log("  1. 大写锁徽章 (capsLockBadge) : width=" + capsLockBadge.width + ", visible=" + capsLockBadge.visible)
+        console.log("  2. 数字锁徽章 (numLockBadge)  : width=" + numLockBadge.width + ", visible=" + numLockBadge.visible)
+        console.log("  3. 实时网速项 (netSpeedItem)  : width=" + netSpeedItem.width + ", visible=" + netSpeedItem.visible)
+        console.log("  4. 日期卡片项 (dateCard)      : width=" + dateCard.width + ", visible=" + dateCard.visible)
+        console.log("  5. 日期分割线 (dateDivider)   : width=" + dateDivider.width + ", visible=" + dateDivider.visible)
+        console.log("-----------------------------------------")
+    }
 }

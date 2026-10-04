@@ -54,7 +54,7 @@ def main():
     bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
 
-    window_width, window_height = 720, 270
+    window_width, window_height = 860, 270
 
     def update_view_position():
         screen = app.primaryScreen()

@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ProcessPage.qml (修复编译报错与排版切底版)
+// 📄 File: ProcessPage.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -8,10 +8,8 @@ Item {
     id: procRoot
     anchors.fill: parent
 
-    // 🚀【核心修复】：补回供 ExpandedCardView 绑定的外部接口属性，彻底消除编译报错
     property string chosenFont: ""
 
-    // 🚀 优先接入全局 Theme 统一字体引擎，同时向后兼容外部传参
     readonly property string effectiveFont: {
         if (typeof Theme !== "undefined" && Theme.activeFont) {
             return Theme.activeFont
@@ -144,7 +142,7 @@ Item {
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
 
-        // 1.1 左侧中枢：精细紧凑化，彻底消除截图中的切底截断
+        // 1.1 左侧中枢
         Rectangle {
             width: 108
             height: parent.height
@@ -152,6 +150,7 @@ Item {
             color: Qt.rgba(1, 1, 1, 0.035)
             border.color: Qt.rgba(1, 1, 1, 0.08)
             border.width: 1
+            clip: true
 
             Column {
                 anchors.fill: parent
@@ -213,7 +212,7 @@ Item {
 
                 Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
-                // 三大动作按钮区：高度规范为 24px/22px/22px，在 170px 容器内留有呼吸空间
+                // 三大动作按钮区
                 Column {
                     width: parent.width
                     spacing: 4
@@ -417,7 +416,7 @@ Item {
     }
 
     // =========================================================================
-    // 视图 2：专属双列 Bento 详情与配置界面
+    // 视图 2：专属双列 Bento 详情与配置界面 (彻底修复超长路径穿透溢出)
     // =========================================================================
     Row {
         id: detailViewRoot
@@ -427,7 +426,7 @@ Item {
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
 
-        // 2.1 左列：服务看板
+        // 2.1 左列：服务看板 (增加 clip: true 彻底屏蔽外部杂光穿透)
         Rectangle {
             width: 120
             height: parent.height
@@ -435,6 +434,7 @@ Item {
             color: "#18181f"
             border.color: Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.3)
             border.width: 1
+            clip: true
 
             Column {
                 anchors.fill: parent
@@ -523,6 +523,7 @@ Item {
             color: "#18181f"
             border.color: Qt.rgba(1, 1, 1, 0.1)
             border.width: 1
+            clip: true
 
             Column {
                 anchors.fill: parent
@@ -564,57 +565,91 @@ Item {
                         width: parent.width; height: 26; radius: 5
                         color: nameInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
                         border.color: nameInput.activeFocus ? "#a855f7" : Qt.rgba(1, 1, 1, 0.08); border.width: 1
+                        clip: true
 
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
-                            Text { text: "名称"; color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter; width: 32 }
-                            TextInput {
-                                id: nameInput
-                                width: parent.width - 32; anchors.verticalCenter: parent.verticalCenter
-                                color: "white"; font.pixelSize: 11; font.family: procRoot.effectiveFont
-                                selectByMouse: true; activeFocusOnPress: true
-                                KeyNavigation.tab: cwdInput
-                                Keys.onReturnPressed: procRoot.submitForm()
-                                Keys.onEnterPressed: procRoot.submitForm()
-                                Keys.onEscapePressed: procRoot.goBackToList()
-                                Text { text: "服务标识 (如 book-search)..."; color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.effectiveFont; visible: !nameInput.text && !nameInput.activeFocus; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            id: lblName
+                            anchors.left: parent.left; anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "名称"
+                            color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont
+                        }
+
+                        TextInput {
+                            id: nameInput
+                            anchors.left: lblName.right; anchors.leftMargin: 8
+                            anchors.right: parent.right; anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            clip: true // 🚀 内部水平漫游，绝不向外溢出
+                            color: "white"; font.pixelSize: 11; font.family: procRoot.effectiveFont
+                            selectByMouse: true; activeFocusOnPress: true
+                            KeyNavigation.tab: cwdInput
+                            Keys.onReturnPressed: procRoot.submitForm()
+                            Keys.onEnterPressed: procRoot.submitForm()
+                            Keys.onEscapePressed: procRoot.goBackToList()
+
+                            Text {
+                                text: "服务标识 (如 book-search)..."
+                                color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.effectiveFont
+                                visible: !nameInput.text && !nameInput.activeFocus
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight; width: parent.width
                             }
                         }
                     }
 
-                    // 2. 工作目录
+                    // 2. 🚀【核心修复】：工作目录（绝对不会溢出穿透）
                     Rectangle {
                         width: parent.width; height: 26; radius: 5
                         color: cwdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
                         border.color: cwdInput.activeFocus ? "#a855f7" : Qt.rgba(1, 1, 1, 0.08); border.width: 1
+                        clip: true // 🚀 容器级物理裁切
 
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 4
-                            Text { text: "目录"; color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter; width: 32 }
-                            TextInput {
-                                id: cwdInput
-                                width: parent.width - 32 - 24; anchors.verticalCenter: parent.verticalCenter
-                                color: Theme.textSecondary; font.pixelSize: 10; font.family: procRoot.displayFont
-                                selectByMouse: true; activeFocusOnPress: true
-                                KeyNavigation.tab: cmdInput
-                                Keys.onReturnPressed: procRoot.submitForm()
-                                Keys.onEnterPressed: procRoot.submitForm()
-                                Keys.onEscapePressed: procRoot.goBackToList()
-                                Text { text: "工作目录路径 (默认: ~)..."; color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.displayFont; visible: !cwdInput.text && !cwdInput.activeFocus; anchors.verticalCenter: parent.verticalCenter }
-                            }
-                            Rectangle {
-                                width: 20; height: 20; radius: 4; anchors.verticalCenter: parent.verticalCenter
-                                color: browseHover.hovered ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
-                                Text { anchors.centerIn: parent; text: "📁"; font.pixelSize: 11; font.family: procRoot.effectiveFont }
-                                HoverHandler { id: browseHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler {
-                                    onTapped: {
-                                        if (typeof Bridge !== "undefined" && Bridge.selectLocalDirectory) {
-                                            var dir = Bridge.selectLocalDirectory()
-                                            if (dir) cwdInput.text = dir
-                                        }
+                        Text {
+                            id: lblCwd
+                            anchors.left: parent.left; anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "目录"
+                            color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont
+                        }
+
+                        Rectangle {
+                            id: browseBtn
+                            anchors.right: parent.right; anchors.rightMargin: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 20; height: 20; radius: 4
+                            color: browseHover.hovered ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
+                            Text { anchors.centerIn: parent; text: "📁"; font.pixelSize: 11; font.family: procRoot.effectiveFont }
+                            HoverHandler { id: browseHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler {
+                                onTapped: {
+                                    if (typeof Bridge !== "undefined" && Bridge.selectLocalDirectory) {
+                                        var dir = Bridge.selectLocalDirectory()
+                                        if (dir) cwdInput.text = dir
                                     }
                                 }
+                            }
+                        }
+
+                        TextInput {
+                            id: cwdInput
+                            anchors.left: lblCwd.right; anchors.leftMargin: 8
+                            anchors.right: browseBtn.left; anchors.rightMargin: 4
+                            anchors.verticalCenter: parent.verticalCenter
+                            clip: true // 🚀 极其关键：超长路径强制限制在两者之间，在框内平滑滑动！
+                            color: Theme.textSecondary; font.pixelSize: 10; font.family: procRoot.displayFont
+                            selectByMouse: true; activeFocusOnPress: true
+                            KeyNavigation.tab: cmdInput
+                            Keys.onReturnPressed: procRoot.submitForm()
+                            Keys.onEnterPressed: procRoot.submitForm()
+                            Keys.onEscapePressed: procRoot.goBackToList()
+
+                            Text {
+                                text: "工作目录路径 (默认: ~)..."
+                                color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.displayFont
+                                visible: !cwdInput.text && !cwdInput.activeFocus
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight; width: parent.width
                             }
                         }
                     }
@@ -624,20 +659,42 @@ Item {
                         width: parent.width; height: 26; radius: 5
                         color: cmdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
                         border.color: cmdInput.activeFocus ? "#a855f7" : Qt.rgba(1, 1, 1, 0.08); border.width: 1
+                        clip: true
 
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
-                            Text { text: "命令"; color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter; width: 32 }
-                            Text { text: "$"; color: "#c084fc"; font.pixelSize: 11; font.family: procRoot.displayFont; anchors.verticalCenter: parent.verticalCenter; rightPadding: 4 }
-                            TextInput {
-                                id: cmdInput
-                                width: parent.width - 32 - 14; anchors.verticalCenter: parent.verticalCenter
-                                color: "white"; font.pixelSize: 11; font.family: procRoot.displayFont
-                                selectByMouse: true; activeFocusOnPress: true
-                                Keys.onReturnPressed: procRoot.submitForm()
-                                Keys.onEnterPressed: procRoot.submitForm()
-                                Keys.onEscapePressed: procRoot.goBackToList()
-                                Text { text: "npm start / python3 main.py..."; color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.displayFont; visible: !cmdInput.text && !cmdInput.activeFocus; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            id: lblCmd
+                            anchors.left: parent.left; anchors.leftMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "命令"
+                            color: Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont
+                        }
+
+                        Text {
+                            id: promptSymbol
+                            anchors.left: lblCmd.right; anchors.leftMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "$"
+                            color: "#c084fc"; font.pixelSize: 11; font.family: procRoot.displayFont
+                        }
+
+                        TextInput {
+                            id: cmdInput
+                            anchors.left: promptSymbol.right; anchors.leftMargin: 4
+                            anchors.right: parent.right; anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            clip: true // 🚀 内部水平滚动，绝不溢出
+                            color: "white"; font.pixelSize: 11; font.family: procRoot.displayFont
+                            selectByMouse: true; activeFocusOnPress: true
+                            Keys.onReturnPressed: procRoot.submitForm()
+                            Keys.onEnterPressed: procRoot.submitForm()
+                            Keys.onEscapePressed: procRoot.goBackToList()
+
+                            Text {
+                                text: "npm start / python3 main.py..."
+                                color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: procRoot.displayFont
+                                visible: !cmdInput.text && !cmdInput.activeFocus
+                                anchors.verticalCenter: parent.verticalCenter
+                                elide: Text.ElideRight; width: parent.width
                             }
                         }
                     }

@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml
+// 📄 File: IslandCapsule.qml (防震感锁定版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -62,6 +62,30 @@ Rectangle {
 
     property real clipGlowOpacity: 0.0
 
+    // =========================================================================
+    // 🔍 诊断日志模块（保留）
+    // =========================================================================
+    onActiveTransientChanged: {
+        printDebugDimensions("TRANSIENT_CHANGE -> " + (activeTransient || "NORMAL_CLOCK"))
+    }
+
+    onWidthChanged: {
+        if (width === targetWidth) {
+            printDebugDimensions("WIDTH_SETTLED")
+        }
+    }
+
+    function printDebugDimensions(tag) {
+        console.log("==================== [ISLAND DEBUG: " + tag + "] ====================")
+        console.log("  [胶囊外壳实际宽度 width]        : " + capsuleRoot.width)
+        console.log("  [胶囊目标计算宽度 targetWidth]  : " + capsuleRoot.targetWidth)
+        console.log("  [时钟计算宽度 currentNormalWidth]: " + capsuleRoot.currentNormalWidth)
+        console.log("  [时钟稳定锚定宽 stableClockWidth]: " + capsuleRoot.stableClockWidth)
+        console.log("  [时钟内容宽度 textRowImplicit]  : " + compactCapsuleView.textRowImplicitWidth)
+        console.log("  [桌面内容宽度 wsRowImplicit]    : " + compactCapsuleView.wsRowImplicitWidth)
+        console.log("================================================================")
+    }
+
     SequentialAnimation {
         id: clipGlowAnim
         NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.95; duration: Theme.animInstant; easing.type: Easing.OutQuad }
@@ -105,6 +129,24 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // =========================================================================
+    // 🚀【核心机制】：时钟稳定锚定宽（彻底杜绝坍塌抽搐）
+    // =========================================================================
+    readonly property int currentNormalWidth: {
+        var baseW = compactCapsuleView.textRowImplicitWidth + 26
+        return Math.max(106, Math.ceil(baseW / 2) * 2)
+    }
+
+    // 锚定变量：默认锚定 186
+    property int stableClockWidth: 186
+
+    // 🚀【防震感核心】：仅在完全稳定且宽度大于 170 的常态下才允许更新，绝不被淡出时的 139/166 污染！
+    onCurrentNormalWidthChanged: {
+        if (activeTransient === "" && !isExpanded && !isCalling && currentNormalWidth >= 170) {
+            stableClockWidth = currentNormalWidth
+        }
+    }
+
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -113,10 +155,18 @@ Rectangle {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 26
             return Math.min(420, Math.max(160, dynamicW))
         }
-        if (capsuleRoot.activeTransient === "WORKSPACE") return 184
-        if (capsuleRoot.activeTransient === "OSD") return 178
-        var baseW = compactCapsuleView.textRowImplicitWidth + 26
-        return Math.max(106, Math.ceil(baseW / 2) * 2)
+
+        // 🚀【绝对防震】：桌面切换与时钟常态共享绝对平稳锚定宽（186），差值恒为 0！
+        if (capsuleRoot.activeTransient === "WORKSPACE") {
+            return stableClockWidth
+        }
+
+        if (capsuleRoot.activeTransient === "OSD") {
+            return Math.max(stableClockWidth, 184)
+        }
+
+        // 🚀 常态下也通过 Math.max 防止任何淡入期的毫秒级向内坍塌
+        return Math.max(stableClockWidth, currentNormalWidth)
     }
 
     readonly property int targetHeight: {
@@ -137,7 +187,6 @@ Rectangle {
     anchors.horizontalCenterOffset: Config.offsetX
     Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
 
-    // 🚀【核心机制】：精调上下滑动动效，滑上时先沉后冲，滑下时果冻回弹
     anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
     Behavior on anchors.topMargin {
         NumberAnimation {
@@ -181,7 +230,9 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
+    // 🚀【绝对稳定】：目标宽度差 <= 1px 时直接阻断动画，彻底消灭任何微小抖动
     Behavior on width {
+        enabled: !capsuleRoot.isIslandHidden && Math.abs(capsuleRoot.width - capsuleRoot.targetWidth) > 1
         NumberAnimation {
             id: widthNumAnim
             duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 180
@@ -347,7 +398,6 @@ Rectangle {
 
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
-        scale: opacity > 0.5 ? 1.0 : 0.94
 
         showNetSpeed: Config.showNetSpeed
         chosenFont: capsuleRoot.effectiveFont
@@ -383,7 +433,6 @@ Rectangle {
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animFast; easing.type: Easing.OutQuad } }
     }
 
     Item {

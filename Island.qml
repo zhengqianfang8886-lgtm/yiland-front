@@ -6,7 +6,7 @@ import QtQuick.Controls
 
 Item {
     id: root
-    width: 720; height: 270
+    width: 860; height: 270
 
     readonly property string chosenFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : ((typeof Config !== "undefined") ? Config.activeFont : "")
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
@@ -169,6 +169,7 @@ Item {
     Timer { id: transientTimer; onTriggered: capsule.activeTransient = "" }
     function triggerTransient(mode, ms) {
         if (capsule.isExpanded) return
+
         capsule.activeTransient = mode
         if (ms > 0) {
             transientTimer.interval = ms; transientTimer.restart()

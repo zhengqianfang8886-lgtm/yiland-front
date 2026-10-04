@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: HardwareBubbleView.qml
+// ==========================================
 import QtQuick
 import QtQuick.Shapes
 import "control"
@@ -9,12 +12,11 @@ Rectangle {
     readonly property string textFont: (typeof Config !== "undefined") ? Config.activeFont : ""
 
     readonly property int dwellTime: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
-    readonly property int leaveGraceTime: 200
+    readonly property int leaveGraceTime: 300
 
     property bool active: true
     readonly property bool isHovered: bubbleHover.hovered
 
-    // 🚀 底层硬件状态实时同步
     property int currentVolume: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property int currentBrightness: (typeof Bridge !== "undefined" && Bridge.currentBrightness !== undefined) ? Bridge.currentBrightness : 100
     property bool isVolMuted: false
@@ -29,7 +31,8 @@ Rectangle {
     signal requestSettings()
 
     readonly property int collapsedWidth: 44
-    readonly property int expandedWidth: 278
+    // 🚀 宽敞舒适空间：102(音量) + 96(亮度) + 26(麦) + 26(设置) + 18(折叠) + 间距 = 284
+    readonly property int expandedWidth: 284
     readonly property int islandHeight: 34
 
     width: isExpanded ? expandedWidth : collapsedWidth
@@ -66,12 +69,8 @@ Rectangle {
             hwBubbleRoot.isVolMuted = volMuted
             hwBubbleRoot.isMicMuted = micMuted
         }
-        function onVolumeChanged(val) {
-            hwBubbleRoot.currentVolume = val
-        }
-        function onBrightnessChanged(val) {
-            hwBubbleRoot.currentBrightness = val
-        }
+        function onVolumeChanged(val) { hwBubbleRoot.currentVolume = val }
+        function onBrightnessChanged(val) { hwBubbleRoot.currentBrightness = val }
         function onOsdTriggered(icon, label, val) {
             if (label === "Volume") hwBubbleRoot.currentVolume = val
             else if (label === "Display") hwBubbleRoot.currentBrightness = val
@@ -113,9 +112,7 @@ Rectangle {
         resetInteractTimer.restart()
     }
 
-    // =========================================================================
-    // 1. 常态：控制中心双滑块图标（收起态）
-    // =========================================================================
+    // 1. 常态：44px 圆形小岛
     Item {
         id: collapsedItem
         anchors.left: parent.left
@@ -150,9 +147,7 @@ Rectangle {
         }
     }
 
-    // =========================================================================
-    // 2. 展开态：高级感轻量微光控制流
-    // =========================================================================
+    // 2. 展开态：长行程控制流
     Row {
         id: expandedControlRow
         anchors.fill: parent
@@ -161,12 +156,11 @@ Rectangle {
         spacing: 5
         visible: hwBubbleRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
-
         Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
 
-        // 组件 1：音量流体滑轨 (86px，高级透光白)
+        // 组件 1：超长音量流体滑轨 (102px，滑轨净长达 55px)
         ControlSlider {
-            width: 86
+            width: 102
             anchors.verticalCenter: parent.verticalCenter
             currentValue: hwBubbleRoot.currentVolume
             iconType: "volume"
@@ -178,9 +172,9 @@ Rectangle {
             onInteractionStarted: hwBubbleRoot.resetActivity()
         }
 
-        // 组件 2：屏幕亮度流体滑轨 (76px，淡香槟微暖白)
+        // 组件 2：超长屏幕亮度流体滑轨 (96px，滑轨净长达 50px)
         ControlSlider {
-            width: 76
+            width: 96
             anchors.verticalCenter: parent.verticalCenter
             currentValue: hwBubbleRoot.currentBrightness
             iconType: "brightness"
@@ -190,7 +184,7 @@ Rectangle {
             onInteractionStarted: hwBubbleRoot.resetActivity()
         }
 
-        // 组件 3：麦克风胶囊键 (常态保持冷白低调，仅静音时珊瑚红警示)
+        // 组件 3：麦克风胶囊键
         Rectangle {
             width: 26; height: 26; radius: 13
             anchors.verticalCenter: parent.verticalCenter
@@ -208,7 +202,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: 12; height: 12
                 iconType: "mic"
-                iconColor: hwBubbleRoot.isMicMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.85)
+                iconColor: hwBubbleRoot.isMicMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.88)
                 isMuted: hwBubbleRoot.isMicMuted
             }
 
@@ -222,7 +216,7 @@ Rectangle {
             }
         }
 
-        // 组件 4：偏好设置按键 (纯净磨砂圆钮)
+        // 组件 4：偏好设置按键
         Rectangle {
             width: 26; height: 26; radius: 13
             anchors.verticalCenter: parent.verticalCenter
@@ -252,7 +246,7 @@ Rectangle {
 
         // 组件 5：纯矢量收起微胶囊按键
         Rectangle {
-            width: 20; height: 26; radius: 10
+            width: 18; height: 26; radius: 9
             anchors.verticalCenter: parent.verticalCenter
             color: collapseTap.pressed ? Qt.rgba(1, 1, 1, 0.18) : (collapseHover.hovered ? Qt.rgba(1, 1, 1, 0.10) : "transparent")
             scale: collapseTap.pressed ? 0.92 : 1.0
@@ -263,7 +257,7 @@ Rectangle {
                 anchors.centerIn: parent
                 width: 10; height: 10
                 iconType: "chevron"
-                iconColor: collapseHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.55)
+                iconColor: collapseHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.60)
             }
 
             HoverHandler { id: collapseHover; cursorShape: Qt.PointingHandCursor }
