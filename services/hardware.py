@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/hardware.py
+# 📄 File: services/hardware.py (解决神经质误报修复版)
 # ==========================================
 import os
 import glob
@@ -35,6 +35,9 @@ class HardwareService(QObject):
         self._last_user_bright_adjust_time = 0.0
         self._last_user_mic_adjust_time = 0.0
 
+        # 🚀 启动防抖标志：开机启动前 2 秒内静默同步，禁止弹出 OSD 吓人
+        self._startup_time = time.monotonic()
+
         # 音量写回防抖定时器
         self._vol_flush_timer = QTimer(self)
         self._vol_flush_timer.setSingleShot(True)
@@ -58,9 +61,9 @@ class HardwareService(QObject):
         self._caps_timer.timeout.connect(self._check_caps_lock)
         self._caps_timer.start()
 
-        # 硬件亮度轮询 (1.5秒周期)
+        # 硬件亮度轮询 (2秒周期)
         self._hw_poll_timer = QTimer(self)
-        self._hw_poll_timer.setInterval(1500)
+        self._hw_poll_timer.setInterval(2000)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
         self._hw_poll_timer.start()
 
@@ -102,10 +105,12 @@ class HardwareService(QObject):
         return 100
 
     def _poll_system_brightness(self):
-        if (time.monotonic() - self._last_user_bright_adjust_time) < 1.8:
+        # 用户刚刚主动调节过，跳过轮询比对
+        if (time.monotonic() - self._last_user_bright_adjust_time) < 2.0:
             return
         real_val = self._read_system_brightness()
-        if abs(real_val - self._cached_brightness) >= 1:
+        # 只有外部亮度发生实质性变动时才更新，轮询绝不发射 OSD 弹窗打扰用户
+        if abs(real_val - self._cached_brightness) >= 2:
             self._cached_brightness = real_val
             self.brightnessChanged.emit(self._cached_brightness)
 
@@ -198,23 +203,50 @@ class HardwareService(QObject):
             self._send_ipc("MIC_MUTE_TOGGLE")
             self._execute_local_mic_mute(self._mic_muted)
 
+    # =========================================================================
+    # 🚀【核心修复】：精准拦截无意义更新，杜绝“神经质”误弹
+    # =========================================================================
     def apply_daemon_volume(self, real_vol: int, is_muted: bool, m_type: str):
-        if (time.monotonic() - self._last_user_vol_adjust_time) > 0.6:
-            if self._cached_volume != real_vol:
-                self._cached_volume = real_vol
-                self.volumeChanged.emit(self._cached_volume)
+        # 1. 如果用户 0.8s 内刚做过主动操作，不响应后台回流广播，避免回弹
+        if (time.monotonic() - self._last_user_vol_adjust_time) <= 0.8:
+            return
+
+        vol_changed = (abs(self._cached_volume - real_vol) >= 1)
+        mute_changed = (self._vol_muted != is_muted)
+
+        # 2. 状态有变才更新内部数据与信号
+        if vol_changed:
+            self._cached_volume = real_vol
+            self.volumeChanged.emit(self._cached_volume)
+
+        if mute_changed:
             self._vol_muted = is_muted
             self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
-            if m_type == "VOLUME_UPDATE":
-                self.osdTriggered.emit("🔇" if is_muted else "🔊", "Volume", real_vol)
+
+        # 3. 核心准则：开机静默期内、或数值/静音状态完全没有发生实质变动，坚决禁止弹窗！
+        is_startup = (time.monotonic() - self._startup_time) < 2.5
+        if is_startup:
+            return
+
+        # 只有在明确是用户/系统改变了音量或静音状态时才触发 OSD
+        if m_type == "VOLUME_UPDATE" and (vol_changed or mute_changed):
+            icon = "🔇" if is_muted else ("🔈" if real_vol == 0 else "🔊")
+            self.osdTriggered.emit(icon, "Volume", real_vol)
 
     def apply_daemon_brightness(self, b_val: int):
-        if (time.monotonic() - self._last_user_bright_adjust_time) > 0.6:
-            b_val = max(5, min(100, b_val))
-            if self._cached_brightness != b_val:
-                self._cached_brightness = b_val
-                self.brightnessChanged.emit(self._cached_brightness)
-            self.osdTriggered.emit("☀️", "Display", b_val)
+        if (time.monotonic() - self._last_user_bright_adjust_time) <= 0.8:
+            return
+
+        b_val = max(5, min(100, b_val))
+        bright_changed = (abs(self._cached_brightness - b_val) >= 2)
+
+        if bright_changed:
+            self._cached_brightness = b_val
+            self.brightnessChanged.emit(self._cached_brightness)
+
+            is_startup = (time.monotonic() - self._startup_time) < 2.5
+            if not is_startup:
+                self.osdTriggered.emit("☀️", "Display", b_val)
 
     def _flush_volume_to_hardware(self):
         val = self._cached_volume
@@ -270,7 +302,6 @@ class HardwareService(QObject):
         except Exception:
             self._caps_led_paths = []
 
-    # 🚀【核心优化 1】：根除 150ms xset 子进程死循环炸弹
     def _check_caps_lock(self):
         if not self._caps_led_paths:
             self._refresh_caps_paths()
@@ -278,7 +309,6 @@ class HardwareService(QObject):
         active = False
         found = False
 
-        # 优先走内核 sysfs 文件直接读取（纯内存级 I/O，150ms 零性能损耗）
         if self._caps_led_paths:
             for p in self._caps_led_paths:
                 try:
@@ -291,7 +321,6 @@ class HardwareService(QObject):
                 except Exception:
                     continue
 
-        # 降级模式：没有 sysfs 节点时才尝试 xset，并施加 1500ms 强制节流，绝不狂拉进程
         if not found and shutil.which("xset"):
             now = time.monotonic()
             if (now - self._last_xset_poll_time) >= 1.5:
@@ -303,7 +332,6 @@ class HardwareService(QObject):
                 except Exception:
                     pass
             else:
-                # 在节流周期内保留上一次探测的状态，不进行高频探测
                 active = self._is_caps_lock
 
         if active != self._is_caps_lock:

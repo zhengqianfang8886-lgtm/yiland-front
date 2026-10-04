@@ -1,10 +1,11 @@
+# ==========================================
+# 📄 File: main.py
+# ==========================================
 import sys
 import os
 import signal
 import gc
 import ctypes
-
-# os.environ["QSG_DISTANCEFIELD_ANTIALIASING"] = "subpixel"
 
 from logger import app_logger
 from config import ConfigManager
@@ -16,7 +17,6 @@ from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
 
 
-# 🚀【核心修复】：安全的 libc 内存整理，杜绝非 glibc 环境抛出异常崩溃
 def trim_memory():
     gc.collect()
     try:
@@ -33,17 +33,17 @@ def main():
 
     app = QGuiApplication(sys.argv)
     config = ConfigManager()
+    # ✅ 绑定 config 到全局 theme，启动字体和主题全局联动
+    theme.set_config(config)
 
     QPixmapCache.setCacheLimit(16 * 1024)
 
-    # 保持 Python GIL 激活，确保能够正常响应 Ctrl+C 信号退出
     sigint_timer = QTimer()
     sigint_timer.start(1000)
     sigint_timer.timeout.connect(lambda: None)
 
     view = QQuickView()
     view.setColor("transparent")
-    # 增加 BypassWindowManagerHint 与 SubWindow 属性，确保跨虚拟桌面永久常驻、绝不随工作区切换隐藏
     view.setFlags(
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 

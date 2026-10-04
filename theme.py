@@ -1,18 +1,42 @@
-from PySide6.QtCore import QObject, Property
+# ==========================================
+# 📄 File: theme.py
+# ==========================================
+from PySide6.QtCore import QObject, Property, Signal
 from PySide6.QtGui import QColor
 
-class ThemeManager(QObject):
-    def __init__(self):
-        super().__init__()
 
-    # 🚀 统一字体规范：系统默认传空字符串，由 Qt/fontconfig 自动匹配系统最佳字体
-    @Property(str, constant=True)
-    def defaultFontFamily(self):
+class ThemeManager(QObject):
+    fontChanged = Signal()
+
+    def __init__(self, config=None):
+        super().__init__()
+        self._config = None
+        if config:
+            self.set_config(config)
+
+    def set_config(self, config):
+        self._config = config
+        if self._config:
+            self._config.fontFamilyChanged.connect(self.fontChanged)
+
+    # 🚀 全局普通文本动态字体：选特定字体立即生效，选默认时返回空让系统匹配
+    @Property(str, notify=fontChanged)
+    def activeFont(self):
+        if self._config and self._config.fontFamily and "系统默认" not in self._config.fontFamily:
+            return self._config.fontFamily
         return ""
 
+    # 🚀 全局等宽/数字动态字体：指定字体后全盘跟从，未指定时安全回退 Monospace
+    @Property(str, notify=fontChanged)
+    def displayMonoFont(self):
+        f = self.activeFont
+        return f if f else "Monospace"
+
     @Property(str, constant=True)
-    def defaultMonoFamily(self):
-        return "Monospace"
+    def defaultFontFamily(self): return ""
+
+    @Property(str, constant=True)
+    def defaultMonoFamily(self): return "Monospace"
 
     # 1. 核心模块色彩 Tokens
     @Property(QColor, constant=True)
@@ -108,5 +132,6 @@ class ThemeManager(QObject):
 
     @Property(int, constant=True)
     def radiusItem(self): return 8
+
 
 theme = ThemeManager()

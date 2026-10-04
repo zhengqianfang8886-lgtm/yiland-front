@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: compact/CompactCapsuleView.qml
+// ==========================================
 import QtQuick
 import "compact"
 
@@ -39,11 +42,12 @@ Item {
     signal sedentaryRested()
     signal sedentarySnooze()
 
-    // 宽度与状态计算辅助属性
+    // 辅助状态暴露
     readonly property int textRowImplicitWidth: clockView.implicitWidth
     readonly property int wsRowImplicitWidth: wsView.implicitWidth
     readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
     readonly property bool isAlertActive: (activeTransient === "ALERT") && !isCalling
+    readonly property bool isHardwareMuted: (osdIcon === "🔇" || osdIcon === "🚫")
 
     readonly property color alertThemeColor: {
         if (alertIcon === "⏰") return Theme.timer
@@ -91,14 +95,16 @@ Item {
         opacity: visible ? 1.0 : 0.0
     }
 
-    // 4. 音量/静音 OSD 滑轨
+    // 4. 🚀 灵动岛级硬件 OSD 滑轨（完整填充，饱满舒展）
     CompactOsdView {
         id: osdView
-        anchors.centerIn: parent
+        anchors.fill: parent
         chosenFont: compactRoot.chosenFont
-        osdIcon: compactRoot.osdIcon; osdValue: compactRoot.osdValue; parentWidth: compactRoot.width
+        osdIcon: compactRoot.osdIcon
+        osdValue: compactRoot.osdValue
         visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling && !compactRoot.isExpanded
         opacity: visible ? 1.0 : 0.0
+        scale: visible ? 1.0 : 0.94
     }
 
     // 5. 通知弹窗横幅 (ALERT)

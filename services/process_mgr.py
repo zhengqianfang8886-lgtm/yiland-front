@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/process_mgr.py (完整修复版)
+# 📄 File: services/process_mgr.py
 # ==========================================
 import os
 import json
@@ -76,7 +76,6 @@ class ProcessManagerService(QObject):
             app_logger.error(f"保存任务配置失败: {e}")
 
     def _check_processes(self):
-        # 🚀 仅更新状态，不触发整个 Model Reset，避免定时器心跳引发列表跳动
         for t in self._tasks:
             tid = t["id"]
             proc = self._proc_map.get(tid)
@@ -105,18 +104,18 @@ class ProcessManagerService(QObject):
         log_path = f"/tmp/alcove_task_{task_id}.log"
         try:
             log_file = open(log_path, "w", encoding="utf-8")
+            # ✅ 使用 start_new_session=True 替代有死锁风险的 preexec_fn=os.setsid
             proc = subprocess.Popen(
                 task["cmd"],
                 cwd=cwd,
                 shell=True,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid
+                start_new_session=True
             )
             self._proc_map[task_id] = proc
             task["status"] = "running"
             task["pid"] = proc.pid
-            # 🚀 只发射 taskStatusChanged，绝不 emit taskListChanged，彻底保持列表滚动位置静止！
             self.taskStatusChanged.emit(task_id, "running", proc.pid)
             app_logger.info(f"启动子进程 [{task['name']}] (PID: {proc.pid}) -> {task['cmd']}")
         except Exception as e:
@@ -134,6 +133,8 @@ class ProcessManagerService(QObject):
                 pgid = os.getpgid(proc.pid)
                 os.killpg(pgid, signal.SIGTERM)
                 app_logger.info(f"发送 SIGTERM 到进程组 PGID: {pgid}")
+            except ProcessLookupError:
+                pass
             except Exception:
                 try:
                     proc.terminate()
@@ -144,7 +145,6 @@ class ProcessManagerService(QObject):
         if task:
             task["status"] = "stopped"
             task["pid"] = 0
-            # 🚀 只发射 taskStatusChanged，保持滚动条完全不动
             self.taskStatusChanged.emit(task_id, "stopped", 0)
 
     def start_all(self):
@@ -167,7 +167,6 @@ class ProcessManagerService(QObject):
         }
         self._tasks.append(new_item)
         self._save_tasks()
-        # 新增/删除任务时才允许触发结构性变更
         self.taskListChanged.emit()
 
     def update_task(self, task_id: str, name: str, cwd: str, cmd: str):

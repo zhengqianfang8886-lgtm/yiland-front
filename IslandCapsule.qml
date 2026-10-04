@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: IslandCapsule.qml
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 
@@ -5,15 +8,7 @@ Rectangle {
     id: capsuleRoot
 
     property string chosenFont: ""
-    readonly property string effectiveFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
-        return ""
-    }
+    readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
 
     property bool isExpanded: false
     property bool isCollapsing: false
@@ -78,7 +73,7 @@ Rectangle {
         clipGlowAnim.restart()
     }
 
-    // 计时器属性与代理
+    // 计时器代理
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
     readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
@@ -91,22 +86,15 @@ Rectangle {
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
     function toggleTimerPause() {
-        if (expandedCardView.timerPageRef) {
-            expandedCardView.timerPageRef.togglePause()
-        }
+        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.togglePause()
     }
 
-    // 🚀【核心方法】：像灵动岛一样平滑直接关闭消失，不弹打扰提示
     function dismissTimer() {
-        if (expandedCardView.timerPageRef) {
-            expandedCardView.timerPageRef.dismissTimer()
-        }
+        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.dismissTimer()
     }
 
     function resetTimer() {
-        if (expandedCardView.timerPageRef) {
-            expandedCardView.timerPageRef.resetTimer()
-        }
+        if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.resetTimer()
     }
 
     property bool anySubBubbleHovered: false
@@ -127,6 +115,9 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    // =========================================================================
+    // 🚀【核心修复】：为 OSD 设定 178px 黄金展开宽度，彻底消除狭窄挤死感
+    // =========================================================================
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -136,6 +127,7 @@ Rectangle {
             return Math.min(420, Math.max(160, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
+        if (capsuleRoot.activeTransient === "OSD") return 178 // 🌟 黄金比例舒展宽度
         return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
     }
 
@@ -148,7 +140,8 @@ Rectangle {
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
-    readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE")
+    // 🚀 OSD 触发时激活苹果流体回弹物理动效
+    readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE") || (activeTransient === "OSD")
     readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
 
     z: 2
@@ -178,8 +171,9 @@ Rectangle {
                   (isCalling ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.85) :
                   ((activeTransient === "SEDENTARY") ? Qt.rgba(52, 211, 153, 0.8) :
                   ((activeTransient === "ALERT") ? Qt.rgba(compactCapsuleView.alertThemeColor.r, compactCapsuleView.alertThemeColor.g, compactCapsuleView.alertThemeColor.b, 0.7) :
+                  ((activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.75) :
                   ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.55) :
-                  ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(1, 1, 1, 0.18))))))
+                  ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(1, 1, 1, 0.18)))))))
 
     border.width: 3
 
@@ -198,9 +192,7 @@ Rectangle {
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
-                if (!running && !heightNumAnim.running) {
-                    capsuleRoot.onMorphFinished()
-                }
+                if (!running && !heightNumAnim.running) capsuleRoot.onMorphFinished()
             }
         }
     }
@@ -215,9 +207,7 @@ Rectangle {
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
-                if (!running && !widthNumAnim.running) {
-                    capsuleRoot.onMorphFinished()
-                }
+                if (!running && !widthNumAnim.running) capsuleRoot.onMorphFinished()
             }
         }
     }
@@ -228,13 +218,9 @@ Rectangle {
         if (!isExpanded) {
             isCollapsing = false
             maskCommitRequested()
-            if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) {
-                Bridge.forceClearWindow()
-            }
+            if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
         } else {
-            if (!capsuleRoot.isMouseOver) {
-                capsuleRoot.startCollapse()
-            }
+            if (!capsuleRoot.isMouseOver) capsuleRoot.startCollapse()
         }
     }
 
@@ -245,9 +231,7 @@ Rectangle {
         onHoveredChanged: {
             if (hovered) {
                 capsuleRoot.cancelCollapse()
-                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
-                    hoverDwellTimer.restart()
-                }
+                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) hoverDwellTimer.restart()
             } else {
                 hoverDwellTimer.stop()
                 capsuleRoot.scrollSessionLocked = false
@@ -261,15 +245,10 @@ Rectangle {
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded) {
-                if (capsuleRoot.isCalling) {
-                    capsuleRoot.requestExpand("media")
-                } else if (capsuleRoot.activeTransient === "ALERT") {
-                    capsuleRoot.requestExpand("notification")
-                } else if (capsuleRoot.activeTransient === "SEDENTARY") {
-                    return
-                } else {
-                    capsuleRoot.requestExpand("workspace")
-                }
+                if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
+                else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
+                else if (capsuleRoot.activeTransient === "SEDENTARY") return
+                else capsuleRoot.requestExpand("workspace")
             }
         }
     }
@@ -278,21 +257,12 @@ Rectangle {
         id: leaveGraceTimer
         interval: 180
         onTriggered: {
-            if (!capsuleRoot.isMouseOver && capsuleRoot.isExpanded) {
-                capsuleRoot.startCollapse()
-            }
+            if (!capsuleRoot.isMouseOver && capsuleRoot.isExpanded) capsuleRoot.startCollapse()
         }
     }
 
-    function cancelCollapse() {
-        leaveGraceTimer.stop()
-    }
-
-    function requestCollapse() {
-        if (isExpanded) {
-            leaveGraceTimer.restart()
-        }
-    }
+    function cancelCollapse() { leaveGraceTimer.stop() }
+    function requestCollapse() { if (isExpanded) leaveGraceTimer.restart() }
 
     function startCollapse() {
         if (!isExpanded) return
@@ -332,9 +302,7 @@ Rectangle {
         onEntered: {
             capsuleRoot.cancelCollapse()
             capsuleRoot.scrollSessionLocked = false
-            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
-                hoverDwellTimer.restart()
-            }
+            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) hoverDwellTimer.restart()
         }
         onExited: {
             hoverDwellTimer.stop()
@@ -343,9 +311,7 @@ Rectangle {
         }
         onWheel: (wheel) => {
             wheel.accepted = true
-            if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") {
-                capsuleRoot.handleWheelAction(wheel.angleDelta.y)
-            }
+            if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") capsuleRoot.handleWheelAction(wheel.angleDelta.y)
         }
         onClicked: (mouse) => {
             if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") return
@@ -359,14 +325,8 @@ Rectangle {
                 return
             }
 
-            if (capsuleRoot.isCalling) {
-                capsuleRoot.requestExpand("media")
-                return
-            }
-            if (capsuleRoot.activeTransient === "ALERT") {
-                capsuleRoot.requestExpand("notification")
-                return
-            }
+            if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
+            if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
             capsuleRoot.requestExpand("time")
         }
     }

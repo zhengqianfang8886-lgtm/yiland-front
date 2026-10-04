@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ProcessPage.qml (字体全量受控版)
+// 📄 File: ProcessPage.qml (修复编译报错与排版切底版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -8,10 +8,14 @@ Item {
     id: procRoot
     anchors.fill: parent
 
+    // 🚀【核心修复】：补回供 ExpandedCardView 绑定的外部接口属性，彻底消除编译报错
     property string chosenFont: ""
 
-    // 🚀【核心修复 1】：直接穿透监听全局 Config，打破 Loader 传参断链，配置更改瞬间全量刷新
+    // 🚀 优先接入全局 Theme 统一字体引擎，同时向后兼容外部传参
     readonly property string effectiveFont: {
+        if (typeof Theme !== "undefined" && Theme.activeFont) {
+            return Theme.activeFont
+        }
         if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
             return Config.fontFamily
         }
@@ -21,8 +25,12 @@ Item {
         return ""
     }
 
-    // 🚀【核心修复 2】：用户一旦指定字体，所有数字、代码、路径统统换肤；仅在系统默认时才回退等宽
-    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+    readonly property string displayFont: {
+        if (typeof Theme !== "undefined" && Theme.displayMonoFont) {
+            return Theme.displayMonoFont
+        }
+        return (effectiveFont !== "") ? effectiveFont : "Monospace"
+    }
 
     readonly property var procModel: (typeof Bridge !== "undefined") ? Bridge.processModel : null
     property int totalCount: procModel ? procModel.count : 0
@@ -54,7 +62,6 @@ Item {
         }
     }
 
-    // 智能技术栈图标推导
     function getTechIcon(cmd, name) {
         var c = (cmd || "").toLowerCase()
         var n = (name || "").toLowerCase()
@@ -66,7 +73,6 @@ Item {
         return "⚡"
     }
 
-    // 视图切换动作
     function goToAdd() {
         procRoot.editId = ""
         procRoot.editStatus = "stopped"
@@ -138,9 +144,9 @@ Item {
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
 
-        // 1.1 左侧中枢
+        // 1.1 左侧中枢：精细紧凑化，彻底消除截图中的切底截断
         Rectangle {
-            width: 110
+            width: 108
             height: parent.height
             radius: Theme.radiusCard
             color: Qt.rgba(1, 1, 1, 0.035)
@@ -149,24 +155,26 @@ Item {
 
             Column {
                 anchors.fill: parent
-                anchors.margins: 8
-                spacing: 6
+                anchors.leftMargin: 6; anchors.rightMargin: 6
+                anchors.topMargin: 6; anchors.bottomMargin: 6
+                spacing: 4
 
+                // 统计数据区
                 Column {
                     width: parent.width
-                    spacing: 2
+                    spacing: 1
 
                     Row {
                         spacing: 4
                         anchors.horizontalCenter: parent.horizontalCenter
                         Rectangle {
-                            width: 5; height: 5; radius: 2
+                            width: 5; height: 5; radius: 2.5
                             color: procRoot.runningCount > 0 ? "#10b981" : "#a855f7"
                             anchors.verticalCenter: parent.verticalCenter
                         }
                         Text {
                             text: "服务管控"
-                            font.pixelSize: 11
+                            font.pixelSize: 10
                             font.weight: Font.Bold
                             color: Theme.textSecondary
                             font.family: procRoot.effectiveFont
@@ -179,14 +187,14 @@ Item {
                         Text {
                             text: procRoot.runningCount
                             color: procRoot.runningCount > 0 ? "#10b981" : "white"
-                            font.pixelSize: 22
+                            font.pixelSize: 19
                             font.weight: Font.Black
                             font.family: procRoot.displayFont
                         }
                         Text {
                             text: "/" + procRoot.totalCount
                             color: Qt.rgba(1, 1, 1, 0.4)
-                            font.pixelSize: 12
+                            font.pixelSize: 11
                             font.weight: Font.Bold
                             font.family: procRoot.displayFont
                             anchors.baseline: parent.children[0].baseline
@@ -205,22 +213,23 @@ Item {
 
                 Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
+                // 三大动作按钮区：高度规范为 24px/22px/22px，在 170px 容器内留有呼吸空间
                 Column {
                     width: parent.width
-                    spacing: 5
+                    spacing: 4
 
                     // + 新建服务
                     Rectangle {
-                        width: parent.width; height: 28; radius: 6
+                        width: parent.width; height: 24; radius: 5
                         color: addHover.hovered ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.3) : Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.16)
                         border.color: Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.55); border.width: 1
                         scale: addTap.pressed ? 0.95 : 1.0
                         Behavior on scale { NumberAnimation { duration: 100 } }
 
                         Row {
-                            anchors.centerIn: parent; spacing: 4
-                            Text { text: "+"; color: "#c084fc"; font.pixelSize: 13; font.weight: Font.Black; font.family: procRoot.effectiveFont }
-                            Text { text: "新建服务"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
+                            anchors.centerIn: parent; spacing: 3
+                            Text { text: "+"; color: "#c084fc"; font.pixelSize: 12; font.weight: Font.Black; font.family: procRoot.effectiveFont }
+                            Text { text: "新建服务"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
                         }
                         HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { id: addTap; onTapped: procRoot.goToAdd() }
@@ -228,16 +237,16 @@ Item {
 
                     // ▶ 全部启动
                     Rectangle {
-                        width: parent.width; height: 26; radius: 6
+                        width: parent.width; height: 22; radius: 5
                         color: startAllHover.hovered ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.28) : Qt.rgba(1, 1, 1, 0.12)
                         border.color: startAllHover.hovered ? "#10b981" : Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.35); border.width: 1
                         scale: startAllTap.pressed ? 0.95 : 1.0
                         Behavior on scale { NumberAnimation { duration: 100 } }
 
                         Row {
-                            anchors.centerIn: parent; spacing: 4
-                            Text { text: "▶"; color: "#10b981"; font.pixelSize: 9; font.family: procRoot.effectiveFont }
-                            Text { text: "全部启动"; color: startAllHover.hovered ? "#34d399" : "white"; font.pixelSize: 11; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
+                            anchors.centerIn: parent; spacing: 3
+                            Text { text: "▶"; color: "#10b981"; font.pixelSize: 8; font.family: procRoot.effectiveFont }
+                            Text { text: "全部启动"; color: startAllHover.hovered ? "#34d399" : "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
                         }
                         HoverHandler { id: startAllHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { id: startAllTap; onTapped: if (typeof Bridge !== "undefined") Bridge.startAllProcessTasks() }
@@ -245,16 +254,16 @@ Item {
 
                     // ■ 全部停止
                     Rectangle {
-                        width: parent.width; height: 26; radius: 6
+                        width: parent.width; height: 22; radius: 5
                         color: stopAllHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.26) : Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.08)
                         border.color: stopAllHover.hovered ? Theme.danger : Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.3); border.width: 1
                         scale: stopAllTap.pressed ? 0.95 : 1.0
                         Behavior on scale { NumberAnimation { duration: 100 } }
 
                         Row {
-                            anchors.centerIn: parent; spacing: 4
-                            Text { text: "■"; color: Theme.danger; font.pixelSize: 9; font.family: procRoot.effectiveFont }
-                            Text { text: "全部停止"; color: stopAllHover.hovered ? Theme.danger : Theme.textMuted; font.pixelSize: 11; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
+                            anchors.centerIn: parent; spacing: 3
+                            Text { text: "■"; color: Theme.danger; font.pixelSize: 8; font.family: procRoot.effectiveFont }
+                            Text { text: "全部停止"; color: stopAllHover.hovered ? Theme.danger : Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: procRoot.effectiveFont }
                         }
                         HoverHandler { id: stopAllHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { id: stopAllTap; onTapped: if (typeof Bridge !== "undefined") Bridge.stopAllProcessTasks() }
@@ -263,9 +272,9 @@ Item {
             }
         }
 
-        // 1.2 右侧列表
+        // 1.2 右侧任务列表
         Item {
-            width: parent.width - 120
+            width: parent.width - 118
             height: parent.height
 
             Item {
@@ -301,7 +310,6 @@ Item {
                                   (contentMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.07))
                     border.width: 1
 
-                    // 右侧启停独立按键
                     Rectangle {
                         id: toggleBtn
                         width: 48; height: 26; radius: 6
@@ -339,7 +347,6 @@ Item {
                         }
                     }
 
-                    // 左侧内容点击区
                     Item {
                         anchors.left: parent.left
                         anchors.right: toggleBtn.left
@@ -410,7 +417,7 @@ Item {
     }
 
     // =========================================================================
-    // 视图 2：专属双列 Bento 详情与配置界面 (字体全量受控)
+    // 视图 2：专属双列 Bento 详情与配置界面
     // =========================================================================
     Row {
         id: detailViewRoot
@@ -420,7 +427,7 @@ Item {
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
 
-        // 2.1 左列：服务身份看板
+        // 2.1 左列：服务看板
         Rectangle {
             width: 120
             height: parent.height
