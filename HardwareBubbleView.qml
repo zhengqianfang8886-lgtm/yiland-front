@@ -14,7 +14,7 @@ Rectangle {
     property bool active: true
     readonly property bool isHovered: bubbleHover.hovered
 
-    // 🚀 直连 Python 真实底层硬件状态
+    // 🚀 底层硬件状态实时同步
     property int currentVolume: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property int currentBrightness: (typeof Bridge !== "undefined" && Bridge.currentBrightness !== undefined) ? Bridge.currentBrightness : 100
     property bool isVolMuted: false
@@ -29,7 +29,7 @@ Rectangle {
     signal requestSettings()
 
     readonly property int collapsedWidth: 44
-    readonly property int expandedWidth: 272
+    readonly property int expandedWidth: 278
     readonly property int islandHeight: 34
 
     width: isExpanded ? expandedWidth : collapsedWidth
@@ -41,10 +41,8 @@ Rectangle {
     color: Theme.bgCapsule
     border.width: 1.2
     border.color: isExpanded ?
-                  Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.65) :
-                  (hwBubbleRoot.isHovered ?
-                  Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.6) :
-                  Qt.rgba(1, 1, 1, 0.16))
+                  Qt.rgba(1, 1, 1, 0.28) :
+                  (hwBubbleRoot.isHovered ? Qt.rgba(1, 1, 1, 0.24) : Qt.rgba(1, 1, 1, 0.12))
 
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
@@ -71,7 +69,6 @@ Rectangle {
         function onVolumeChanged(val) {
             hwBubbleRoot.currentVolume = val
         }
-        // 🚀 实时接收亮度硬件变化（包含外部键盘快捷键调节）
         function onBrightnessChanged(val) {
             hwBubbleRoot.currentBrightness = val
         }
@@ -131,7 +128,7 @@ Rectangle {
         Rectangle {
             anchors.centerIn: parent
             width: 24; height: 24; radius: 12
-            color: hwBubbleRoot.isHovered ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.25) : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.16)
+            color: hwBubbleRoot.isHovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
             Behavior on color { ColorAnimation { duration: Theme.animInstant } }
         }
 
@@ -139,7 +136,7 @@ Rectangle {
             anchors.centerIn: parent
             width: 14; height: 14
             iconType: "controlCenter"
-            iconColor: hwBubbleRoot.isHovered ? "white" : Qt.rgba(1, 1, 1, 0.85)
+            iconColor: hwBubbleRoot.isHovered ? "white" : Qt.rgba(1, 1, 1, 0.82)
         }
 
         MouseArea {
@@ -154,7 +151,7 @@ Rectangle {
     }
 
     // =========================================================================
-    // 2. 展开态：向右悬浮展开（高度 34px 不变，五大组件严整排列）
+    // 2. 展开态：高级感轻量微光控制流
     // =========================================================================
     Row {
         id: expandedControlRow
@@ -167,13 +164,12 @@ Rectangle {
 
         Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
 
-        // 组件 1：音量流体滑轨 (84px)
+        // 组件 1：音量流体滑轨 (86px，高级透光白)
         ControlSlider {
-            width: 84
+            width: 86
             anchors.verticalCenter: parent.verticalCenter
             currentValue: hwBubbleRoot.currentVolume
             iconType: "volume"
-            activeColor: Theme.bluetooth
             isMuted: hwBubbleRoot.isVolMuted
             labelText: hwBubbleRoot.isVolMuted ? "静音" : ""
             chosenFont: hwBubbleRoot.isVolMuted ? hwBubbleRoot.textFont : hwBubbleRoot.displayFont
@@ -182,35 +178,37 @@ Rectangle {
             onInteractionStarted: hwBubbleRoot.resetActivity()
         }
 
-        // 组件 2：屏幕亮度流体滑轨 (74px，真实硬件读数同步)
+        // 组件 2：屏幕亮度流体滑轨 (76px，淡香槟微暖白)
         ControlSlider {
-            width: 74
+            width: 76
             anchors.verticalCenter: parent.verticalCenter
             currentValue: hwBubbleRoot.currentBrightness
             iconType: "brightness"
-            activeColor: Theme.clock
             chosenFont: hwBubbleRoot.displayFont
             minValue: 5
             onValueAdjusted: (delta) => hwBubbleRoot.wheelAdjusted(1, delta)
             onInteractionStarted: hwBubbleRoot.resetActivity()
         }
 
-        // 组件 3：麦克风开关微胶囊 (24px)
+        // 组件 3：麦克风胶囊键 (常态保持冷白低调，仅静音时珊瑚红警示)
         Rectangle {
-            width: 24; height: 24; radius: 12
+            width: 26; height: 26; radius: 13
             anchors.verticalCenter: parent.verticalCenter
-            color: micTap.pressed ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.4) :
-                   (hwBubbleRoot.isMicMuted ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.28) :
-                   (micHover.hovered ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22) : Qt.rgba(1, 1, 1, 0.08)))
-            border.color: hwBubbleRoot.isMicMuted ? Theme.danger : (micHover.hovered ? Theme.workspace : Qt.rgba(1, 1, 1, 0.15))
+            color: micTap.pressed ? Qt.rgba(1, 1, 1, 0.22) :
+                   (hwBubbleRoot.isMicMuted ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.24) :
+                   (micHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05)))
+            border.color: hwBubbleRoot.isMicMuted ? Theme.danger : (micHover.hovered ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(1, 1, 1, 0.08))
             border.width: 1
             scale: micTap.pressed ? 0.92 : 1.0
+
+            Behavior on color { ColorAnimation { duration: 120 } }
+            Behavior on border.color { ColorAnimation { duration: 120 } }
 
             ControlCenterIcon {
                 anchors.centerIn: parent
                 width: 12; height: 12
                 iconType: "mic"
-                iconColor: hwBubbleRoot.isMicMuted ? Theme.danger : "#c084fc"
+                iconColor: hwBubbleRoot.isMicMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.85)
                 isMuted: hwBubbleRoot.isMicMuted
             }
 
@@ -224,14 +222,16 @@ Rectangle {
             }
         }
 
-        // 组件 4：设置界面按键 (24px)
+        // 组件 4：偏好设置按键 (纯净磨砂圆钮)
         Rectangle {
-            width: 24; height: 24; radius: 12
+            width: 26; height: 26; radius: 13
             anchors.verticalCenter: parent.verticalCenter
-            color: setTap.pressed ? Qt.rgba(1, 1, 1, 0.25) : (setHover.hovered ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.25) : Qt.rgba(1, 1, 1, 0.08))
-            border.color: setHover.hovered ? Theme.workspace : Qt.rgba(1, 1, 1, 0.15)
+            color: setTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (setHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05))
+            border.color: setHover.hovered ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(1, 1, 1, 0.08)
             border.width: 1
             scale: setTap.pressed ? 0.92 : 1.0
+
+            Behavior on color { ColorAnimation { duration: 120 } }
 
             ControlCenterIcon {
                 anchors.centerIn: parent
@@ -250,19 +250,20 @@ Rectangle {
             }
         }
 
-        // 组件 5：收回微岛按键 (18px)
+        // 组件 5：纯矢量收起微胶囊按键
         Rectangle {
-            width: 18; height: 24; radius: 9
+            width: 20; height: 26; radius: 10
             anchors.verticalCenter: parent.verticalCenter
-            color: collapseTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (collapseHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : "transparent")
+            color: collapseTap.pressed ? Qt.rgba(1, 1, 1, 0.18) : (collapseHover.hovered ? Qt.rgba(1, 1, 1, 0.10) : "transparent")
             scale: collapseTap.pressed ? 0.92 : 1.0
 
-            Text {
+            Behavior on color { ColorAnimation { duration: 120 } }
+
+            ControlCenterIcon {
                 anchors.centerIn: parent
-                text: "‹"
-                font.pixelSize: 13
-                font.weight: Font.Black
-                color: collapseHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.55)
+                width: 10; height: 10
+                iconType: "chevron"
+                iconColor: collapseHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.55)
             }
 
             HoverHandler { id: collapseHover; cursorShape: Qt.PointingHandCursor }
