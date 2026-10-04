@@ -30,6 +30,7 @@ class IslandBridge(QObject):
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
+    brightnessChanged = Signal(int)  # 🚀 新增亮度变化信号
     capsLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     clipboardTriggered = Signal(str, str, str, int)
@@ -54,7 +55,6 @@ class IslandBridge(QObject):
         self._ipc_sender = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="SubprocessWorker")
 
-        # 数据模型初始化
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
@@ -64,20 +64,19 @@ class IslandBridge(QObject):
         self._first_poll = True
         self._cached_ip = get_local_ip()
 
-        # 核心解耦服务模块
         self.hardware = HardwareService(self._pool, self.sendIpcCmd, self)
         self.media = MediaService(self._pool, self.sendIpcCmd, self)
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
 
         self._bind_service_signals()
 
-        # 后台 Daemon 消息分发线程安全通道
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
     def _bind_service_signals(self):
         # 硬件信号连线
         self.hardware.volumeChanged.connect(self.volumeChanged)
+        self.hardware.brightnessChanged.connect(self.brightnessChanged)  # 🚀 绑定亮度信号
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
         self.hardware.capsLockChanged.connect(self.capsLockChanged)
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
@@ -107,6 +106,10 @@ class IslandBridge(QObject):
 
     @Property(int, notify=volumeChanged)
     def currentVolume(self): return self.hardware.current_volume
+
+    # 🚀 暴露真实亮度属性给 QML（随硬件变动即刻响应）
+    @Property(int, notify=brightnessChanged)
+    def currentBrightness(self): return self.hardware.current_brightness
 
     @Property(bool, notify=capsLockChanged)
     def isCapsLock(self): return self.hardware.is_caps_lock
@@ -245,7 +248,7 @@ class IslandBridge(QObject):
             self.hardware.apply_daemon_volume(max(0, min(100, int(sys_info.get("volume", self.hardware.current_volume)))), bool(sys_info.get("muted", False)), m_type)
 
         elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
-            self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 70)))
+            self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 100)))
 
         if "bluetooth" in data:
             b_info = data["bluetooth"]

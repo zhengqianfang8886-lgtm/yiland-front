@@ -1,6 +1,3 @@
-// ==========================================
-// 📄 File: IslandMaskController.qml (全面防切与绝对穿透终极版)
-// ==========================================
 import QtQuick
 
 Item {
@@ -19,23 +16,25 @@ Item {
     property bool isCollapsing: false
     property bool isMorphing: false
 
-    // 🚀 响应全岛隐藏状态
     property bool isIslandHidden: false
     onIsIslandHiddenChanged: handleHideState()
 
     property int targetW: 150
     property int targetH: 36
 
+    // 🚀 核心修复：副岛（如硬件控制岛）展开悬浮时，立即清除二进制遮罩，呈现抗锯齿平滑边缘
+    readonly property bool isAnySubExpanded: (hwBubble && hwBubble.isExpanded)
+
     onIsExpandedChanged: handleMotionChange()
     onIsCollapsingChanged: handleMotionChange()
     onIsMorphingChanged: handleMotionChange()
+    onIsAnySubExpandedChanged: handleMotionChange()
 
     function handleHideState() {
         if (!maskActive || typeof Bridge === "undefined") return
         if (isIslandHidden) {
             settleTimer.stop()
             islandSlideTimer.stop()
-            // 🚀 隐藏的一瞬间：立刻通知底层设置离屏穿透遮罩，零延迟放行鼠标点击
             if (Bridge.setPassthrough) {
                 Bridge.setPassthrough()
             } else if (Bridge.updateCompositeMask) {
@@ -53,7 +52,8 @@ Item {
             return
         }
 
-        var inMotion = isExpanded || isCollapsing || isMorphing
+        // 🚀 当主岛或控制中心副岛处于展开状态时，完全放开遮罩
+        var inMotion = isExpanded || isCollapsing || isMorphing || isAnySubExpanded
 
         if (inMotion) {
             settleTimer.stop()
@@ -88,23 +88,20 @@ Item {
         onTriggered: maskCtrl.commitPreciseMask()
     }
 
-    // 绝对静止态精准镂空
     function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
         
-        // 🚀 处于隐藏状态时，永远保持 100% 绝对穿透
         if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
             if (Bridge.setPassthrough) Bridge.setPassthrough()
             else Bridge.updateCompositeMask([])
             return
         }
 
-        if (isExpanded || isCollapsing || isMorphing || islandSlideTimer.running) return
+        if (isExpanded || isCollapsing || isMorphing || isAnySubExpanded || islandSlideTimer.running) return
 
         var margin = 2
         var rectList = []
 
-        // 1. 中间主胶囊
         rectList.push({
             x: Math.round(capsuleItem.x) - margin,
             y: Math.round(capsuleItem.y) - margin,
@@ -113,7 +110,6 @@ Item {
             r: Math.round(capsuleItem.radius) + margin
         })
 
-        // 2. 所有处于静止状态的副岛
         function addBubble(bubble) {
             if (!bubble || !bubble.active || bubble.opacity < 0.2) return
             rectList.push({

@@ -353,11 +353,17 @@ Item {
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
+    // =========================================================================
+    // 硬件控制微岛（向右展开为灵动岛小控制中心）
+    // =========================================================================
     HardwareBubbleView {
-        id: bubbleHardware; z: 5
+        id: bubbleHardware
+        z: 5
         x: root.getIslandX("hardware", width)
-        y: capsule.y + Math.round((capsule.height - 34) / 2)
-        transformOrigin: Item.Top
+        // 🚀 高度从 34 扩展到 46 时，上下均匀居中于主胶囊
+        y: capsule.y + Math.round((capsule.height - height) / 2)
+        // 🚀 核心关键：锁定左端为原点，向右侧丝滑拉伸展开
+        transformOrigin: Item.Left
 
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
@@ -365,6 +371,9 @@ Item {
         Behavior on x {
             enabled: !capsule.isMorphing
             NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
+        }
+        Behavior on y {
+            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
         }
 
         onActiveChanged: maskController.notifyIslandMoving()

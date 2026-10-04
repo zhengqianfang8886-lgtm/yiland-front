@@ -3,11 +3,13 @@ import glob
 import time
 import shutil
 import subprocess
+import re
 from PySide6.QtCore import QObject, QTimer, Signal
 
 
 class HardwareService(QObject):
     volumeChanged = Signal(int)
+    brightnessChanged = Signal(int)  # 🚀 新增亮度同步信号
     hardwareMuteStateChanged = Signal(bool, bool)
     capsLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
@@ -20,8 +22,10 @@ class HardwareService(QObject):
 
         self._cached_volume = 50
         self._vol_muted = False
-        self._cached_brightness = 70
-        self._prev_brightness = 70
+        
+        # 🚀 启动时即刻读取 Linux 系统硬件真实屏幕亮度
+        self._cached_brightness = self._read_system_brightness()
+        self._prev_brightness = self._cached_brightness
         self._cached_mic = 80
         self._mic_muted = False
 
@@ -50,13 +54,59 @@ class HardwareService(QObject):
         self._caps_timer.timeout.connect(self._check_caps_lock)
         self._caps_timer.start()
 
+        # 🚀 周期轮询硬件亮度变化（捕捉键盘 Fn 亮度快捷键触发的变化）
+        self._hw_poll_timer = QTimer(self)
+        self._hw_poll_timer.setInterval(1500)
+        self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
+        self._hw_poll_timer.start()
+
     @property
     def current_volume(self) -> int:
         return self._cached_volume
 
     @property
+    def current_brightness(self) -> int:
+        return self._cached_brightness
+
+    @property
     def is_caps_lock(self) -> bool:
         return self._is_caps_lock
+
+    # 🚀 核心硬件级真实屏幕亮度探测器
+    def _read_system_brightness(self) -> int:
+        try:
+            backlight_dirs = glob.glob("/sys/class/backlight/*")
+            for b_dir in backlight_dirs:
+                cur_path = os.path.join(b_dir, "brightness")
+                max_path = os.path.join(b_dir, "max_brightness")
+                if os.path.exists(cur_path) and os.path.exists(max_path):
+                    with open(cur_path, "r") as f_cur, open(max_path, "r") as f_max:
+                        cur = float(f_cur.read().strip())
+                        max_b = float(f_max.read().strip())
+                        if max_b > 0:
+                            return max(5, min(100, int(round((cur / max_b) * 100))))
+        except Exception:
+            pass
+
+        # 降级尝试 brightnessctl
+        if shutil.which("brightnessctl"):
+            try:
+                res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.4)
+                m = re.search(r"\((\d+)%\)", res.stdout)
+                if m:
+                    return max(5, min(100, int(m.group(1))))
+            except Exception:
+                pass
+        return 100
+
+    def _poll_system_brightness(self):
+        # 用户正在操作时不覆盖
+        if (time.monotonic() - self._last_user_bright_adjust_time) < 1.8:
+            return
+        real_val = self._read_system_brightness()
+        if abs(real_val - self._cached_brightness) >= 1:
+            self._cached_brightness = real_val
+            self.brightnessChanged.emit(self._cached_brightness)
 
     def adjust_hardware(self, mode: int, delta: int):
         now = time.monotonic()
@@ -88,6 +138,7 @@ class HardwareService(QObject):
             self._last_user_bright_adjust_time = now
             new_val = max(5, min(100, self._cached_brightness + delta))
             self._cached_brightness = new_val
+            self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", new_val)
             self._send_ipc("BRIGHTNESS_DELTA", delta=delta)
             self._execute_local_brightness(new_val)
@@ -132,6 +183,7 @@ class HardwareService(QObject):
                 self._cached_brightness = 5
             else:
                 self._cached_brightness = max(20, min(100, self._prev_brightness))
+            self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", self._cached_brightness)
             self._send_ipc("BRIGHTNESS_SET", value=self._cached_brightness)
             self._execute_local_brightness(self._cached_brightness)
@@ -158,7 +210,9 @@ class HardwareService(QObject):
     def apply_daemon_brightness(self, b_val: int):
         if (time.monotonic() - self._last_user_bright_adjust_time) > 0.6:
             b_val = max(5, min(100, b_val))
-            self._cached_brightness = b_val
+            if self._cached_brightness != b_val:
+                self._cached_brightness = b_val
+                self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", b_val)
 
     def _flush_volume_to_hardware(self):
