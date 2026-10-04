@@ -1,13 +1,15 @@
+// ==========================================
+// 📄 File: TimeDetailPage.qml
+// ==========================================
 import QtQuick
+import QtQuick.Shapes
 
 Item {
     id: timeDetailRoot
     anchors.fill: parent
 
-    // 🚀 补齐外部传参接口，彻底消除 ExpandedCardView.qml 编译报错
     property string chosenFont: ""
 
-    // 🚀 全局字体响应中枢：文字直连 activeFont，时间与数字直连 numberFont
     readonly property string textFont: {
         if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
             return Config.fontFamily
@@ -34,7 +36,7 @@ Item {
         return h >= 6 && h < 18
     }
 
-    // 1. 今日核心流逝与倒数
+    // 1. 今日流逝与倒数
     readonly property var dayInfo: {
         var d = timeDetailRoot.currentTime
         var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds()
@@ -52,7 +54,7 @@ Item {
         }
     }
 
-    // 2. 本周工作日/周末倒计时
+    // 2. 本周信息
     readonly property var weekInfo: {
         var d = timeDetailRoot.currentTime
         var dayOfWeek = d.getDay()
@@ -69,7 +71,7 @@ Item {
         }
     }
 
-    // 3. 年度倒计时
+    // 3. 年度信息
     readonly property var yearInfo: {
         var now = timeDetailRoot.currentTime
         var year = now.getFullYear()
@@ -91,7 +93,7 @@ Item {
         }
     }
 
-    // 4. 真实作息节律
+    // 4. 作息节律
     readonly property var rhythmInfo: {
         var h = timeDetailRoot.currentTime.getHours()
         if (h >= 6 && h < 9) {
@@ -114,31 +116,53 @@ Item {
         spacing: 12
 
         // =====================================================================
-        // 1. 左侧大看板（超大数字时钟彻底接入用户字体）
+        // 1. 🚀【重构优化】：左侧精修大看板 (彻底重塑截图中生硬的时间排版)
         // =====================================================================
         Rectangle {
-            width: 140
+            width: 142
             height: parent.height
             radius: Theme.radiusCard
             color: Theme.bgCardItem
-            border.color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22)
+            border.color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.28)
             border.width: 1
+            clip: true
+
+            // 背景微光渐变球
+            Rectangle {
+                width: 90; height: 90; radius: 45
+                x: parent.width / 2 - 45; y: 16
+                color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.08)
+            }
 
             Column {
                 anchors.centerIn: parent
-                spacing: 4
+                spacing: 5
                 width: parent.width - 16
 
+                // 1.1 标头胶囊
                 Row {
                     spacing: 5
                     anchors.horizontalCenter: parent.horizontalCenter
-                    Rectangle { width: 5; height: 5; radius: 2.5; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "LOCAL TIME"; font.pixelSize: 9; font.weight: Font.Black; color: Theme.calendar; font.letterSpacing: 0.8; font.family: timeDetailRoot.textFont }
+                    Rectangle {
+                        width: 5; height: 5; radius: 2.5
+                        color: Theme.calendar
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: "LOCAL TIME"
+                        font.pixelSize: 9
+                        font.weight: Font.Black
+                        color: Theme.calendar
+                        font.letterSpacing: 1.0
+                        font.family: timeDetailRoot.textFont
+                    }
                 }
 
+                // 1.2 核心时间大字：彻底消除基线不齐与冒号飞离，采用矢量级排版
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 1
+                    spacing: 2
+                    height: 42
 
                     Text {
                         text: {
@@ -146,50 +170,89 @@ Item {
                             return (h < 10 ? "0" : "") + h
                         }
                         color: "white"
-                        font.pixelSize: 34
+                        font.pixelSize: 36
                         font.weight: Font.Black
                         font.family: timeDetailRoot.displayFont
+                        anchors.verticalCenter: parent.verticalCenter
                     }
-                    Text {
-                        text: ":"
-                        color: Qt.rgba(1, 1, 1, 0.45)
-                        font.pixelSize: 30
-                        font.weight: Font.Black
-                        font.family: timeDetailRoot.displayFont
-                        y: -1
+
+                    // 矢量级匀称呼吸冒号
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+                        width: 6
+
+                        Rectangle {
+                            width: 3.5; height: 3.5; radius: 1.75
+                            color: Theme.calendar
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+                        Rectangle {
+                            width: 3.5; height: 3.5; radius: 1.75
+                            color: Theme.calendar
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite
+                            running: true
+                            NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
+                        }
                     }
+
                     Text {
                         text: {
                             var m = timeDetailRoot.currentTime.getMinutes()
                             return (m < 10 ? "0" : "") + m
                         }
                         color: "white"
-                        font.pixelSize: 34
+                        font.pixelSize: 36
                         font.weight: Font.Black
                         font.family: timeDetailRoot.displayFont
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                 }
 
+                // 1.3 极简律动秒数胶囊：带精细进度与 SEC 徽章，彻底告别单薄的 ":08"
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 44; height: 18; radius: 9
-                    color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.14)
+                    width: 58; height: 18; radius: 9
+                    color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.12)
+                    border.color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.35)
+                    border.width: 1
 
-                    Text {
+                    Row {
                         anchors.centerIn: parent
-                        text: {
-                            var s = timeDetailRoot.currentTime.getSeconds()
-                            return (s < 10 ? ":0" : ":") + s
+                        spacing: 3
+
+                        Text {
+                            text: {
+                                var s = timeDetailRoot.currentTime.getSeconds()
+                                return (s < 10 ? "0" : "") + s
+                            }
+                            color: "white"
+                            font.pixelSize: 11
+                            font.weight: Font.Black
+                            font.family: timeDetailRoot.displayFont
+                            anchors.verticalCenter: parent.verticalCenter
                         }
-                        color: Theme.calendar
-                        font.pixelSize: 11
-                        font.weight: Font.Black
-                        font.family: timeDetailRoot.displayFont
+
+                        Text {
+                            text: "SEC"
+                            color: Theme.calendar
+                            font.pixelSize: 8
+                            font.weight: Font.Black
+                            font.family: timeDetailRoot.textFont
+                            font.letterSpacing: 0.5
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                 }
 
-                Item { height: 2 }
+                Item { height: 1 }
 
+                // 1.4 日期行
                 Text {
                     text: {
                         var d = timeDetailRoot.currentTime
@@ -203,26 +266,46 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                Text {
-                    text: {
-                        var offsetMin = -timeDetailRoot.currentTime.getTimezoneOffset()
-                        var h = Math.floor(Math.abs(offsetMin) / 60)
-                        var sign = offsetMin >= 0 ? "+" : "-"
-                        return "UTC" + sign + h + " 本地区"
-                    }
-                    color: Theme.textMuted
-                    font.pixelSize: 9
-                    font.family: timeDetailRoot.displayFont
+                // 1.5 时区胶囊徽标
+                Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
+                    height: 16
+                    width: tzRow.implicitWidth + 10
+                    radius: 8
+                    color: Qt.rgba(1, 1, 1, 0.05)
+
+                    Row {
+                        id: tzRow
+                        anchors.centerIn: parent
+                        spacing: 3
+                        Text {
+                            text: {
+                                var offsetMin = -timeDetailRoot.currentTime.getTimezoneOffset()
+                                var h = Math.floor(Math.abs(offsetMin) / 60)
+                                var sign = offsetMin >= 0 ? "+" : "-"
+                                return "UTC" + sign + h
+                            }
+                            color: Theme.textSecondary
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                            font.family: timeDetailRoot.displayFont
+                        }
+                        Text {
+                            text: "本地区"
+                            color: Theme.textMuted
+                            font.pixelSize: 9
+                            font.family: timeDetailRoot.textFont
+                        }
+                    }
                 }
             }
         }
 
         // =====================================================================
-        // 2. 右侧 4 卡 Bento 网格（所有字阶、数字与中文统一受控）
+        // 2. 右侧 4 卡 Bento 网格
         // =====================================================================
         Grid {
-            width: parent.width - 152
+            width: parent.width - 154
             height: parent.height
             columns: 2
             spacing: 8
@@ -454,7 +537,7 @@ Item {
                 }
             }
 
-            // 卡片 4：真实作息时相
+            // 卡片 4：作息时相
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2

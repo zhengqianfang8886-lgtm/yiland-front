@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml (全面防切与绝对穿透终极版)
+// 📄 File: Island.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -77,6 +77,7 @@ Item {
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
 
+    // 🚀【核心入口】：正式注册 process 子进程服务管控直达 Tab
     readonly property var enabledTabs: {
         var list = []
         list.push({ key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
@@ -105,6 +106,10 @@ Item {
         if (typeof Config === "undefined" || Config.showNotificationTab !== false) {
             list.push({ key: "notification", name: "通知", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) })
         }
+
+        // 🚀 注入子进程服务管控中枢 Tab
+        list.push({ key: "process", name: "服务", color: "#a855f7", activeColor: Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.22) })
+
         return list
     }
 
@@ -353,16 +358,11 @@ Item {
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
-    // =========================================================================
-    // 硬件控制微岛（向右展开为灵动岛小控制中心）
-    // =========================================================================
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
         x: root.getIslandX("hardware", width)
-        // 🚀 高度从 34 扩展到 46 时，上下均匀居中于主胶囊
         y: capsule.y + Math.round((capsule.height - height) / 2)
-        // 🚀 核心关键：锁定左端为原点，向右侧丝滑拉伸展开
         transformOrigin: Item.Left
 
         active: !root.isBlockingTransient &&
@@ -410,7 +410,6 @@ Item {
         }
     }
 
-    // 🚀【时间副岛】：左键只管暂停，右键绝不暂停，红键直通关闭直接消失！
     TimerBubbleView {
         id: bubbleTimer; z: 1
         x: root.getIslandX("timer", width)
@@ -435,10 +434,7 @@ Item {
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
 
-        // 仅由左键触发
         onTogglePause: capsule.toggleTimerPause()
-        
-        // 🚀 核心连接：红键点击直通 dismissTimer，像灵动岛一样平滑缩回彻底消失
         onDismissTimer: capsule.dismissTimer()
     }
 

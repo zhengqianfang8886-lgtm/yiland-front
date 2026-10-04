@@ -1,3 +1,6 @@
+# ==========================================
+# 📄 File: services/hardware.py
+# ==========================================
 import os
 import glob
 import time
@@ -9,7 +12,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 class HardwareService(QObject):
     volumeChanged = Signal(int)
-    brightnessChanged = Signal(int)  # 🚀 新增亮度同步信号
+    brightnessChanged = Signal(int)
     hardwareMuteStateChanged = Signal(bool, bool)
     capsLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
@@ -23,7 +26,6 @@ class HardwareService(QObject):
         self._cached_volume = 50
         self._vol_muted = False
         
-        # 🚀 启动时即刻读取 Linux 系统硬件真实屏幕亮度
         self._cached_brightness = self._read_system_brightness()
         self._prev_brightness = self._cached_brightness
         self._cached_mic = 80
@@ -39,22 +41,24 @@ class HardwareService(QObject):
         self._vol_flush_timer.setInterval(25)
         self._vol_flush_timer.timeout.connect(self._flush_volume_to_hardware)
 
-        # 内存监控
+        # 内存监控 (2秒周期)
         self._mem_timer = QTimer(self)
         self._mem_timer.setInterval(2000)
         self._mem_timer.timeout.connect(self._poll_memory_usage)
         self._mem_timer.start()
 
-        # 大写锁监控
+        # 大写锁监控状态与防抖节流
         self._is_caps_lock = False
         self._caps_led_paths = []
+        self._last_xset_poll_time = 0.0
         self._refresh_caps_paths()
+        
         self._caps_timer = QTimer(self)
         self._caps_timer.setInterval(150)
         self._caps_timer.timeout.connect(self._check_caps_lock)
         self._caps_timer.start()
 
-        # 🚀 周期轮询硬件亮度变化（捕捉键盘 Fn 亮度快捷键触发的变化）
+        # 硬件亮度轮询 (1.5秒周期)
         self._hw_poll_timer = QTimer(self)
         self._hw_poll_timer.setInterval(1500)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
@@ -72,7 +76,6 @@ class HardwareService(QObject):
     def is_caps_lock(self) -> bool:
         return self._is_caps_lock
 
-    # 🚀 核心硬件级真实屏幕亮度探测器
     def _read_system_brightness(self) -> int:
         try:
             backlight_dirs = glob.glob("/sys/class/backlight/*")
@@ -88,7 +91,6 @@ class HardwareService(QObject):
         except Exception:
             pass
 
-        # 降级尝试 brightnessctl
         if shutil.which("brightnessctl"):
             try:
                 res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.4)
@@ -100,7 +102,6 @@ class HardwareService(QObject):
         return 100
 
     def _poll_system_brightness(self):
-        # 用户正在操作时不覆盖
         if (time.monotonic() - self._last_user_bright_adjust_time) < 1.8:
             return
         real_val = self._read_system_brightness()
@@ -269,29 +270,41 @@ class HardwareService(QObject):
         except Exception:
             self._caps_led_paths = []
 
+    # 🚀【核心优化 1】：根除 150ms xset 子进程死循环炸弹
     def _check_caps_lock(self):
         if not self._caps_led_paths:
             self._refresh_caps_paths()
+
         active = False
         found = False
-        for p in self._caps_led_paths:
-            try:
-                with open(p, "r") as fp:
-                    val = fp.read().strip()
-                    found = True
-                    if val and int(val) > 0:
-                        active = True
-                        break
-            except Exception:
-                continue
 
+        # 优先走内核 sysfs 文件直接读取（纯内存级 I/O，150ms 零性能损耗）
+        if self._caps_led_paths:
+            for p in self._caps_led_paths:
+                try:
+                    with open(p, "r") as fp:
+                        val = fp.read().strip()
+                        found = True
+                        if val and int(val) > 0:
+                            active = True
+                            break
+                except Exception:
+                    continue
+
+        # 降级模式：没有 sysfs 节点时才尝试 xset，并施加 1500ms 强制节流，绝不狂拉进程
         if not found and shutil.which("xset"):
-            try:
-                res = subprocess.run(["xset", "q"], capture_output=True, text=True, timeout=0.3)
-                if "Caps Lock:   on" in res.stdout:
-                    active = True
-            except Exception:
-                pass
+            now = time.monotonic()
+            if (now - self._last_xset_poll_time) >= 1.5:
+                self._last_xset_poll_time = now
+                try:
+                    res = subprocess.run(["xset", "q"], capture_output=True, text=True, timeout=0.2)
+                    if "Caps Lock:   on" in res.stdout:
+                        active = True
+                except Exception:
+                    pass
+            else:
+                # 在节流周期内保留上一次探测的状态，不进行高频探测
+                active = self._is_caps_lock
 
         if active != self._is_caps_lock:
             self._is_caps_lock = active

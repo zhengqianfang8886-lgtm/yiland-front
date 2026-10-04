@@ -1,12 +1,18 @@
+# ==========================================
+# 📄 File: bridge.py
+# ==========================================
+import os
 import gc
 import json
 import time
 import atexit
+import shutil
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt
 from logger import app_logger
-from models import NotificationListModel, BluetoothListModel
+from models import NotificationListModel, BluetoothListModel, ProcessListModel
 from services import (
     HardwareService,
     MediaService,
@@ -17,6 +23,7 @@ from services import (
     to_compact_speed,
     get_local_ip,
 )
+from services.process_mgr import ProcessManagerService
 
 
 class IslandBridge(QObject):
@@ -30,7 +37,7 @@ class IslandBridge(QObject):
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
-    brightnessChanged = Signal(int)  # 🚀 新增亮度变化信号
+    brightnessChanged = Signal(int)
     capsLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     clipboardTriggered = Signal(str, str, str, int)
@@ -55,9 +62,14 @@ class IslandBridge(QObject):
         self._ipc_sender = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="SubprocessWorker")
 
+        # 数据模型初始化
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
+
+        # 🚀 子进程管控服务与数据模型初始化
+        self.proc_mgr = ProcessManagerService(self)
+        self._proc_model = ProcessListModel(self.proc_mgr, self)
 
         self._bluetooth_powered = True
         self._known_devices_state = {}
@@ -76,7 +88,7 @@ class IslandBridge(QObject):
     def _bind_service_signals(self):
         # 硬件信号连线
         self.hardware.volumeChanged.connect(self.volumeChanged)
-        self.hardware.brightnessChanged.connect(self.brightnessChanged)  # 🚀 绑定亮度信号
+        self.hardware.brightnessChanged.connect(self.brightnessChanged)
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
         self.hardware.capsLockChanged.connect(self.capsLockChanged)
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
@@ -93,10 +105,11 @@ class IslandBridge(QObject):
 
     def cleanup(self):
         self.media.cleanup()
+        self.proc_mgr.cleanup()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
     # =========================================================================
-    # QML 响应式属性
+    # QML 响应式属性与模型
     # =========================================================================
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
@@ -104,15 +117,78 @@ class IslandBridge(QObject):
     @Property(QObject, constant=True)
     def bluetoothModel(self): return self._bt_model
 
+    # 🚀 暴露子进程服务模型
+    @Property(QObject, constant=True)
+    def processModel(self): return self._proc_model
+
     @Property(int, notify=volumeChanged)
     def currentVolume(self): return self.hardware.current_volume
 
-    # 🚀 暴露真实亮度属性给 QML（随硬件变动即刻响应）
     @Property(int, notify=brightnessChanged)
     def currentBrightness(self): return self.hardware.current_brightness
 
     @Property(bool, notify=capsLockChanged)
     def isCapsLock(self): return self.hardware.is_caps_lock
+
+    # =========================================================================
+    # 🚀 子进程与任务管控槽函数
+    # =========================================================================
+    @Slot(str)
+    def startProcessTask(self, tid: str):
+        self.proc_mgr.start_task(tid)
+
+    @Slot(str)
+    def stopProcessTask(self, tid: str):
+        self.proc_mgr.stop_task(tid)
+
+    @Slot()
+    def startAllProcessTasks(self):
+        self.proc_mgr.start_all()
+
+    @Slot()
+    def stopAllProcessTasks(self):
+        self.proc_mgr.stop_all()
+
+    @Slot(str, str, str)
+    def addProcessTask(self, name: str, cwd: str, cmd: str):
+        self.proc_mgr.add_task(name, cwd, cmd)
+
+    @Slot(str, str, str, str)
+    def updateProcessTask(self, tid: str, name: str, cwd: str, cmd: str):
+        self.proc_mgr.update_task(tid, name, cwd, cmd)
+
+    @Slot(str)
+    def deleteProcessTask(self, tid: str):
+        self.proc_mgr.delete_task(tid)
+
+    @Slot(result=str)
+    def selectLocalDirectory(self) -> str:
+        """安全唤起文件管理器选择工作目录，优先探测系统原生对话框，杜绝 QGuiApplication 下崩溃"""
+        try:
+            if shutil.which("zenity"):
+                res = subprocess.run(
+                    ["zenity", "--file-selection", "--directory", "--title=选择任务工作目录"],
+                    capture_output=True, text=True, timeout=30
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+            elif shutil.which("kdialog"):
+                res = subprocess.run(
+                    ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", "选择任务工作目录"],
+                    capture_output=True, text=True, timeout=30
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+        except Exception as e:
+            app_logger.warning(f"外部选择器唤起失败: {e}")
+
+        try:
+            from PySide6.QtWidgets import QFileDialog, QApplication
+            if QApplication.instance() and isinstance(QApplication.instance(), QApplication):
+                return QFileDialog.getExistingDirectory(None, "选择工作目录", os.path.expanduser("~"))
+        except Exception:
+            pass
+        return ""
 
     # =========================================================================
     # QML 硬件与窗口操作槽函数
@@ -145,7 +221,22 @@ class IslandBridge(QObject):
     def forceRaise(self): self.view.raise_()
 
     @Slot()
-    def requestWindowFocus(self): self.view.requestActivate(); self.view.raise_()
+    def requestWindowFocus(self):
+        """强制向操作系统申请键盘输入焦点，解决悬浮窗无法打字的问题"""
+        self.view.show()
+        self.view.raise_()
+        self.view.requestActivate()
+        
+        # 兼容 Linux X11 桌面环境：利用 xdotool 强制切换输入流
+        try:
+            wid = int(self.view.winId())
+            if os.environ.get("DISPLAY") and shutil.which("xdotool"):
+                subprocess.Popen(
+                    ["xdotool", "windowactivate", "--sync", str(wid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+        except Exception:
+            pass
 
     @Slot()
     def onIslandCollapsed(self):

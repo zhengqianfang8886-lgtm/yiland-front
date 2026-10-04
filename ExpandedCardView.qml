@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: ExpandedCardView.qml
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 import "expanded"
@@ -6,7 +9,7 @@ Item {
     id: cardRoot
 
     // =========================================================================
-    // 1. 外部接口与全量业务属性（完整保留，严禁删减）
+    // 1. 外部接口与全量业务属性
     // =========================================================================
     property string chosenFont: ""
     property string expandedTab: "workspace"
@@ -36,7 +39,7 @@ Item {
     property string localIp: ""
     property string activeTransient: ""
 
-    // 🚀 核心别名直通外部胶囊，不可变动
+    // 核心别名直通外部胶囊
     readonly property alias timerPageRef: persistentTimerPage
 
     signal cancelCollapse()
@@ -45,17 +48,17 @@ Item {
     signal timerCompleted(string title, string message)
 
     // =========================================================================
-    // 2. 双轨刚体传送带状态机（彻底根除重叠与错位）
+    // 2. 双轨刚体传送带状态机
     // =========================================================================
     readonly property int viewportWidth: width
     readonly property int viewportHeight: height - 38
     readonly property int slotGap: 16
-    readonly property int slotPitch: viewportWidth + slotGap // 414px 刚体固定间距
+    readonly property int slotPitch: viewportWidth + slotGap
 
     property string currentKey: "time"
     property string departingKey: ""
     property int slideDir: 1                 // +1: 顺向(新页自右入), -1: 逆向(新页自左入)
-    property real transitionProgress: 1.0    // 0.0 -> 1.0 插值器
+    property real transitionProgress: 1.0
     property bool isFastWheeling: false
 
     function getRingSlotIndex(key) {
@@ -68,12 +71,11 @@ Item {
         return -1
     }
 
-    // 刚体坐标解算：静止时死锁 0 像素，运动时前后两页严格相隔 414px，绝不重叠
     function getPanelX(key) {
         var S = cardRoot.slotPitch
         if (key === cardRoot.currentKey) {
             if (cardRoot.departingKey === "" || !conveyorAnim.running) {
-                return 0 // 静止态死锁中宫
+                return 0
             }
             return cardRoot.slideDir > 0 ? (S * (1.0 - cardRoot.transitionProgress)) : (-S * (1.0 - cardRoot.transitionProgress))
         }
@@ -82,26 +84,24 @@ Item {
             return cardRoot.slideDir > 0 ? (-S * cardRoot.transitionProgress) : (S * cardRoot.transitionProgress)
         }
 
-        return S // 其余休眠面板停泊在视口外
+        return S
     }
 
-    // 🚀 核心防御：同一时刻除了转场中的两张卡片，其余任何页面一律不可见
     function isPanelVisible(key) {
         if (key === cardRoot.currentKey) return true
         if (key === cardRoot.departingKey && conveyorAnim.running) return true
         return false
     }
 
-    // 统一转场启动器：支持所有常规页面与电源管理页的一体化进出
     function triggerConveyorTransition(newKey, forcedDir) {
         if (newKey === cardRoot.currentKey && cardRoot.departingKey === "") return
 
         if (forcedDir !== undefined && forcedDir !== 0) {
             cardRoot.slideDir = forcedDir
         } else if (newKey === "power") {
-            cardRoot.slideDir = 1 // 进电源页一律从右向左推入
+            cardRoot.slideDir = 1
         } else if (cardRoot.currentKey === "power") {
-            cardRoot.slideDir = -1 // 出电源页一律向右退出
+            cardRoot.slideDir = -1
         } else {
             var oldIdx = getRingSlotIndex(cardRoot.currentKey)
             var newIdx = getRingSlotIndex(newKey)
@@ -135,7 +135,7 @@ Item {
         from: 0.0
         to: 1.0
         onFinished: {
-            cardRoot.departingKey = "" // 转场完全结束，彻底剔除旧页面
+            cardRoot.departingKey = ""
         }
     }
 
@@ -145,6 +145,7 @@ Item {
         else if (expandedTab === "bluetooth") bluetoothLoaded = true
         else if (expandedTab === "notification") notificationLoaded = true
         else if (expandedTab === "power") powerLoaded = true
+        else if (expandedTab === "process") processLoaded = true
 
         if (expandedTab !== currentKey) {
             triggerConveyorTransition(expandedTab, 0)
@@ -170,6 +171,7 @@ Item {
         return 0
     }
 
+    // 🚀【核心入口】：注册 SUPERVISOR 顶栏标题与主题色彩
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
         if (cardRoot.expandedTab === "power") return { title: "SESSION", sub: "系统会话", color: "#ef4444" }
@@ -182,6 +184,7 @@ Item {
         if (cardRoot.expandedTab === "network") return { title: "NETWORK", sub: "网络监控", color: Theme.network }
         if (cardRoot.expandedTab === "bluetooth") return { title: "BLUETOOTH", sub: "蓝牙外设", color: Theme.bluetooth }
         if (cardRoot.expandedTab === "notification") return { title: "NOTIFICATIONS", sub: "消息归档", color: Theme.notification }
+        if (cardRoot.expandedTab === "process") return { title: "SUPERVISOR", sub: "后台子进程管控", color: "#a855f7" }
         return { title: "ALCOVE ISLAND", sub: "", color: Theme.textSecondary }
     }
 
@@ -219,6 +222,7 @@ Item {
     property bool bluetoothLoaded: false
     property bool notificationLoaded: false
     property bool powerLoaded: false
+    property bool processLoaded: false
 
     MouseArea {
         anchors.fill: parent; z: -1
@@ -247,9 +251,8 @@ Item {
             id: conveyorViewport
             width: cardRoot.viewportWidth
             height: cardRoot.viewportHeight
-            clip: true // 限制画框边界，将传送带平滑截取在卡片视口内
+            clip: true
 
-            // 来电专属全屏卡片（作为独立顶层图层覆盖在传送带之上）
             ExpandedCallCard {
                 z: 100
                 chosenFont: cardRoot.chosenFont
@@ -262,15 +265,13 @@ Item {
             }
 
             // =================================================================
-            // 🚀 核心：传送带面板集群（所有面板统一走刚体解算，零鬼影重叠）
+            // 传送带面板集群
             // =================================================================
             Item {
                 id: conveyorBeltCanvas
                 anchors.fill: parent
 
-                // -------------------------------------------------------------
                 // 传送带面板 1：时间与节律
-                // -------------------------------------------------------------
                 Item {
                     id: panelTime
                     x: cardRoot.getPanelX("time")
@@ -284,9 +285,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
                 // 传送带面板 2：工作区桌面
-                // -------------------------------------------------------------
                 Item {
                     id: panelWorkspace
                     x: cardRoot.getPanelX("workspace")
@@ -304,9 +303,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
                 // 传送带面板 3：媒体播放器
-                // -------------------------------------------------------------
                 Item {
                     id: panelMedia
                     x: cardRoot.getPanelX("media")
@@ -330,9 +327,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
                 // 传送带面板 4：日历日程
-                // -------------------------------------------------------------
                 Item {
                     id: panelCalendar
                     x: cardRoot.getPanelX("calendar")
@@ -346,9 +341,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
                 // 传送带面板 5：专注计时
-                // -------------------------------------------------------------
                 Item {
                     id: panelTimer
                     x: cardRoot.getPanelX("timer")
@@ -364,9 +357,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
-                // 传送带面板 6：世界时钟 (按需常驻)
-                // -------------------------------------------------------------
+                // 传送带面板 6：世界时钟
                 Item {
                     id: panelClock
                     x: cardRoot.getPanelX("clock")
@@ -386,9 +377,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
-                // 传送带面板 7：实时网络 (按需常驻)
-                // -------------------------------------------------------------
+                // 传送带面板 7：实时网络
                 Item {
                     id: panelNetwork
                     x: cardRoot.getPanelX("network")
@@ -410,9 +399,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
-                // 传送带面板 8：蓝牙外设 (按需常驻)
-                // -------------------------------------------------------------
+                // 传送带面板 8：蓝牙外设
                 Item {
                     id: panelBluetooth
                     x: cardRoot.getPanelX("bluetooth")
@@ -431,9 +418,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
-                // 传送带面板 9：消息通知 (按需常驻 + 信号直连)
-                // -------------------------------------------------------------
+                // 传送带面板 9：消息通知
                 Item {
                     id: panelNotification
                     x: cardRoot.getPanelX("notification")
@@ -458,9 +443,7 @@ Item {
                     }
                 }
 
-                // -------------------------------------------------------------
-                // 🚀 传送带面板 10：系统电源与会话管理 (统一接入刚体传送带，彻底告别独立浮动重影)
-                // -------------------------------------------------------------
+                // 传送带面板 10：系统电源与会话管理
                 Item {
                     id: panelPower
                     x: cardRoot.getPanelX("power")
@@ -481,6 +464,26 @@ Item {
                             target: powerLoader.item
                             ignoreUnknownSignals: true
                             function onStartCollapse() { cardRoot.startCollapse() }
+                        }
+                    }
+                }
+
+                // 🚀 传送带面板 11：子进程服务管控中枢 (按需常驻保活)
+                Item {
+                    id: panelProcess
+                    x: cardRoot.getPanelX("process")
+                    width: cardRoot.viewportWidth
+                    height: cardRoot.viewportHeight
+                    visible: cardRoot.isPanelVisible("process")
+
+                    Loader {
+                        id: processLoader
+                        anchors.fill: parent
+                        active: cardRoot.processLoaded || (cardRoot.expandedTab === "process")
+                        sourceComponent: Component {
+                            ProcessPage {
+                                chosenFont: cardRoot.chosenFont
+                            }
                         }
                     }
                 }

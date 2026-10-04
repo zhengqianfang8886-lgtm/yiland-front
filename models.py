@@ -195,3 +195,77 @@ class BluetoothListModel(QAbstractListModel):
                 self._devices.append(dict(new_data))
                 self.endInsertRows()
                 curr_mac_map[mac] = insert_row
+
+# ==========================================
+# 📄 修改 models.py 中的 ProcessListModel
+# ==========================================
+class ProcessListModel(QAbstractListModel):
+    IdRole = Qt.ItemDataRole.UserRole + 1
+    NameRole = Qt.ItemDataRole.UserRole + 2
+    CwdRole = Qt.ItemDataRole.UserRole + 3
+    CmdRole = Qt.ItemDataRole.UserRole + 4
+    StatusRole = Qt.ItemDataRole.UserRole + 5
+    PidRole = Qt.ItemDataRole.UserRole + 6
+
+    # 🚀 必须定义标准无参通知信号供 Q_PROPERTY 监听
+    countChanged = Signal()
+    runningCountChanged = Signal()
+
+    def __init__(self, service, parent=None):
+        super().__init__(parent)
+        self._service = service
+        self._service.taskListChanged.connect(self._sync_all)
+        self._service.taskStatusChanged.connect(self._sync_status)
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._service.get_tasks())
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        tasks = self._service.get_tasks()
+        if not index.isValid() or not (0 <= index.row() < len(tasks)):
+            return None
+        t = tasks[index.row()]
+        if role == self.IdRole: return t.get("id")
+        elif role == self.NameRole: return t.get("name")
+        elif role == self.CwdRole: return t.get("cwd")
+        elif role == self.CmdRole: return t.get("cmd")
+        elif role == self.StatusRole: return t.get("status")
+        elif role == self.PidRole: return t.get("pid", 0)
+        return None
+
+    def roleNames(self):
+        return {
+            self.IdRole: b"taskId",
+            self.NameRole: b"name",
+            self.CwdRole: b"cwd",
+            self.CmdRole: b"cmd",
+            self.StatusRole: b"status",
+            self.PidRole: b"pid"
+        }
+
+    # 🚀 核心关键 1：暴露带 NOTIFY 信号的 count 属性
+    @Property(int, notify=countChanged)
+    def count(self):
+        return len(self._service.get_tasks())
+
+    # 🚀 核心关键 2：暴露带 NOTIFY 信号的 runningCount 属性
+    @Property(int, notify=runningCountChanged)
+    def runningCount(self):
+        return sum(1 for t in self._service.get_tasks() if t.get("status") == "running")
+
+    def _sync_all(self):
+        self.beginResetModel()
+        self.endResetModel()
+        # 广播数量变化，驱动 QML 界面毫秒级重绘
+        self.countChanged.emit()
+        self.runningCountChanged.emit()
+
+    def _sync_status(self, task_id, status, pid):
+        tasks = self._service.get_tasks()
+        for row, t in enumerate(tasks):
+            if t["id"] == task_id:
+                idx = self.index(row, 0)
+                self.dataChanged.emit(idx, idx, [self.StatusRole, self.PidRole])
+                break
+        # 状态变更驱动运行中计数器毫秒级刷新
+        self.runningCountChanged.emit()

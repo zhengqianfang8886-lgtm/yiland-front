@@ -1,3 +1,6 @@
+# ==========================================
+# 📄 File: ws_client.py
+# ==========================================
 """
 智能双模自适应 IPC 客户端：
 优先直连后端 WebSocket 服务 (ws://127.0.0.1:8765)，
@@ -10,7 +13,6 @@ import threading
 from bridge import IslandBridge
 from logger import app_logger
 
-# 尝试导入 websockets 库（后端已具备）
 try:
     import websockets
     HAS_WEBSOCKETS = True
@@ -80,10 +82,9 @@ class WebSocketDaemonClient:
                             task.cancel()
                         continue
                 except (OSError, Exception):
-                    # WebSocket 服务未开启或离线，尝试探测 UDS 模式
                     pass
 
-            # 模式 2：降级尝试对接 Unix Domain Socket (如果后端启用了 UDS)
+            # 模式 2：降级尝试对接 Unix Domain Socket (UDS)
             if os.path.exists(self.socket_path):
                 try:
                     reader, writer = await asyncio.open_unix_connection(self.socket_path)
@@ -117,16 +118,12 @@ class WebSocketDaemonClient:
                     continue
 
                 except ConnectionRefusedError:
-                    # 如果 UDS 报 Errno 111，说明是后端异常崩溃遗留的死 socket，清理避免死循环
-                    try:
-                        os.remove(self.socket_path)
-                        app_logger.debug(f"已清理失效的僵尸套接字: {self.socket_path}")
-                    except Exception:
-                        pass
+                    # 🚀【核心优化 2】：遇到连不上的 socket 仅延时重试，决不允许客户端擅自删除服务端的套接字文件
+                    await asyncio.sleep(1.0)
                 except Exception:
-                    pass
+                    await asyncio.sleep(1.0)
 
-            # 后端尚未就绪，静默等待重连，不再刷爆控制台
+            # 后端未开启时静默休眠等待，不再刷新日志
             await asyncio.sleep(1.0)
 
     def _route_to_main_thread(self, message: str):
