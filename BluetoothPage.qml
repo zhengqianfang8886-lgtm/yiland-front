@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: BluetoothPage.qml (零魔法数字·声明式驱动版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Shapes
@@ -11,56 +14,19 @@ Item {
 
     readonly property var btModel: (typeof Bridge !== "undefined") ? Bridge.bluetoothModel : null
 
-    // 辅助计算当前连接态设备
-    property int connectedCount: 0
-    property string primaryName: ""
-    property string primaryIcon: "bluetooth"
-    property var primaryBattery: null
-
-    function recalculateConnectedState() {
-        if (!btModel) {
-            connectedCount = 0; primaryName = ""; primaryBattery = null; return
-        }
-        var cnt = 0
-        var foundFirst = false
-        for (var i = 0; i < btModel.rowCount(); i++) {
-            var idx = btModel.index(i, 0)
-            var isConn = btModel.data(idx, 259) // ConnectedRole
-            if (isConn) {
-                cnt++
-                if (!foundFirst) {
-                    primaryName = btModel.data(idx, 257) // NameRole
-                    primaryBattery = btModel.data(idx, 260) // BatteryRole
-                    primaryIcon = btModel.data(idx, 261) || "bluetooth" // IconRole
-                    foundFirst = true
-                }
-            }
-        }
-        connectedCount = cnt
-        if (!foundFirst) {
-            primaryName = ""
-            primaryBattery = null
-            primaryIcon = "bluetooth"
-        }
-    }
-
-    Connections {
-        target: btRoot.btModel
-        function onDataChanged() { btRoot.recalculateConnectedState() }
-        function onRowsInserted() { btRoot.recalculateConnectedState() }
-        function onRowsRemoved() { btRoot.recalculateConnectedState() }
-        function onModelReset() { btRoot.recalculateConnectedState() }
-    }
+    // 🚀【彻底重构】：直接声明式绑定 Model 暴露的原子属性，零遍历、零魔法数字
+    readonly property int connectedCount: btModel ? btModel.connectedCount : 0
+    readonly property var primaryDev: btModel ? btModel.primaryDevice : ({})
+    readonly property string primaryName: primaryDev.name || ""
+    readonly property string primaryIcon: primaryDev.icon || "bluetooth"
+    readonly property var primaryBattery: primaryDev.battery !== undefined ? primaryDev.battery : null
 
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         function onBluetoothStateChanged(powered) {
             btRoot.isPowered = powered
-            btRoot.recalculateConnectedState()
         }
     }
-
-    Component.onCompleted: recalculateConnectedState()
 
     function getBatteryColor(pct) {
         if (pct === null || pct === undefined || isNaN(pct)) return Qt.rgba(1, 1, 1, 0.4)
@@ -77,10 +43,7 @@ Item {
     Timer {
         id: refreshTimer
         interval: 600
-        onTriggered: {
-            btRoot.isRefreshing = false
-            btRoot.recalculateConnectedState()
-        }
+        onTriggered: btRoot.isRefreshing = false
     }
 
     function getDeviceIcon(name, iconType) {
@@ -247,7 +210,7 @@ Item {
             }
         }
 
-        // 2. 右侧设备列表（行级差量更新）
+        // 2. 右侧设备列表（纯声明式 Diffing 更新）
         Column {
             width: parent.width - 156
             height: parent.height

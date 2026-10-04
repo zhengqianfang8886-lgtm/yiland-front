@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: bridge.py (集成 NumLock)
+# 📄 File: bridge.py
 # ==========================================
 import os
 import gc
@@ -40,7 +40,7 @@ class IslandBridge(QObject):
     volumeChanged = Signal(int)
     brightnessChanged = Signal(int)
     capsLockChanged = Signal(bool)
-    numLockChanged = Signal(bool)  # 🚀 新增 NumLock 信号
+    numLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     clipboardTriggered = Signal(str, str, str, int)
 
@@ -89,7 +89,7 @@ class IslandBridge(QObject):
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
         self.hardware.capsLockChanged.connect(self.capsLockChanged)
-        self.hardware.numLockChanged.connect(self.numLockChanged)  # 🚀 连线 NumLock
+        self.hardware.numLockChanged.connect(self.numLockChanged)
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
         self.hardware.osdTriggered.connect(self.osdTriggered)
 
@@ -103,8 +103,7 @@ class IslandBridge(QObject):
 
     def _on_media_state_changed(self, title, artist, status, art, pos, dur):
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
-        is_playing = (status == "Playing")
-        self.typing_flow.set_media_playing(is_playing)
+        self.typing_flow.set_media_playing(status == "Playing")
 
     def cleanup(self):
         self.typing_flow.cleanup()
@@ -130,9 +129,12 @@ class IslandBridge(QObject):
     @Property(bool, notify=capsLockChanged)
     def isCapsLock(self): return self.hardware.is_caps_lock
 
-    # 🚀 暴露给 QML 的响应式 isNumLock 属性
     @Property(bool, notify=numLockChanged)
     def isNumLock(self): return self.hardware.is_num_lock
+
+    # 🚀 升格为符合 Qt 响应式绑定的 Property，同时保留 Slot 函数式调用兼容
+    @Property(bool, notify=bluetoothStateChanged)
+    def isBluetoothPowered(self): return self._bluetooth_powered
 
     @Slot(str)
     def startProcessTask(self, tid: str): self.proc_mgr.start_task(tid)
@@ -275,9 +277,6 @@ class IslandBridge(QObject):
 
     @Slot(str, result=str)
     def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
-
-    @Slot(result=bool)
-    def isBluetoothPowered(self): return self._bluetooth_powered
 
     @Slot(str)
     def connectBluetooth(self, mac): self.wm.connect_bluetooth(mac)

@@ -35,7 +35,7 @@ Rectangle {
         return "⚡"
     }
 
-    // 1. 右侧独立启停开关（物理级吞噬事件，禁止冒泡）
+    // 1. 右侧独立启停开关（吞噬点击事件，防止穿透冒泡触发 cardClicked）
     Rectangle {
         id: toggleBtn
         width: 48; height: 26; radius: 6
@@ -55,8 +55,7 @@ Rectangle {
             anchors.centerIn: parent
             text: cardRoot.taskStatus === "running" ? "停止" : "启动"
             color: cardRoot.taskStatus === "running" ? "#f87171" : "#34d399"
-            font.pixelSize: 11
-            font.weight: Font.Bold
+            font.pixelSize: 11; font.weight: Font.Bold
             font.family: cardRoot.effectiveFont
         }
 
@@ -72,7 +71,7 @@ Rectangle {
         }
     }
 
-    // 2. 左侧及中间可点击区（几何边界停靠在按钮左侧，绝不重叠）
+    // 2. 左侧展示与跳转触发区（与右侧按钮几何解耦）
     Item {
         anchors.left: parent.left
         anchors.right: toggleBtn.left
@@ -120,7 +119,7 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                 }
                 Text {
-                    text: cardRoot.taskStatus === "running" ? ("运行中 · PID " + cardRoot.taskPid) : "已停止 · 点击详情"
+                    text: cardRoot.taskStatus === "running" ? ("运行中 · PID " + cardRoot.taskPid) : "已停止 · 点击配置"
                     color: cardRoot.taskStatus === "running" ? "#34d399" : Theme.textMuted
                     font.pixelSize: 10
                     font.family: cardRoot.taskStatus === "running" ? cardRoot.effectiveMono : cardRoot.effectiveFont

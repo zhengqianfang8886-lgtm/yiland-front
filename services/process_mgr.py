@@ -5,6 +5,8 @@ import os
 import json
 import time
 import signal
+import shlex
+import shutil
 import subprocess
 from PySide6.QtCore import QObject, QTimer, Signal
 from logger import app_logger
@@ -20,7 +22,7 @@ class ProcessManagerService(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tasks = []
-        self._proc_map = {}  # { task_id: subprocess.Popen }
+        self._proc_map = {}  # { task_id: (subprocess.Popen, file_handle) }
 
         self._load_tasks()
 
@@ -78,10 +80,16 @@ class ProcessManagerService(QObject):
     def _check_processes(self):
         for t in self._tasks:
             tid = t["id"]
-            proc = self._proc_map.get(tid)
-            if proc is not None:
+            entry = self._proc_map.get(tid)
+            if entry is not None:
+                proc, log_file = entry
                 ret = proc.poll()
                 if ret is not None:
+                    if log_file and not log_file.closed:
+                        try:
+                            log_file.close()
+                        except Exception:
+                            pass
                     self._proc_map.pop(tid, None)
                     t["status"] = "error" if ret != 0 else "stopped"
                     t["pid"] = 0
@@ -92,52 +100,89 @@ class ProcessManagerService(QObject):
         if not task:
             return
 
-        if task_id in self._proc_map and self._proc_map[task_id].poll() is None:
+        if task_id in self._proc_map and self._proc_map[task_id][0].poll() is None:
             return
 
-        cwd = os.path.expanduser(task.get("cwd", "~"))
+        raw_cwd = task.get("cwd", "~")
+        cwd = os.path.abspath(os.path.expanduser(raw_cwd))
         if not os.path.isdir(cwd):
+            app_logger.error(f"任务启动被阻止：工作目录不存在或非法 -> {cwd}")
+            task["status"] = "error"
+            self.taskStatusChanged.emit(task_id, "error", 0)
+            return
+
+        cmd_str = task.get("cmd", "").strip()
+        if not cmd_str:
             task["status"] = "error"
             self.taskStatusChanged.emit(task_id, "error", 0)
             return
 
         log_path = f"/tmp/alcove_task_{task_id}.log"
+        log_file = None
         try:
             log_file = open(log_path, "w", encoding="utf-8")
-            # ✅ 使用 start_new_session=True 替代有死锁风险的 preexec_fn=os.setsid
-            proc = subprocess.Popen(
-                task["cmd"],
-                cwd=cwd,
-                shell=True,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True
-            )
-            self._proc_map[task_id] = proc
+
+            # 🚀 安全架构策略：区分简单命令与复合 Shell Pipeline
+            has_shell_metachars = any(c in cmd_str for c in ["&", "|", ";", ">", "<", "$", "`", "\n"])
+            if not has_shell_metachars:
+                # 简单指令走安全 shlex 拆分，不经过 shell 解释器
+                args = shlex.split(cmd_str)
+                executable = shutil.which(args[0])
+                if not executable:
+                    raise FileNotFoundError(f"命令未找到: {args[0]}")
+                proc = subprocess.Popen(
+                    args,
+                    cwd=cwd,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
+            else:
+                # 复合指令受控降级到安全固定 shell (/bin/sh)
+                proc = subprocess.Popen(
+                    ["/bin/sh", "-c", cmd_str],
+                    cwd=cwd,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
+
+            self._proc_map[task_id] = (proc, log_file)
             task["status"] = "running"
             task["pid"] = proc.pid
             self.taskStatusChanged.emit(task_id, "running", proc.pid)
-            app_logger.info(f"启动子进程 [{task['name']}] (PID: {proc.pid}) -> {task['cmd']}")
+            app_logger.info(f"启动子进程 [{task['name']}] (PID: {proc.pid}) -> {cmd_str}")
+
         except Exception as e:
             app_logger.error(f"执行任务启动失败: {e}")
+            if log_file and not log_file.closed:
+                log_file.close()
             task["status"] = "error"
             task["pid"] = 0
             self.taskStatusChanged.emit(task_id, "error", 0)
 
     def stop_task(self, task_id: str):
         task = next((t for t in self._tasks if t["id"] == task_id), None)
-        proc = self._proc_map.get(task_id)
+        entry = self._proc_map.get(task_id)
 
-        if proc and proc.poll() is None:
-            try:
-                pgid = os.getpgid(proc.pid)
-                os.killpg(pgid, signal.SIGTERM)
-                app_logger.info(f"发送 SIGTERM 到进程组 PGID: {pgid}")
-            except ProcessLookupError:
-                pass
-            except Exception:
+        if entry:
+            proc, log_file = entry
+            if proc.poll() is None:
                 try:
-                    proc.terminate()
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGTERM)
+                    app_logger.info(f"安全终止进程组 PGID: {pgid}")
+                except ProcessLookupError:
+                    pass
+                except Exception:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+
+            if log_file and not log_file.closed:
+                try:
+                    log_file.close()
                 except Exception:
                     pass
 
@@ -160,7 +205,7 @@ class ProcessManagerService(QObject):
         new_item = {
             "id": new_id,
             "name": name.strip() or "新建任务",
-            "cwd": os.path.expanduser(cwd.strip() or "~"),
+            "cwd": os.path.abspath(os.path.expanduser(cwd.strip() or "~")),
             "cmd": cmd.strip(),
             "status": "stopped",
             "pid": 0
@@ -174,7 +219,7 @@ class ProcessManagerService(QObject):
         if not task:
             return
         task["name"] = name.strip()
-        task["cwd"] = os.path.expanduser(cwd.strip())
+        task["cwd"] = os.path.abspath(os.path.expanduser(cwd.strip() or "~"))
         task["cmd"] = cmd.strip()
         self._save_tasks()
         self.taskListChanged.emit()

@@ -11,9 +11,10 @@ Rectangle {
     color: Qt.rgba(1, 1, 1, 0.035)
     border.color: Qt.rgba(1, 1, 1, 0.08)
     border.width: 1
+    clip: true
 
-    property string effectiveFont: Theme.activeFont
-    property string effectiveMono: Theme.displayMonoFont
+    property string effectiveFont: ""
+    property string effectiveMono: ""
     property int totalCount: 0
     property int runningCount: 0
 
@@ -23,11 +24,10 @@ Rectangle {
 
     Column {
         anchors.fill: parent
-        anchors.leftMargin: 6; anchors.rightMargin: 6
-        anchors.topMargin: 6; anchors.bottomMargin: 6
+        anchors.margins: 6
         spacing: 4
 
-        // 状态看板
+        // 1. 状态看板统计区
         Column {
             width: parent.width
             spacing: 1
@@ -81,11 +81,12 @@ Rectangle {
 
         Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
-        // 三个大按键
+        // 2. 核心三大动作按键
         Column {
             width: parent.width
             spacing: 4
 
+            // + 新建服务
             Rectangle {
                 width: parent.width; height: 24; radius: 5
                 color: addHover.hovered ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.3) : Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.16)
@@ -95,13 +96,14 @@ Rectangle {
 
                 Row {
                     anchors.centerIn: parent; spacing: 3
-                    Text { text: "+"; color: "#c084fc"; font.pixelSize: 12; font.weight: Font.Black }
+                    Text { text: "+"; color: "#c084fc"; font.pixelSize: 12; font.weight: Font.Black; font.family: sidebarRoot.effectiveFont }
                     Text { text: "新建服务"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: sidebarRoot.effectiveFont }
                 }
                 HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { id: addTap; onTapped: sidebarRoot.requestAdd() }
             }
 
+            // ▶ 全部启动
             Rectangle {
                 width: parent.width; height: 22; radius: 5
                 color: startHover.hovered ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.28) : Qt.rgba(1, 1, 1, 0.12)
@@ -111,13 +113,14 @@ Rectangle {
 
                 Row {
                     anchors.centerIn: parent; spacing: 3
-                    Text { text: "▶"; color: "#10b981"; font.pixelSize: 8 }
+                    Text { text: "▶"; color: "#10b981"; font.pixelSize: 8; font.family: sidebarRoot.effectiveFont }
                     Text { text: "全部启动"; color: startHover.hovered ? "#34d399" : "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: sidebarRoot.effectiveFont }
                 }
                 HoverHandler { id: startHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { id: startTap; onTapped: sidebarRoot.requestStartAll() }
             }
 
+            // ■ 全部停止
             Rectangle {
                 width: parent.width; height: 22; radius: 5
                 color: stopHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.26) : Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.08)
@@ -127,7 +130,7 @@ Rectangle {
 
                 Row {
                     anchors.centerIn: parent; spacing: 3
-                    Text { text: "■"; color: Theme.danger; font.pixelSize: 8 }
+                    Text { text: "■"; color: Theme.danger; font.pixelSize: 8; font.family: sidebarRoot.effectiveFont }
                     Text { text: "全部停止"; color: stopHover.hovered ? Theme.danger : Theme.textMuted; font.pixelSize: 10; font.weight: Font.Bold; font.family: sidebarRoot.effectiveFont }
                 }
                 HoverHandler { id: stopHover; cursorShape: Qt.PointingHandCursor }

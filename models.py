@@ -1,6 +1,6 @@
 """
 Alcove Island - 专用高性能 QAbstractListModel 实现
-为通知列表与蓝牙设备列表提供行级增量刷新 (Fine-grained Diffing)
+为通知列表、蓝牙设备列表及进程监控提供行级增量刷新 (Fine-grained Diffing)
 """
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal, Property, Slot
 
@@ -64,6 +64,12 @@ class NotificationListModel(QAbstractListModel):
     def latestAvatar(self):
         return self._latest_avatar
 
+    @Slot(int, result="QVariantMap")
+    def get(self, row: int):
+        if 0 <= row < len(self._items):
+            return dict(self._items[row])
+        return {}
+
     def add_notification(self, item_dict: dict):
         """向头部插入单条新通知，超出上限自动裁切尾部"""
         if self._items:
@@ -120,9 +126,13 @@ class BluetoothListModel(QAbstractListModel):
     BatteryRole = Qt.ItemDataRole.UserRole + 4
     IconRole = Qt.ItemDataRole.UserRole + 5
 
+    devicesChanged = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._devices = []
+        self._connected_count = 0
+        self._primary_device = {}
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._devices)
@@ -152,8 +162,35 @@ class BluetoothListModel(QAbstractListModel):
             self.IconRole: b"icon",
         }
 
+    # 🚀 彻底消除 QML 内部 data(idx, 259) 的优雅响应式属性
+    @Property(int, notify=devicesChanged)
+    def connectedCount(self):
+        return self._connected_count
+
+    @Property("QVariantMap", notify=devicesChanged)
+    def primaryDevice(self):
+        return self._primary_device
+
+    @Slot(int, result="QVariantMap")
+    def get(self, row: int):
+        if 0 <= row < len(self._devices):
+            return dict(self._devices[row])
+        return {}
+
+    def _recalc_summary(self):
+        cnt = 0
+        first_conn = None
+        for d in self._devices:
+            if d.get("connected", False):
+                cnt += 1
+                if first_conn is None:
+                    first_conn = d
+        self._connected_count = cnt
+        self._primary_device = dict(first_conn) if first_conn else {}
+        self.devicesChanged.emit()
+
     def sync_devices(self, new_devices: list):
-        """精准差量更新（Diff）：有增删走增删，仅属性变更只抛 dataChanged，避免 QML 重新创建所有 Delegate"""
+        """精准差量更新（Diffing）"""
         new_mac_map = {d.get("mac"): d for d in new_devices if d.get("mac")}
         curr_mac_map = {d.get("mac"): i for i, d in enumerate(self._devices) if d.get("mac")}
 
@@ -196,9 +233,9 @@ class BluetoothListModel(QAbstractListModel):
                 self.endInsertRows()
                 curr_mac_map[mac] = insert_row
 
-# ==========================================
-# 📄 修改 models.py 中的 ProcessListModel
-# ==========================================
+        self._recalc_summary()
+
+
 class ProcessListModel(QAbstractListModel):
     IdRole = Qt.ItemDataRole.UserRole + 1
     NameRole = Qt.ItemDataRole.UserRole + 2
@@ -207,7 +244,6 @@ class ProcessListModel(QAbstractListModel):
     StatusRole = Qt.ItemDataRole.UserRole + 5
     PidRole = Qt.ItemDataRole.UserRole + 6
 
-    # 🚀 必须定义标准无参通知信号供 Q_PROPERTY 监听
     countChanged = Signal()
     runningCountChanged = Signal()
 
@@ -243,20 +279,24 @@ class ProcessListModel(QAbstractListModel):
             self.PidRole: b"pid"
         }
 
-    # 🚀 核心关键 1：暴露带 NOTIFY 信号的 count 属性
     @Property(int, notify=countChanged)
     def count(self):
         return len(self._service.get_tasks())
 
-    # 🚀 核心关键 2：暴露带 NOTIFY 信号的 runningCount 属性
     @Property(int, notify=runningCountChanged)
     def runningCount(self):
         return sum(1 for t in self._service.get_tasks() if t.get("status") == "running")
 
+    @Slot(int, result="QVariantMap")
+    def get(self, row: int):
+        tasks = self._service.get_tasks()
+        if 0 <= row < len(tasks):
+            return dict(tasks[row])
+        return {}
+
     def _sync_all(self):
         self.beginResetModel()
         self.endResetModel()
-        # 广播数量变化，驱动 QML 界面毫秒级重绘
         self.countChanged.emit()
         self.runningCountChanged.emit()
 
@@ -267,5 +307,4 @@ class ProcessListModel(QAbstractListModel):
                 idx = self.index(row, 0)
                 self.dataChanged.emit(idx, idx, [self.StatusRole, self.PidRole])
                 break
-        # 状态变更驱动运行中计数器毫秒级刷新
         self.runningCountChanged.emit()

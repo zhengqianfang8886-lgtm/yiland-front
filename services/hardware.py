@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/hardware.py (包含 NumLock 支持)
+# 📄 File: services/hardware.py (节能与自适应频控版)
 # ==========================================
 import os
 import glob
@@ -15,7 +15,7 @@ class HardwareService(QObject):
     brightnessChanged = Signal(int)
     hardwareMuteStateChanged = Signal(bool, bool)
     capsLockChanged = Signal(bool)
-    numLockChanged = Signal(bool)  # 🚀 新增 NumLock 状态信号
+    numLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     osdTriggered = Signal(str, str, int)
 
@@ -44,9 +44,9 @@ class HardwareService(QObject):
         self._vol_flush_timer.setInterval(25)
         self._vol_flush_timer.timeout.connect(self._flush_volume_to_hardware)
 
-        # 内存监控 (2秒周期)
+        # 内存监控 (2.5秒周期)
         self._mem_timer = QTimer(self)
-        self._mem_timer.setInterval(2000)
+        self._mem_timer.setInterval(2500)
         self._mem_timer.timeout.connect(self._poll_memory_usage)
         self._mem_timer.start()
 
@@ -56,16 +56,18 @@ class HardwareService(QObject):
         self._caps_led_paths = []
         self._num_led_paths = []
         self._last_xset_poll_time = 0.0
+        self._last_lock_change_time = time.monotonic()
         self._refresh_lock_paths()
         
+        # 🚀 自适应定时器：活跃时 150ms，稳定 5 秒后退火至 350ms
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(150)
         self._lock_timer.timeout.connect(self._check_lock_keys)
         self._lock_timer.start()
 
-        # 硬件亮度轮询 (2秒周期)
+        # 硬件亮度轮询 (3秒周期)
         self._hw_poll_timer = QTimer(self)
-        self._hw_poll_timer.setInterval(2000)
+        self._hw_poll_timer.setInterval(3000)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
         self._hw_poll_timer.start()
 
@@ -107,7 +109,7 @@ class HardwareService(QObject):
         return 100
 
     def _poll_system_brightness(self):
-        if (time.monotonic() - self._last_user_bright_adjust_time) < 2.0:
+        if (time.monotonic() - self._last_user_bright_adjust_time) < 2.5:
             return
         real_val = self._read_system_brightness()
         if abs(real_val - self._cached_brightness) >= 2:
@@ -299,9 +301,8 @@ class HardwareService(QObject):
         except Exception:
             self._num_led_paths = []
 
-    # 🚀【核心机制】：高频扫描内核 LED 节点，精准检测 CapsLock 与 NumLock
     def _check_lock_keys(self):
-        if not self._caps_led_paths or not self._num_led_paths:
+        if not self._caps_led_paths and not self._num_led_paths:
             self._refresh_lock_paths()
 
         caps_active = False
@@ -351,13 +352,27 @@ class HardwareService(QObject):
                 if not num_found:
                     num_active = self._is_num_lock
 
+        state_changed = False
         if caps_active != self._is_caps_lock:
             self._is_caps_lock = caps_active
             self.capsLockChanged.emit(self._is_caps_lock)
+            state_changed = True
 
         if num_active != self._is_num_lock:
             self._is_num_lock = num_active
             self.numLockChanged.emit(self._is_num_lock)
+            state_changed = True
+
+        # 🚀 自适应频控节流：当状态变更时拉高频率（150ms），连续 5 秒稳定无变动退火至 350ms 节约能耗
+        now = time.monotonic()
+        if state_changed:
+            self._last_lock_change_time = now
+            if self._lock_timer.interval() != 150:
+                self._lock_timer.setInterval(150)
+        else:
+            if (now - self._last_lock_change_time) > 5.0:
+                if self._lock_timer.interval() != 350:
+                    self._lock_timer.setInterval(350)
 
     def _poll_memory_usage(self):
         try:

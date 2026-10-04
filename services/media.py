@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
+from collections import OrderedDict
 from PySide6.QtCore import QObject, QTimer, Signal
 from logger import app_logger
 from services.utils import CAVA_CONFIG_PATH, sanitize_time
@@ -28,6 +29,10 @@ class MediaService(QObject):
         self._curr_status = "Paused"
         self._curr_art = ""
         self._curr_dominant_color = "#22c55e"
+
+        # 🚀 封面提取主色调 LRU 缓存 (最大 64 个)
+        self._color_lru_cache = OrderedDict()
+        self._cache_limit = 64
 
         self._local_media_timer = QTimer(self)
         self._local_media_timer.setInterval(1000)
@@ -75,7 +80,11 @@ class MediaService(QObject):
                 with open(CAVA_CONFIG_PATH, "w", encoding="utf-8") as f:
                     f.write(cava_cfg)
 
-                self._cava_proc = subprocess.Popen(["cava", "-p", CAVA_CONFIG_PATH], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                self._cava_proc = subprocess.Popen(
+                    ["cava", "-p", CAVA_CONFIG_PATH],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL
+                )
                 chunk_size = 4
                 while True:
                     if not self._cava_proc or self._cava_proc.poll() is not None:
@@ -157,13 +166,21 @@ class MediaService(QObject):
             self.dominantColorUpdated.emit("#22c55e")
             return
 
+        # 检查 LRU 缓存
+        clean_url = art_url.strip().split("?")[0]
+        if clean_url in self._color_lru_cache:
+            color = self._color_lru_cache[clean_url]
+            self._color_lru_cache.move_to_end(clean_url)
+            self._curr_dominant_color = color
+            self.dominantColorUpdated.emit(color)
+            return
+
         def _extract():
             try:
-                clean_url = art_url.strip().split("?")[0]
                 img_bytes = None
                 if clean_url.startswith("http://") or clean_url.startswith("https://"):
                     req = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    with urllib.request.urlopen(req, timeout=2.5) as resp:
                         img_bytes = resp.read()
                 else:
                     local_path = clean_url[7:] if clean_url.startswith("file://") else clean_url
@@ -196,6 +213,11 @@ class MediaService(QObject):
                     if best_col:
                         hex_c = f"#{best_col[0]:02x}{best_col[1]:02x}{best_col[2]:02x}"
                         self._curr_dominant_color = hex_c
+                        # 记录进 LRU 缓存
+                        self._color_lru_cache[clean_url] = hex_c
+                        if len(self._color_lru_cache) > self._cache_limit:
+                            self._color_lru_cache.popitem(last=False)
+
                         self.dominantColorUpdated.emit(hex_c)
                         return
                 except Exception:
