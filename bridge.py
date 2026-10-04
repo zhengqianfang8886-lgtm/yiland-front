@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: bridge.py
+# 📄 File: bridge.py (集成 NumLock)
 # ==========================================
 import os
 import gc
@@ -28,25 +28,22 @@ from services.process_mgr import ProcessManagerService
 
 
 class IslandBridge(QObject):
-    # 媒体与音频频谱
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
-    # 🚀 打字心流律动信号 (active, color, s1, s2, s3, s4, kps)
     typingSpectrumUpdated = Signal(bool, str, float, float, float, float, float)
 
-    # 硬件、OSD、剪贴板与状态机
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
     brightnessChanged = Signal(int)
     capsLockChanged = Signal(bool)
+    numLockChanged = Signal(bool)  # 🚀 新增 NumLock 信号
     memoryUpdated = Signal(int, str, str)
     clipboardTriggered = Signal(str, str, str, int)
 
-    # 桌面、网络、蓝牙与通知
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
@@ -66,12 +63,10 @@ class IslandBridge(QObject):
         self._ipc_sender = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="SubprocessWorker")
 
-        # 数据模型初始化
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
 
-        # 子进程管控服务与数据模型初始化
         self.proc_mgr = ProcessManagerService(self)
         self._proc_model = ProcessListModel(self.proc_mgr, self)
 
@@ -83,12 +78,9 @@ class IslandBridge(QObject):
         self.hardware = HardwareService(self._pool, self.sendIpcCmd, self)
         self.media = MediaService(self._pool, self.sendIpcCmd, self)
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
-
-        # 🚀 启动打字心流频谱服务
         self.typing_flow = TypingFlowService(self._pool, self.config, self)
 
         self._bind_service_signals()
-
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
@@ -97,6 +89,7 @@ class IslandBridge(QObject):
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
         self.hardware.capsLockChanged.connect(self.capsLockChanged)
+        self.hardware.numLockChanged.connect(self.numLockChanged)  # 🚀 连线 NumLock
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
         self.hardware.osdTriggered.connect(self.osdTriggered)
 
@@ -106,14 +99,10 @@ class IslandBridge(QObject):
         self.media.dominantColorUpdated.connect(self.dominantColorUpdated)
 
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
-
-        # 🚀 转发打字心流频谱
         self.typing_flow.typingUpdated.connect(self.typingSpectrumUpdated)
 
     def _on_media_state_changed(self, title, artist, status, art, pos, dur):
-        # 传递给前端
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
-        # 🚀 强互斥：一旦音乐播放（Playing），立即通知打字服务闭嘴并隐退
         is_playing = (status == "Playing")
         self.typing_flow.set_media_playing(is_playing)
 
@@ -140,6 +129,10 @@ class IslandBridge(QObject):
 
     @Property(bool, notify=capsLockChanged)
     def isCapsLock(self): return self.hardware.is_caps_lock
+
+    # 🚀 暴露给 QML 的响应式 isNumLock 属性
+    @Property(bool, notify=numLockChanged)
+    def isNumLock(self): return self.hardware.is_num_lock
 
     @Slot(str)
     def startProcessTask(self, tid: str): self.proc_mgr.start_task(tid)

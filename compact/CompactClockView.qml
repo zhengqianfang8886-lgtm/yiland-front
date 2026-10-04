@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: compact/CompactClockView.qml (零穿模流体排布版)
+// ==========================================
 import QtQuick
 
 Row {
@@ -5,22 +8,11 @@ Row {
     spacing: 6
 
     property string chosenFont: ""
-
-    // 🚀 核心修复：直接响应 Config.fontFamily 变更信号，只要设置一改，毫秒级响应
-    readonly property string effectiveFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
-        return ""
-    }
-
-    // 🚀 用户选了字体就必须用用户的字体，只有默认态才回退 Monospace
-    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+    readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
+    readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
 
     property bool isCapsLock: false
+    property bool isNumLock: false
     property bool showNetSpeed: true
     property string downCompact: "0K"
     property string upCompact: "0K"
@@ -32,38 +24,35 @@ Row {
 
     visible: opacity > 0.001
     opacity: clockRoot.isClockActive ? 1.0 : 0.0
-    scale: clockRoot.isClockActive ? 1.0 : 0.92
+    scale: clockRoot.isClockActive ? 1.0 : 0.94
 
-    Behavior on opacity {
-        NumberAnimation {
-            duration: clockRoot.isClockActive ? 160 : 70
-            easing.type: Easing.OutQuad
-        }
-    }
-    Behavior on scale {
-        NumberAnimation {
-            duration: clockRoot.isClockActive ? 180 : 70
-            easing.type: clockRoot.isClockActive ? Easing.OutBack : Easing.OutQuad
-            easing.overshoot: clockRoot.isClockActive ? 1.06 : 1.0
-        }
-    }
+    Behavior on opacity { NumberAnimation { duration: clockRoot.isClockActive ? 150 : 80; easing.type: Easing.OutQuad } }
+    Behavior on scale { NumberAnimation { duration: clockRoot.isClockActive ? 170 : 80; easing.type: Easing.OutCubic } }
 
-    // 大写锁定微胶囊
+    // =========================================================================
+    // 1. 大写锁定微胶囊 (Caps Lock - 冰蓝微光)
+    // =========================================================================
     Rectangle {
         id: capsLockBadge
-        height: 22; radius: 6
+        height: 22
+        radius: 6
         anchors.verticalCenter: parent.verticalCenter
-        width: clockRoot.isCapsLock ? (capsInnerRow.implicitWidth + 12) : 0
-        visible: width > 0
         clip: true
+
+        // 🚀 核心优化：宽高与透明度、缩放精准同相，绝不穿模溢出
+        width: clockRoot.isCapsLock ? 48 : 0
+        opacity: clockRoot.isCapsLock ? 1.0 : 0.0
+        scale: clockRoot.isCapsLock ? 1.0 : 0.75
+
         color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
         border.color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.50)
         border.width: 1
 
-        Behavior on width { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: clockRoot.isCapsLock ? 140 : 90 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         Row {
-            id: capsInnerRow
             anchors.centerIn: parent
             spacing: 3
             Text { text: "⇪"; color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
@@ -71,32 +60,90 @@ Row {
         }
     }
 
-    // 实时网速小卡片
+    // =========================================================================
+    // 2. 数字锁定微胶囊 (Num Lock - 薄荷绿磨砂)
+    // =========================================================================
+    Rectangle {
+        id: numLockBadge
+        height: 22
+        radius: 6
+        anchors.verticalCenter: parent.verticalCenter
+        clip: true
+
+        width: clockRoot.isNumLock ? 48 : 0
+        opacity: clockRoot.isNumLock ? 1.0 : 0.0
+        scale: clockRoot.isNumLock ? 1.0 : 0.75
+
+        color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.18)
+        border.color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.50)
+        border.width: 1
+
+        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: clockRoot.isNumLock ? 140 : 90 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 3
+            Text { text: "123"; color: "#34d399"; font.pixelSize: 10; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "数字"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: clockRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
+        }
+    }
+
+    // =========================================================================
+    // 3. 实时网速小卡片 (锁宽 48px，防抖退场)
+    // =========================================================================
     Rectangle {
         id: netSpeedItem
-        visible: clockRoot.showNetSpeed
-        width: clockRoot.showNetSpeed ? (speedCol.implicitWidth + 10) : 0
-        height: 22; radius: 5
+        height: 22
+        radius: 5
         anchors.verticalCenter: parent.verticalCenter
-        color: Qt.rgba(1, 1, 1, 0.06); border.color: Qt.rgba(1, 1, 1, 0.1); border.width: 1
+        clip: true
+
+        width: clockRoot.showNetSpeed ? 48 : 0
+        opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
+        scale: clockRoot.showNetSpeed ? 1.0 : 0.80
+
+        color: Qt.rgba(1, 1, 1, 0.06)
+        border.color: Qt.rgba(1, 1, 1, 0.10)
+        border.width: 1
+
+        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 130 } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         Column {
-            id: speedCol
-            anchors.centerIn: parent; spacing: 1
+            anchors.centerIn: parent
+            spacing: 1
+
             Row {
-                spacing: 3; anchors.left: parent.left
+                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 4
                 Text { text: "↓"; font.pixelSize: 8; font.weight: Font.Black; color: Theme.network; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.downCompact; color: "white"; font.pixelSize: 9; font.weight: Font.Black; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
+                Text {
+                    text: clockRoot.downCompact
+                    color: "white"; font.pixelSize: 9; font.weight: Font.Black
+                    font.family: clockRoot.displayFont
+                    font.features: { "tnum": 1 }
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
             Row {
-                spacing: 3; anchors.left: parent.left
+                spacing: 3; anchors.left: parent.left; anchors.leftMargin: 4
                 Text { text: "↑"; font.pixelSize: 8; font.weight: Font.Black; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.upCompact; color: "white"; font.pixelSize: 9; font.weight: Font.Black; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
+                Text {
+                    text: clockRoot.upCompact
+                    color: "white"; font.pixelSize: 9; font.weight: Font.Black
+                    font.family: clockRoot.displayFont
+                    font.features: { "tnum": 1 }
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
     }
 
-    // 日期文本
+    // =========================================================================
+    // 4. 日期文本与分隔
+    // =========================================================================
     Text {
         text: clockRoot.displayDate
         color: Qt.rgba(1, 1, 1, 0.70)
@@ -114,7 +161,9 @@ Row {
         visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
     }
 
-    // 🚀 主时间大字：彻底绑定 displayFont，用户选什么字体立刻变成什么字体！
+    // =========================================================================
+    // 5. 主时间行 (等宽数字 tnum + 锁死 20px 秒数槽)
+    // =========================================================================
     Row {
         spacing: 1
         anchors.verticalCenter: parent.verticalCenter
@@ -125,28 +174,36 @@ Row {
             font.family: clockRoot.displayFont
             font.pixelSize: 18
             font.weight: Font.Black
+            font.features: { "tnum": 1 }
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        Row {
-            spacing: 0
-            anchors.verticalCenter: parent.verticalCenter
+        Item {
             visible: (typeof Config !== "undefined" && Config.showSeconds) && clockRoot.displaySeconds !== ""
-            Text {
-                text: ":"
-                color: Qt.rgba(1, 1, 1, 0.35)
-                font.family: clockRoot.displayFont
-                font.pixelSize: 11
-                font.weight: Font.Bold
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            Text {
-                text: clockRoot.displaySeconds.replace(/^:/, "")
-                color: Theme.network
-                font.family: clockRoot.displayFont
-                font.pixelSize: 11
-                font.weight: Font.Black
-                anchors.verticalCenter: parent.verticalCenter
+            width: visible ? 20 : 0
+            height: parent.height
+            anchors.verticalCenter: parent.verticalCenter
+
+            Row {
+                anchors.centerIn: parent
+                spacing: 0
+                Text {
+                    text: ":"
+                    color: Qt.rgba(1, 1, 1, 0.35)
+                    font.family: clockRoot.displayFont
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                    text: clockRoot.displaySeconds.replace(/^:/, "")
+                    color: Theme.network
+                    font.family: clockRoot.displayFont
+                    font.pixelSize: 11
+                    font.weight: Font.Black
+                    font.features: { "tnum": 1 }
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
 

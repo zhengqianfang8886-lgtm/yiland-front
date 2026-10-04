@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/hardware.py (解决神经质误报修复版)
+# 📄 File: services/hardware.py (包含 NumLock 支持)
 # ==========================================
 import os
 import glob
@@ -15,6 +15,7 @@ class HardwareService(QObject):
     brightnessChanged = Signal(int)
     hardwareMuteStateChanged = Signal(bool, bool)
     capsLockChanged = Signal(bool)
+    numLockChanged = Signal(bool)  # 🚀 新增 NumLock 状态信号
     memoryUpdated = Signal(int, str, str)
     osdTriggered = Signal(str, str, int)
 
@@ -35,10 +36,9 @@ class HardwareService(QObject):
         self._last_user_bright_adjust_time = 0.0
         self._last_user_mic_adjust_time = 0.0
 
-        # 🚀 启动防抖标志：开机启动前 2 秒内静默同步，禁止弹出 OSD 吓人
         self._startup_time = time.monotonic()
 
-        # 音量写回防抖定时器
+        # 音量写回防抖
         self._vol_flush_timer = QTimer(self)
         self._vol_flush_timer.setSingleShot(True)
         self._vol_flush_timer.setInterval(25)
@@ -50,16 +50,18 @@ class HardwareService(QObject):
         self._mem_timer.timeout.connect(self._poll_memory_usage)
         self._mem_timer.start()
 
-        # 大写锁监控状态与防抖节流
+        # 锁定键监控（CapsLock & NumLock）
         self._is_caps_lock = False
+        self._is_num_lock = False
         self._caps_led_paths = []
+        self._num_led_paths = []
         self._last_xset_poll_time = 0.0
-        self._refresh_caps_paths()
+        self._refresh_lock_paths()
         
-        self._caps_timer = QTimer(self)
-        self._caps_timer.setInterval(150)
-        self._caps_timer.timeout.connect(self._check_caps_lock)
-        self._caps_timer.start()
+        self._lock_timer = QTimer(self)
+        self._lock_timer.setInterval(150)
+        self._lock_timer.timeout.connect(self._check_lock_keys)
+        self._lock_timer.start()
 
         # 硬件亮度轮询 (2秒周期)
         self._hw_poll_timer = QTimer(self)
@@ -68,16 +70,16 @@ class HardwareService(QObject):
         self._hw_poll_timer.start()
 
     @property
-    def current_volume(self) -> int:
-        return self._cached_volume
+    def current_volume(self) -> int: return self._cached_volume
 
     @property
-    def current_brightness(self) -> int:
-        return self._cached_brightness
+    def current_brightness(self) -> int: return self._cached_brightness
 
     @property
-    def is_caps_lock(self) -> bool:
-        return self._is_caps_lock
+    def is_caps_lock(self) -> bool: return self._is_caps_lock
+
+    @property
+    def is_num_lock(self) -> bool: return self._is_num_lock
 
     def _read_system_brightness(self) -> int:
         try:
@@ -105,11 +107,9 @@ class HardwareService(QObject):
         return 100
 
     def _poll_system_brightness(self):
-        # 用户刚刚主动调节过，跳过轮询比对
         if (time.monotonic() - self._last_user_bright_adjust_time) < 2.0:
             return
         real_val = self._read_system_brightness()
-        # 只有外部亮度发生实质性变动时才更新，轮询绝不发射 OSD 弹窗打扰用户
         if abs(real_val - self._cached_brightness) >= 2:
             self._cached_brightness = real_val
             self.brightnessChanged.emit(self._cached_brightness)
@@ -203,18 +203,13 @@ class HardwareService(QObject):
             self._send_ipc("MIC_MUTE_TOGGLE")
             self._execute_local_mic_mute(self._mic_muted)
 
-    # =========================================================================
-    # 🚀【核心修复】：精准拦截无意义更新，杜绝“神经质”误弹
-    # =========================================================================
     def apply_daemon_volume(self, real_vol: int, is_muted: bool, m_type: str):
-        # 1. 如果用户 0.8s 内刚做过主动操作，不响应后台回流广播，避免回弹
         if (time.monotonic() - self._last_user_vol_adjust_time) <= 0.8:
             return
 
         vol_changed = (abs(self._cached_volume - real_vol) >= 1)
         mute_changed = (self._vol_muted != is_muted)
 
-        # 2. 状态有变才更新内部数据与信号
         if vol_changed:
             self._cached_volume = real_vol
             self.volumeChanged.emit(self._cached_volume)
@@ -223,12 +218,10 @@ class HardwareService(QObject):
             self._vol_muted = is_muted
             self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
 
-        # 3. 核心准则：开机静默期内、或数值/静音状态完全没有发生实质变动，坚决禁止弹窗！
         is_startup = (time.monotonic() - self._startup_time) < 2.5
         if is_startup:
             return
 
-        # 只有在明确是用户/系统改变了音量或静音状态时才触发 OSD
         if m_type == "VOLUME_UPDATE" and (vol_changed or mute_changed):
             icon = "🔇" if is_muted else ("🔈" if real_vol == 0 else "🔊")
             self.osdTriggered.emit(icon, "Volume", real_vol)
@@ -296,47 +289,75 @@ class HardwareService(QObject):
                 subprocess.run(["pamixer", "--default-source", "-m" if is_mute else "-u"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._pool.submit(_run)
 
-    def _refresh_caps_paths(self):
+    def _refresh_lock_paths(self):
         try:
             self._caps_led_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
         except Exception:
             self._caps_led_paths = []
+        try:
+            self._num_led_paths = glob.glob("/sys/class/leds/*numlock*/brightness")
+        except Exception:
+            self._num_led_paths = []
 
-    def _check_caps_lock(self):
-        if not self._caps_led_paths:
-            self._refresh_caps_paths()
+    # 🚀【核心机制】：高频扫描内核 LED 节点，精准检测 CapsLock 与 NumLock
+    def _check_lock_keys(self):
+        if not self._caps_led_paths or not self._num_led_paths:
+            self._refresh_lock_paths()
 
-        active = False
-        found = False
-
+        caps_active = False
+        caps_found = False
         if self._caps_led_paths:
             for p in self._caps_led_paths:
                 try:
                     with open(p, "r") as fp:
                         val = fp.read().strip()
-                        found = True
+                        caps_found = True
                         if val and int(val) > 0:
-                            active = True
+                            caps_active = True
                             break
                 except Exception:
                     continue
 
-        if not found and shutil.which("xset"):
+        num_active = False
+        num_found = False
+        if self._num_led_paths:
+            for p in self._num_led_paths:
+                try:
+                    with open(p, "r") as fp:
+                        val = fp.read().strip()
+                        num_found = True
+                        if val and int(val) > 0:
+                            num_active = True
+                            break
+                except Exception:
+                    continue
+
+        # 降级模式：无 sysfs 节点时走 xset
+        if (not caps_found or not num_found) and shutil.which("xset"):
             now = time.monotonic()
             if (now - self._last_xset_poll_time) >= 1.5:
                 self._last_xset_poll_time = now
                 try:
                     res = subprocess.run(["xset", "q"], capture_output=True, text=True, timeout=0.2)
-                    if "Caps Lock:   on" in res.stdout:
-                        active = True
+                    if not caps_found:
+                        caps_active = ("Caps Lock:   on" in res.stdout)
+                    if not num_found:
+                        num_active = ("Num Lock:    on" in res.stdout)
                 except Exception:
                     pass
             else:
-                active = self._is_caps_lock
+                if not caps_found:
+                    caps_active = self._is_caps_lock
+                if not num_found:
+                    num_active = self._is_num_lock
 
-        if active != self._is_caps_lock:
-            self._is_caps_lock = active
+        if caps_active != self._is_caps_lock:
+            self._is_caps_lock = caps_active
             self.capsLockChanged.emit(self._is_caps_lock)
+
+        if num_active != self._is_num_lock:
+            self._is_num_lock = num_active
+            self.numLockChanged.emit(self._is_num_lock)
 
     def _poll_memory_usage(self):
         try:

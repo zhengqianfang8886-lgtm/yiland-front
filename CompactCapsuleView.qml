@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactCapsuleView.qml
+// 📄 File: CompactCapsuleView.qml (防重影流体图层版)
 // ==========================================
 import QtQuick
 import "compact"
@@ -16,6 +16,7 @@ Item {
 
     property bool showNetSpeed: true
     property bool isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
+    property bool isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
 
     property string wsName: ""
     property int wsCurrent: 1
@@ -42,7 +43,6 @@ Item {
     signal sedentaryRested()
     signal sedentarySnooze()
 
-    // 辅助状态暴露
     readonly property int textRowImplicitWidth: clockView.implicitWidth
     readonly property int wsRowImplicitWidth: wsView.implicitWidth
     readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
@@ -69,8 +69,9 @@ Item {
         id: sedentaryView
         chosenFont: compactRoot.chosenFont
         continuousSitMinutes: compactRoot.continuousSitMinutes
-        visible: compactRoot.activeTransient === "SEDENTARY" && !compactRoot.isCalling && !compactRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
+        visible: opacity > 0.001
+        opacity: (compactRoot.activeTransient === "SEDENTARY" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
         onSedentaryRested: compactRoot.sedentaryRested()
         onSedentarySnooze: compactRoot.sedentarySnooze()
     }
@@ -81,7 +82,9 @@ Item {
         chosenFont: compactRoot.chosenFont
         callTitle: compactRoot.callTitle; callSubtitle: compactRoot.callSubtitle; callAvatar: compactRoot.callAvatar
         isCalling: compactRoot.isCalling
-        visible: compactRoot.isCalling && !compactRoot.isExpanded
+        visible: opacity > 0.001
+        opacity: (compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
     // 3. 桌面切换动画展示条
@@ -91,20 +94,25 @@ Item {
         chosenFont: compactRoot.chosenFont
         wsName: compactRoot.wsName; wsTotal: compactRoot.wsTotal; displayWsNumber: compactRoot.displayWsNumber
         activeSlotIndex: Math.max(0, Math.min(compactRoot.displayWsNumber, compactRoot.wsTotal - 1))
-        visible: compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling && !compactRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
+        visible: opacity > 0.001
+        opacity: (compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
+        scale: opacity > 0.01 ? 1.0 : 0.94
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
-    // 4. 🚀 灵动岛级硬件 OSD 滑轨（完整填充，饱满舒展）
+    // 4. 音量/静音 OSD 滑轨
     CompactOsdView {
         id: osdView
         anchors.fill: parent
         chosenFont: compactRoot.chosenFont
         osdIcon: compactRoot.osdIcon
         osdValue: compactRoot.osdValue
-        visible: compactRoot.activeTransient === "OSD" && !compactRoot.isCalling && !compactRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
-        scale: visible ? 1.0 : 0.94
+        visible: opacity > 0.001
+        opacity: (compactRoot.activeTransient === "OSD" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
+        scale: opacity > 0.01 ? 1.0 : 0.94
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
     // 5. 通知弹窗横幅 (ALERT)
@@ -116,12 +124,14 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // 6. 常态时钟、网络与 ⇪ 大写锁指示行
+    // 6. 常态时钟、网络与 ⇪ 大写锁 / 123 数字锁指示行
     CompactClockView {
         id: clockView
         anchors.centerIn: parent
         chosenFont: compactRoot.chosenFont
-        isCapsLock: compactRoot.isCapsLock; showNetSpeed: compactRoot.showNetSpeed
+        isCapsLock: compactRoot.isCapsLock
+        isNumLock: compactRoot.isNumLock
+        showNetSpeed: compactRoot.showNetSpeed
         downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
         displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
         isClockActive: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling)

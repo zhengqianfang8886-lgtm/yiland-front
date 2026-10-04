@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml
+// 📄 File: Island.qml (磁吸刚体防穿模终极版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -74,8 +74,6 @@ Item {
     }
 
     readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
-    
-    // 🚀 核心互斥判断：严格在无音乐播放时，才激活打字心流岛
     readonly property bool hasTypingIsland: !hasMusicIsland && relay.typingActive && (typeof Config === "undefined" || Config.typingVisualizerEnabled !== false) && !isBlockingTransient
 
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
@@ -258,57 +256,58 @@ Item {
         return left.indexOf(key) !== -1 ? "left" : "right"
     }
 
-    function getLeftIslandX(key, itemWidth) {
+    // =========================================================================
+    // 🚀【核心机制】：计算从胶囊外边缘起算的纯相对位移量（独立于胶囊绝对坐标）
+    // =========================================================================
+    function getLeftIslandOffset(key, itemWidth) {
         var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
-        var currentEdge = capsule.x - root.splitGap
+        var currentOffset = root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
             var item = islandItemMap[k]
             if (!item) continue
             if (k === key) {
-                return Math.max(8, currentEdge - itemWidth)
+                return currentOffset + itemWidth
             }
             if (item.active) {
-                currentEdge -= (item.width + root.splitGap)
+                currentOffset += (item.width + root.splitGap)
             }
         }
-        return Math.max(8, capsule.x - root.splitGap - itemWidth)
+        return currentOffset + itemWidth
     }
 
-    function getRightIslandX(key) {
+    function getRightIslandOffset(key) {
         var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["hardware", "timer", "notification"]
-        var currentEdge = capsule.x + capsule.width + root.splitGap
+        var currentOffset = root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
             var item = islandItemMap[k]
             if (!item) continue
             if (k === key) {
-                return currentEdge
+                return currentOffset
             }
             if (item.active) {
-                currentEdge += (item.width + root.splitGap)
+                currentOffset += (item.width + root.splitGap)
             }
         }
-        return capsule.x + capsule.width + root.splitGap
-    }
-
-    function getIslandX(key, itemWidth) {
-        if (getIslandSide(key) === "left") {
-            return getLeftIslandX(key, itemWidth)
-        } else {
-            return getRightIslandX(key)
-        }
+        return currentOffset
     }
 
     // =========================================================================
-    // 5 大副岛组件
+    // 5 大副岛组件：磁吸刚性紧随胶囊外缘，帧率级推挤零延迟，绝不被压
     // =========================================================================
 
     MemoryBubbleView {
         id: bubbleMemory; z: 1
-        x: root.getIslandX("memory", width)
+        readonly property string side: root.getIslandSide("memory")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("memory", width) : root.getRightIslandOffset("memory")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        // 🚀 核心绑定：直接跟随胶囊边框毫秒级移动，相对位移 currentOffset 平滑滑动
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: root.getIslandSide("memory") === "left" ? Item.Right : Item.Left
+        transformOrigin: side === "left" ? Item.Right : Item.Left
 
         readonly property bool meetsThreshold: {
             if (typeof Config === "undefined" || Config.memoryThreshold === undefined || Config.memoryThreshold <= 0) return true
@@ -323,25 +322,23 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        Behavior on x {
-            enabled: !capsule.isMorphing
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-        }
-
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
-    // 🚀 音乐与打字心流双模音频岛
     MusicBubbleView {
         id: bubbleMusic; z: 1
-        x: root.getIslandX("music", width)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: root.getIslandSide("music") === "left" ? Item.Right : Item.Left
+        readonly property string side: root.getIslandSide("music")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("music", width) : root.getRightIslandOffset("music")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        // 放歌时展示音乐岛，没放歌且打字时展示心流岛
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        y: capsule.y + Math.round((capsule.height - height) / 2)
+        transformOrigin: side === "left" ? Item.Right : Item.Left
+
         active: !root.isBlockingTransient && (root.hasMusicIsland || root.hasTypingIsland)
 
         dominantColor: root.hasMusicIsland ? relay.dominantColor : relay.typingColor
@@ -349,11 +346,6 @@ Item {
         spec2: root.hasMusicIsland ? relay.spec2 : relay.typingSpec2
         spec3: root.hasMusicIsland ? relay.spec3 : relay.typingSpec3
         spec4: root.hasMusicIsland ? relay.spec4 : relay.typingSpec4
-
-        Behavior on x {
-            enabled: !capsule.isMorphing
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
@@ -369,17 +361,18 @@ Item {
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
-        x: root.getIslandX("hardware", width)
+        readonly property string side: root.getIslandSide("hardware")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("hardware", width) : root.getRightIslandOffset("hardware")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: Item.Left
+        transformOrigin: side === "left" ? Item.Right : Item.Left
 
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showHardwareBubble !== false)
 
-        Behavior on x {
-            enabled: !capsule.isMorphing
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-        }
         Behavior on y {
             NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
         }
@@ -420,9 +413,14 @@ Item {
 
     TimerBubbleView {
         id: bubbleTimer; z: 1
-        x: root.getIslandX("timer", width)
+        readonly property string side: root.getIslandSide("timer")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("timer", width) : root.getRightIslandOffset("timer")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: root.getIslandSide("timer") === "left" ? Item.Right : Item.Left
+        transformOrigin: side === "left" ? Item.Right : Item.Left
 
         active: !root.isBlockingTransient && root.hasTimerIsland
         timerText: capsule.timerFormattedText; hasHours: capsule.timerHasHours; chosenFont: root.chosenFont
@@ -432,11 +430,6 @@ Item {
         isRunning: capsule.timerRunning
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
-
-        Behavior on x {
-            enabled: !capsule.isMorphing
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
@@ -448,17 +441,17 @@ Item {
 
     NotificationBubbleView {
         id: bubbleNotif; z: 1
-        x: root.getIslandX("notification", width)
+        readonly property string side: root.getIslandSide("notification")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("notification", width) : root.getRightIslandOffset("notification")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: root.getIslandSide("notification") === "left" ? Item.Right : Item.Left
+        transformOrigin: side === "left" ? Item.Right : Item.Left
 
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
-
-        Behavior on x {
-            enabled: !capsule.isMorphing
-            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad }
-        }
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()

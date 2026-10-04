@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml
+// 📄 File: IslandCapsule.qml (严丝合缝物理胶囊版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -72,7 +72,6 @@ Rectangle {
         clipGlowAnim.restart()
     }
 
-    // 计时器代理
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
     readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
@@ -124,7 +123,9 @@ Rectangle {
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
         if (capsuleRoot.activeTransient === "OSD") return 178
-        return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
+        // 🚀 偶数对齐与下限保障，杜绝奇数抖动
+        var baseW = compactCapsuleView.textRowImplicitWidth + 26
+        return Math.max(106, Math.ceil(baseW / 2) * 2)
     }
 
     readonly property int targetHeight: {
@@ -177,14 +178,14 @@ Rectangle {
         ColorAnimation { duration: Theme.animNormal }
     }
 
+    // 🚀【核心机制】：外壳宽度与内部元素同相 180ms OutCubic，绝不产生内外滞后穿模
     Behavior on width {
         NumberAnimation {
             id: widthNumAnim
             duration: capsuleRoot.isMorphGrowing ?
-                      (capsuleRoot.isJellyStyle ? 260 : 220) :
-                      (capsuleRoot.isCollapsing ? Theme.animFast : 180)
-            easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
+                      (capsuleRoot.isJellyStyle ? 240 : 200) : 180
+            easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
                 if (!running && !heightNumAnim.running) capsuleRoot.onMorphFinished()
@@ -196,10 +197,9 @@ Rectangle {
         NumberAnimation {
             id: heightNumAnim
             duration: capsuleRoot.isMorphGrowing ?
-                      (capsuleRoot.isJellyStyle ? 240 : 200) :
-                      (capsuleRoot.isCollapsing ? Theme.animFast : 160)
-            easing.type: capsuleRoot.isMorphGrowing ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Theme.springOvershootNormal : Theme.springOvershootSubtle) : 1.0
+                      (capsuleRoot.isJellyStyle ? 220 : 190) : 160
+            easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
+            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
                 if (!running && !widthNumAnim.running) capsuleRoot.onMorphFinished()
@@ -227,7 +227,6 @@ Rectangle {
             if (hovered) {
                 capsuleRoot.cancelCollapse()
                 if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
-                    // 🚀 如果禁用了鼠标悬停展开，则不启动展开定时器
                     if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
                         hoverDwellTimer.restart()
                     }
@@ -244,7 +243,6 @@ Rectangle {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
-            // 🚀 双保险拦截：配置关闭时坚决不自动展开
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
 
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded) {
@@ -306,7 +304,6 @@ Rectangle {
             capsuleRoot.cancelCollapse()
             capsuleRoot.scrollSessionLocked = false
             if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
-                // 🚀 配置关闭时，悬停不展开
                 if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
                     hoverDwellTimer.restart()
                 }
@@ -335,8 +332,6 @@ Rectangle {
 
             if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
-            
-            // 🚀 用户主动左键点击：无论 hover 开关如何，都可以直接展开
             capsuleRoot.requestExpand("time")
         }
     }
@@ -362,6 +357,7 @@ Rectangle {
         isExpanded: capsuleRoot.isExpanded
         isCollapsing: capsuleRoot.isCollapsing
         isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
+        isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
 
         wsName: capsuleRoot.wsName
         wsCurrent: capsuleRoot.wsCurrent
