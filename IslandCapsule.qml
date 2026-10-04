@@ -76,14 +76,6 @@ Rectangle {
     }
 
     function printDebugDimensions(tag) {
-        console.log("==================== [ISLAND DEBUG: " + tag + "] ====================")
-        console.log("  [胶囊外壳实际宽度 width]        : " + capsuleRoot.width)
-        console.log("  [胶囊目标计算宽度 targetWidth]  : " + capsuleRoot.targetWidth)
-        console.log("  [时钟计算宽度 currentNormalWidth]: " + capsuleRoot.currentNormalWidth)
-        console.log("  [时钟稳定锚定宽 stableClockWidth]: " + capsuleRoot.stableClockWidth)
-        console.log("  [时钟内容宽度 textRowImplicit]  : " + compactCapsuleView.textRowImplicitWidth)
-        console.log("  [桌面内容宽度 wsRowImplicit]    : " + compactCapsuleView.wsRowImplicitWidth)
-        console.log("================================================================")
     }
 
     SequentialAnimation {
