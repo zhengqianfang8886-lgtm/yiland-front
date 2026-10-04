@@ -8,7 +8,7 @@ Item {
     id: root
     width: 720; height: 270
 
-    readonly property string chosenFont: (typeof Config !== "undefined") ? Config.activeFont : ""
+    readonly property string chosenFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : ((typeof Config !== "undefined") ? Config.activeFont : "")
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
     property bool isIslandHidden: false
@@ -74,10 +74,13 @@ Item {
     }
 
     readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
+    
+    // 🚀 核心互斥判断：严格在无音乐播放时，才激活打字心流岛
+    readonly property bool hasTypingIsland: !hasMusicIsland && relay.typingActive && (typeof Config === "undefined" || Config.typingVisualizerEnabled !== false) && !isBlockingTransient
+
     readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
     readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
 
-    // 🚀【核心入口】：正式注册 process 子进程服务管控直达 Tab
     readonly property var enabledTabs: {
         var list = []
         list.push({ key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) })
@@ -107,7 +110,6 @@ Item {
             list.push({ key: "notification", name: "通知", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) })
         }
 
-        // 🚀 注入子进程服务管控中枢 Tab
         list.push({ key: "process", name: "服务", color: "#a855f7", activeColor: Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.22) })
 
         return list
@@ -332,19 +334,21 @@ Item {
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
+    // 🚀 音乐与打字心流双模音频岛
     MusicBubbleView {
         id: bubbleMusic; z: 1
         x: root.getIslandX("music", width)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: root.getIslandSide("music") === "left" ? Item.Right : Item.Left
 
-        active: !root.isBlockingTransient && root.hasMusicIsland
+        // 放歌时展示音乐岛，没放歌且打字时展示心流岛
+        active: !root.isBlockingTransient && (root.hasMusicIsland || root.hasTypingIsland)
 
-        dominantColor: relay.dominantColor
-        spec1: relay.spec1
-        spec2: relay.spec2
-        spec3: relay.spec3
-        spec4: relay.spec4
+        dominantColor: root.hasMusicIsland ? relay.dominantColor : relay.typingColor
+        spec1: root.hasMusicIsland ? relay.spec1 : relay.typingSpec1
+        spec2: root.hasMusicIsland ? relay.spec2 : relay.typingSpec2
+        spec3: root.hasMusicIsland ? relay.spec3 : relay.typingSpec3
+        spec4: root.hasMusicIsland ? relay.spec4 : relay.typingSpec4
 
         Behavior on x {
             enabled: !capsule.isMorphing
@@ -354,7 +358,11 @@ Item {
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
         onWidthChanged: maskController.notifyIslandMoving()
-        onClicked: root.expandToTab("media")
+        onClicked: {
+            if (root.hasMusicIsland) {
+                root.expandToTab("media")
+            }
+        }
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 

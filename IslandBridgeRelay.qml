@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: IslandBridgeRelay.qml
+// ==========================================
 import QtQuick
 
 Item {
@@ -17,6 +20,15 @@ Item {
     property real spec2: 0.2
     property real spec3: 0.2
     property real spec4: 0.2
+
+    // 🚀 打字心流岛状态数据
+    property bool typingActive: false
+    property color typingColor: "#38bdf8"
+    property real typingSpec1: 0.2
+    property real typingSpec2: 0.2
+    property real typingSpec3: 0.2
+    property real typingSpec4: 0.2
+    property real typingKps: 0.0
 
     // 通话数据
     property bool isCalling: false
@@ -77,6 +89,18 @@ Item {
         function onAudioSpectrumUpdated(s1, s2, s3, s4) {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
         }
+
+        // 🚀 接收打字心流虚拟频谱
+        function onTypingSpectrumUpdated(active, color, s1, s2, s3, s4, kps) {
+            relay.typingActive = active
+            relay.typingColor = color
+            relay.typingSpec1 = s1
+            relay.typingSpec2 = s2
+            relay.typingSpec3 = s3
+            relay.typingSpec4 = s4
+            relay.typingKps = kps
+        }
+
         function onClipboardTriggered(icon, title, detail, ms) {
             relay.triggerClipboard(icon, title, detail, ms)
         }
@@ -90,12 +114,10 @@ Item {
         }
         function onWorkspaceListUpdated(list) { relay.wsList = list }
 
-        // 🚀 核心修复：普通 Alert 仅做通知展示，绝不可触碰 isCalling 状态机！
         function onAlertTriggered(icon, t, sub, ms, avatar) {
             relay.triggerAlert(icon, t, sub, ms, avatar)
         }
 
-        // 🚀 核心修复：只有真正的来电专属通道才能激活 isCalling
         function onCallIncomingTriggered(title, sub, avatar) {
             relay.isCalling = true
             relay.callTitle = title || "Teams 来电"

@@ -17,6 +17,7 @@ from services import (
     HardwareService,
     MediaService,
     WindowManagerService,
+    TypingFlowService,
     get_world_time,
     get_tz_offset_str,
     process_notification_avatar,
@@ -32,6 +33,9 @@ class IslandBridge(QObject):
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
+
+    # 🚀 打字心流律动信号 (active, color, s1, s2, s3, s4, kps)
+    typingSpectrumUpdated = Signal(bool, str, float, float, float, float, float)
 
     # 硬件、OSD、剪贴板与状态机
     osdTriggered = Signal(str, str, int)
@@ -67,7 +71,7 @@ class IslandBridge(QObject):
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
 
-        # 🚀 子进程管控服务与数据模型初始化
+        # 子进程管控服务与数据模型初始化
         self.proc_mgr = ProcessManagerService(self)
         self._proc_model = ProcessListModel(self.proc_mgr, self)
 
@@ -80,13 +84,15 @@ class IslandBridge(QObject):
         self.media = MediaService(self._pool, self.sendIpcCmd, self)
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
 
+        # 🚀 启动打字心流频谱服务
+        self.typing_flow = TypingFlowService(self._pool, self.config, self)
+
         self._bind_service_signals()
 
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
     def _bind_service_signals(self):
-        # 硬件信号连线
         self.hardware.volumeChanged.connect(self.volumeChanged)
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
@@ -94,30 +100,35 @@ class IslandBridge(QObject):
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
         self.hardware.osdTriggered.connect(self.osdTriggered)
 
-        # 媒体信号连线
-        self.media.mediaUpdated.connect(self.mediaUpdated)
+        self.media.mediaUpdated.connect(self._on_media_state_changed)
         self.media.progressUpdated.connect(self.progressUpdated)
         self.media.audioSpectrumUpdated.connect(self.audioSpectrumUpdated)
         self.media.dominantColorUpdated.connect(self.dominantColorUpdated)
 
-        # 窗口与剪贴板信号连线
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
 
+        # 🚀 转发打字心流频谱
+        self.typing_flow.typingUpdated.connect(self.typingSpectrumUpdated)
+
+    def _on_media_state_changed(self, title, artist, status, art, pos, dur):
+        # 传递给前端
+        self.mediaUpdated.emit(title, artist, status, art, pos, dur)
+        # 🚀 强互斥：一旦音乐播放（Playing），立即通知打字服务闭嘴并隐退
+        is_playing = (status == "Playing")
+        self.typing_flow.set_media_playing(is_playing)
+
     def cleanup(self):
+        self.typing_flow.cleanup()
         self.media.cleanup()
         self.proc_mgr.cleanup()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    # =========================================================================
-    # QML 响应式属性与模型
-    # =========================================================================
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
     @Property(QObject, constant=True)
     def bluetoothModel(self): return self._bt_model
 
-    # 🚀 暴露子进程服务模型
     @Property(QObject, constant=True)
     def processModel(self): return self._proc_model
 
@@ -130,40 +141,29 @@ class IslandBridge(QObject):
     @Property(bool, notify=capsLockChanged)
     def isCapsLock(self): return self.hardware.is_caps_lock
 
-    # =========================================================================
-    # 🚀 子进程与任务管控槽函数
-    # =========================================================================
     @Slot(str)
-    def startProcessTask(self, tid: str):
-        self.proc_mgr.start_task(tid)
+    def startProcessTask(self, tid: str): self.proc_mgr.start_task(tid)
 
     @Slot(str)
-    def stopProcessTask(self, tid: str):
-        self.proc_mgr.stop_task(tid)
+    def stopProcessTask(self, tid: str): self.proc_mgr.stop_task(tid)
 
     @Slot()
-    def startAllProcessTasks(self):
-        self.proc_mgr.start_all()
+    def startAllProcessTasks(self): self.proc_mgr.start_all()
 
     @Slot()
-    def stopAllProcessTasks(self):
-        self.proc_mgr.stop_all()
+    def stopAllProcessTasks(self): self.proc_mgr.stop_all()
 
     @Slot(str, str, str)
-    def addProcessTask(self, name: str, cwd: str, cmd: str):
-        self.proc_mgr.add_task(name, cwd, cmd)
+    def addProcessTask(self, name: str, cwd: str, cmd: str): self.proc_mgr.add_task(name, cwd, cmd)
 
     @Slot(str, str, str, str)
-    def updateProcessTask(self, tid: str, name: str, cwd: str, cmd: str):
-        self.proc_mgr.update_task(tid, name, cwd, cmd)
+    def updateProcessTask(self, tid: str, name: str, cwd: str, cmd: str): self.proc_mgr.update_task(tid, name, cwd, cmd)
 
     @Slot(str)
-    def deleteProcessTask(self, tid: str):
-        self.proc_mgr.delete_task(tid)
+    def deleteProcessTask(self, tid: str): self.proc_mgr.delete_task(tid)
 
     @Slot(result=str)
     def selectLocalDirectory(self) -> str:
-        """安全唤起文件管理器选择工作目录，优先探测系统原生对话框，杜绝 QGuiApplication 下崩溃"""
         try:
             if shutil.which("zenity"):
                 res = subprocess.run(
@@ -190,9 +190,6 @@ class IslandBridge(QObject):
             pass
         return ""
 
-    # =========================================================================
-    # QML 硬件与窗口操作槽函数
-    # =========================================================================
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int): self.hardware.adjust_hardware(mode, delta)
 
@@ -222,12 +219,9 @@ class IslandBridge(QObject):
 
     @Slot()
     def requestWindowFocus(self):
-        """强制向操作系统申请键盘输入焦点，解决悬浮窗无法打字的问题"""
         self.view.show()
         self.view.raise_()
         self.view.requestActivate()
-        
-        # 兼容 Linux X11 桌面环境：利用 xdotool 强制切换输入流
         try:
             wid = int(self.view.winId())
             if os.environ.get("DISPLAY") and shutil.which("xdotool"):
@@ -244,9 +238,6 @@ class IslandBridge(QObject):
         if hasattr(self.view, "engine") and hasattr(self.view.engine(), "trimComponentCache"):
             self.view.engine().trimComponentCache()
 
-    # =========================================================================
-    # IPC 指令发送与外部系统调度
-    # =========================================================================
     def set_ipc_sender(self, sender_func): self._ipc_sender = sender_func
 
     def sendIpcCmd(self, action: str, **kwargs):
@@ -304,9 +295,6 @@ class IslandBridge(QObject):
     @Slot()
     def openBluetoothSettings(self): self.wm.open_bluetooth_settings()
 
-    # =========================================================================
-    # 后台 Daemon 消息解析与分派
-    # =========================================================================
     def post_daemon_message(self, msg_type: str, data_json_str: str):
         self._sig_daemon_payload.emit(msg_type, data_json_str)
 

@@ -14,7 +14,6 @@ Rectangle {
     property bool isCollapsing: false
     property var enabledTabs: []
 
-    // 全岛隐藏状态
     property bool isIslandHidden: false
 
     property alias expandedTab: expandedCardView.expandedTab
@@ -115,9 +114,6 @@ Rectangle {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // =========================================================================
-    // 🚀【核心修复】：为 OSD 设定 178px 黄金展开宽度，彻底消除狭窄挤死感
-    // =========================================================================
     readonly property int targetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
@@ -127,7 +123,7 @@ Rectangle {
             return Math.min(420, Math.max(160, dynamicW))
         }
         if (capsuleRoot.activeTransient === "WORKSPACE") return 184
-        if (capsuleRoot.activeTransient === "OSD") return 178 // 🌟 黄金比例舒展宽度
+        if (capsuleRoot.activeTransient === "OSD") return 178
         return Math.max(106, compactCapsuleView.textRowImplicitWidth + 26)
     }
 
@@ -140,7 +136,6 @@ Rectangle {
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
-    // 🚀 OSD 触发时激活苹果流体回弹物理动效
     readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE") || (activeTransient === "OSD")
     readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
 
@@ -231,7 +226,12 @@ Rectangle {
         onHoveredChanged: {
             if (hovered) {
                 capsuleRoot.cancelCollapse()
-                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) hoverDwellTimer.restart()
+                if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
+                    // 🚀 如果禁用了鼠标悬停展开，则不启动展开定时器
+                    if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
+                        hoverDwellTimer.restart()
+                    }
+                }
             } else {
                 hoverDwellTimer.stop()
                 capsuleRoot.scrollSessionLocked = false
@@ -244,6 +244,9 @@ Rectangle {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
+            // 🚀 双保险拦截：配置关闭时坚决不自动展开
+            if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
+
             if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded) {
                 if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
                 else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
@@ -302,7 +305,12 @@ Rectangle {
         onEntered: {
             capsuleRoot.cancelCollapse()
             capsuleRoot.scrollSessionLocked = false
-            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) hoverDwellTimer.restart()
+            if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
+                // 🚀 配置关闭时，悬停不展开
+                if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
+                    hoverDwellTimer.restart()
+                }
+            }
         }
         onExited: {
             hoverDwellTimer.stop()
@@ -327,6 +335,8 @@ Rectangle {
 
             if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }
+            
+            // 🚀 用户主动左键点击：无论 hover 开关如何，都可以直接展开
             capsuleRoot.requestExpand("time")
         }
     }

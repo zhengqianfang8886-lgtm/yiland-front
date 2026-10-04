@@ -1,3 +1,6 @@
+# ==========================================
+# 📄 File: config.py
+# ==========================================
 import os
 import json
 from PySide6.QtCore import QObject, Signal, Property
@@ -26,6 +29,9 @@ class ConfigManager(QObject):
     animStyleChanged = Signal(str)
 
     hoverDwellTimeChanged = Signal(int)
+    hoverExpandEnabledChanged = Signal(bool)
+    typingVisualizerEnabledChanged = Signal(bool)
+
     expandedTopMarginChanged = Signal(int)
     capsuleTopMarginChanged = Signal(int)
 
@@ -70,6 +76,9 @@ class ConfigManager(QObject):
         self._animStyle = "precision"
 
         self._hoverDwellTime = 240
+        self._hoverExpandEnabled = True
+        self._typingVisualizerEnabled = True
+
         self._expandedTopMargin = 16
         self._capsuleTopMargin = 6
 
@@ -103,14 +112,12 @@ class ConfigManager(QObject):
         self._world_cities = self._load_world_cities()
         self.load()
 
-    # 🚀【核心新增】：全局普通文本动态字体，选具体字体立刻返回，选默认则返回空字符串交由系统
     @Property(str, notify=fontFamilyChanged)
     def activeFont(self):
         if not self._fontFamily or "系统默认" in self._fontFamily:
             return ""
         return self._fontFamily
 
-    # 🚀【核心新增】：全局时间与数字动态字体，选具体字体立刻全量换肤，选默认才回退等宽
     @Property(str, notify=fontFamilyChanged)
     def numberFont(self):
         if not self._fontFamily or "系统默认" in self._fontFamily:
@@ -170,6 +177,9 @@ class ConfigManager(QObject):
                 self._animStyle = data.get("animStyle", "precision")
 
                 self._hoverDwellTime = data.get("hoverDwellTime", 240)
+                self._hoverExpandEnabled = data.get("hoverExpandEnabled", True)
+                self._typingVisualizerEnabled = data.get("typingVisualizerEnabled", True)
+
                 self._expandedTopMargin = data.get("expandedTopMargin", 16)
                 self._capsuleTopMargin = data.get("capsuleTopMargin", 6)
 
@@ -220,6 +230,9 @@ class ConfigManager(QObject):
                     "splitGap": self._splitGap,
                     "animStyle": self._animStyle,
                     "hoverDwellTime": self._hoverDwellTime,
+                    "hoverExpandEnabled": self._hoverExpandEnabled,
+                    "typingVisualizerEnabled": self._typingVisualizerEnabled,
+
                     "expandedTopMargin": self._expandedTopMargin,
                     "capsuleTopMargin": self._capsuleTopMargin,
                     "showNetSpeed": self._showNetSpeed,
@@ -251,6 +264,22 @@ class ConfigManager(QObject):
             os.replace(tmp_file, CONFIG_FILE)
         except Exception as e:
             app_logger.warning(f"保存配置失败: {e}")
+
+    # 🚀 悬停展开灵动岛开关
+    @Property(bool, notify=hoverExpandEnabledChanged)
+    def hoverExpandEnabled(self): return self._hoverExpandEnabled
+    @hoverExpandEnabled.setter
+    def hoverExpandEnabled(self, val):
+        if self._hoverExpandEnabled != val:
+            self._hoverExpandEnabled = bool(val); self.save(); self.hoverExpandEnabledChanged.emit(self._hoverExpandEnabled)
+
+    # 🚀 打字心流岛功能开关
+    @Property(bool, notify=typingVisualizerEnabledChanged)
+    def typingVisualizerEnabled(self): return self._typingVisualizerEnabled
+    @typingVisualizerEnabled.setter
+    def typingVisualizerEnabled(self, val):
+        if self._typingVisualizerEnabled != val:
+            self._typingVisualizerEnabled = bool(val); self.save(); self.typingVisualizerEnabledChanged.emit(self._typingVisualizerEnabled)
 
     @Property(int, notify=autoHideDurationSecondsChanged)
     def autoHideDurationSeconds(self): return self._autoHideDurationSeconds
