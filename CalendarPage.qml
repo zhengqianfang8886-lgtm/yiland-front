@@ -1,191 +1,252 @@
+// ==========================================
+// 📄 File: CalendarPage.qml (集成返回今天业务流)
+// ==========================================
 import QtQuick
+import QtQuick.LocalStorage
+import "calendar"
+import "calendar/HabitStorage.js" as HabitStorage
 
-Item {
+Rectangle {
     id: calRoot
+    anchors.fill: parent
+    color: "#14141a"
+    radius: Theme.radiusCard
 
     property string chosenFont: ""
     readonly property string effectiveFont: (chosenFont !== "") ? chosenFont : Theme.defaultFontFamily
     readonly property string effectiveMonoFont: Theme.defaultMonoFamily
 
-    property int calYear: new Date().getFullYear()
-    property int calMonth: new Date().getMonth()
+    // 日期状态
+    readonly property var todayDate: new Date()
+    property int calYear: todayDate.getFullYear()
+    property int calMonth: todayDate.getMonth()
+    property int selYear: todayDate.getFullYear()
+    property int selMonth: todayDate.getMonth()
+    property int selDay: todayDate.getDate()
+
+    // 判断当前是否完全处于“今天且当月”
+    readonly property bool isAlreadyToday: (selYear === todayDate.getFullYear() &&
+                                           selMonth === todayDate.getMonth() &&
+                                           selDay === todayDate.getDate() &&
+                                           calYear === todayDate.getFullYear() &&
+                                           calMonth === todayDate.getMonth())
+
+    // 事项状态
+    property var habitsList: []
+    property int currentHabitIndex: 0
+    property bool isManagingHabits: false
+    readonly property var currentHabit: (habitsList.length > 0 && currentHabitIndex < habitsList.length) ? habitsList[currentHabitIndex] : null
+    property var checkRecords: ({})
+
+    function formatDateStr(y, m, d) {
+        var mStr = (m + 1 < 10 ? "0" : "") + (m + 1);
+        var dStr = (d < 10 ? "0" : "") + d;
+        return y + "-" + mStr + "-" + dStr;
+    }
+
+    readonly property string selectedDateStr: formatDateStr(selYear, selMonth, selDay)
+    readonly property bool isSelectedDayDone: checkRecords[selectedDateStr] === true
+
+    readonly property string selWeekdayStr: {
+        var days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+        return days[new Date(selYear, selMonth, selDay).getDay()];
+    }
+
+    function reloadHabits() {
+        habitsList = HabitStorage.loadHabits(LocalStorage);
+        if (currentHabitIndex >= habitsList.length) {
+            currentHabitIndex = Math.max(0, habitsList.length - 1);
+        }
+        reloadMonthRecords();
+    }
+
+    function reloadMonthRecords() {
+        if (!currentHabit) { checkRecords = {}; return; }
+        checkRecords = HabitStorage.getMonthRecords(LocalStorage, currentHabit.id, calYear, calMonth);
+    }
+
+    function toggleSelectedDay() {
+        if (!currentHabit) { isManagingHabits = true; return; }
+        HabitStorage.toggleRecord(LocalStorage, currentHabit.id, selectedDateStr);
+        reloadMonthRecords();
+    }
+
+    function selectDay(item) {
+        if (!item) return;
+        selYear = item.year;
+        selMonth = item.month;
+        selDay = item.day;
+        if (item.month !== calMonth || item.year !== calYear) {
+            calYear = item.year;
+            calMonth = item.month;
+            updateCalGrid();
+        }
+    }
+
+    function quickToggleDay(item) {
+        selectDay(item);
+        toggleSelectedDay();
+    }
+
+    // 🚀 一键返回今天函数
+    function gotoToday() {
+        selYear = todayDate.getFullYear();
+        selMonth = todayDate.getMonth();
+        selDay = todayDate.getDate();
+        calYear = todayDate.getFullYear();
+        calMonth = todayDate.getMonth();
+        updateCalGrid();
+    }
+
+    function gotoPrevMonth() {
+        if (calMonth === 0) { calMonth = 11; calYear--; }
+        else { calMonth--; }
+        updateCalGrid();
+    }
+
+    function gotoNextMonth() {
+        if (calMonth === 11) { calMonth = 0; calYear++; }
+        else { calMonth++; }
+        updateCalGrid();
+    }
+
+    property real wheelAccum: 0
+    Timer { id: wheelResetTimer; interval: 260; onTriggered: calRoot.wheelAccum = 0 }
+    function handleWheelStep(deltaY) {
+        wheelResetTimer.restart();
+        calRoot.wheelAccum += deltaY;
+        if (Math.abs(calRoot.wheelAccum) >= 80) {
+            if (calRoot.wheelAccum > 0) gotoPrevMonth();
+            else gotoNextMonth();
+            calRoot.wheelAccum = 0;
+        }
+    }
+
     property var calGridModel: []
-
     function updateCalGrid() {
-        var firstDayIndex = new Date(calYear, calMonth, 1).getDay()
-        var offset = (firstDayIndex === 0) ? 6 : (firstDayIndex - 1)
-        var daysInCurrentMonth = new Date(calYear, calMonth + 1, 0).getDate()
-        var daysInPrevMonth = new Date(calYear, calMonth, 0).getDate()
+        var firstIdx = new Date(calYear, calMonth, 1).getDay();
+        var offset = (firstIdx === 0) ? 6 : (firstIdx - 1);
+        var daysInCurrent = new Date(calYear, calMonth + 1, 0).getDate();
+        var daysInPrev = new Date(calYear, calMonth, 0).getDate();
+        var grid = [];
 
-        var today = new Date()
-        var isCurrentYearMonth = (today.getFullYear() === calYear && today.getMonth() === calMonth)
-        var todayDate = today.getDate()
-
-        var grid = []
         for (var p = offset - 1; p >= 0; p--) {
-            grid.push({ day: daysInPrevMonth - p, isCurrentMonth: false, isToday: false })
+            var prevD = daysInPrev - p;
+            var prevM = calMonth === 0 ? 11 : calMonth - 1;
+            var prevY = calMonth === 0 ? calYear - 1 : calYear;
+            grid.push({ year: prevY, month: prevM, day: prevD, isCurrentMonth: false, isToday: false });
         }
-        for (var d = 1; d <= daysInCurrentMonth; d++) {
-            grid.push({ day: d, isCurrentMonth: true, isToday: (isCurrentYearMonth && d === todayDate) })
+        for (var d = 1; d <= daysInCurrent; d++) {
+            grid.push({
+                year: calYear, month: calMonth, day: d, isCurrentMonth: true,
+                isToday: (todayDate.getFullYear() === calYear && todayDate.getMonth() === calMonth && todayDate.getDate() === d)
+            });
         }
-        var totalCells = grid.length > 35 ? 42 : 35
-        var remaining = totalCells - grid.length
-        for (var n = 1; n <= remaining; n++) {
-            grid.push({ day: n, isCurrentMonth: false, isToday: false })
+        var total = grid.length > 35 ? 42 : 35;
+        var rem = total - grid.length;
+        for (var n = 1; n <= rem; n++) {
+            var nextM = calMonth === 11 ? 0 : calMonth + 1;
+            var nextY = calMonth === 11 ? calYear + 1 : calYear;
+            grid.push({ year: nextY, month: nextM, day: n, isCurrentMonth: false, isToday: false });
         }
-        calRoot.calGridModel = grid
+        calGridModel = grid;
+        reloadMonthRecords();
     }
 
-    function prevCalMonth() {
-        if (calMonth === 0) { calMonth = 11; calYear-- } else { calMonth-- }
-        updateCalGrid()
+    readonly property int completedCount: {
+        var cnt = 0;
+        for (var k in checkRecords) { if (checkRecords[k]) cnt++; }
+        return cnt;
     }
-    function nextCalMonth() {
-        if (calMonth === 11) { calMonth = 0; calYear++ } else { calMonth++ }
-        updateCalGrid()
-    }
-    function resetToToday() {
-        var now = new Date()
-        calYear = now.getFullYear(); calMonth = now.getMonth()
-        updateCalGrid()
-    }
+    readonly property int daysInMonth: new Date(calYear, calMonth + 1, 0).getDate()
 
-    Component.onCompleted: updateCalGrid()
+    Component.onCompleted: {
+        reloadHabits();
+        updateCalGrid();
+    }
 
     Row {
         anchors.fill: parent
-        spacing: 16
+        spacing: 10
 
-        // 左侧 Bento "TODAY" 卡片
+        // 1. 左侧 Bento 看板
         Rectangle {
-            width: 126; height: parent.height; radius: 16
-            color: Qt.rgba(1, 1, 1, 0.04)
+            width: 128
+            height: parent.height
+            radius: Theme.radiusCard
+            color: "#181820"
             border.color: Qt.rgba(1, 1, 1, 0.08)
+            border.width: 1
+            clip: true
 
-            Column {
-                anchors.centerIn: parent; spacing: 4
-
-                Row {
-                    spacing: 5; anchors.horizontalCenter: parent.horizontalCenter
-                    Rectangle { width: 6; height: 6; radius: 3; color: "#10b981"; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "TODAY"; font.pixelSize: 9; font.weight: Font.Black; color: "#10b981"; font.family: calRoot.effectiveFont; font.letterSpacing: 0.8 }
+            CalendarDashboard {
+                anchors.fill: parent
+                currentHabit: calRoot.currentHabit
+                effectiveFont: calRoot.effectiveFont
+                effectiveMonoFont: calRoot.effectiveMonoFont
+                completedCount: calRoot.completedCount
+                daysInMonth: calRoot.daysInMonth
+                selMonth: calRoot.selMonth
+                selDay: calRoot.selDay
+                selWeekdayStr: calRoot.selWeekdayStr
+                isSelectedDayDone: calRoot.isSelectedDayDone
+                isAlreadyToday: calRoot.isAlreadyToday
+                visible: !calRoot.isManagingHabits
+                onOpenHabitManager: {
+                    calRoot.isManagingHabits = true;
+                    drawer.focusInput();
                 }
+                onToggleSelectedDayCheck: calRoot.toggleSelectedDay()
+                onResetTodayRequested: calRoot.gotoToday()
+            }
 
-                Text {
-                    text: new Date().getDate()
-                    color: "white"; font.pixelSize: 52; font.weight: Font.Black
-                    font.family: calRoot.effectiveMonoFont
-                    anchors.horizontalCenter: parent.horizontalCenter
+            CalendarManagerDrawer {
+                id: drawer
+                visible: calRoot.isManagingHabits
+                effectiveFont: calRoot.effectiveFont
+                habitsList: calRoot.habitsList
+                currentHabitIndex: calRoot.currentHabitIndex
+                onCloseRequested: calRoot.isManagingHabits = false
+                onHabitCreated: (name) => {
+                    calRoot.habitsList = HabitStorage.addHabit(LocalStorage, name, "📌");
+                    calRoot.currentHabitIndex = calRoot.habitsList.length - 1;
+                    calRoot.reloadMonthRecords();
                 }
-
-                Text {
-                    text: {
-                        var days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-                        var d = new Date()
-                        return days[d.getDay()] + " · " + (d.getMonth() + 1) + "月"
-                    }
-                    color: Qt.rgba(1, 1, 1, 0.75); font.pixelSize: 12; font.weight: Font.Bold
-                    font.family: calRoot.effectiveFont
-                    anchors.horizontalCenter: parent.horizontalCenter
+                onHabitDeleted: (id) => {
+                    calRoot.habitsList = HabitStorage.deleteHabit(LocalStorage, id);
+                    calRoot.currentHabitIndex = Math.max(0, calRoot.currentHabitIndex - 1);
+                    calRoot.reloadMonthRecords();
                 }
-
-                Item { height: 4 }
-
-                Rectangle {
-                    width: 82; height: 22; radius: 11
-                    color: resetBtnArea.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
-                    scale: resetBtnArea.pressed ? 0.94 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                    anchors.horizontalCenter: parent.horizontalCenter
-
-                    Text { anchors.centerIn: parent; text: "回到今天"; color: Qt.rgba(1, 1, 1, 0.9); font.pixelSize: 10; font.family: calRoot.effectiveFont; font.weight: Font.Bold }
-                    MouseArea {
-                        id: resetBtnArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: calRoot.resetToToday()
-                    }
+                onHabitSelected: (idx) => {
+                    calRoot.currentHabitIndex = idx;
+                    calRoot.reloadMonthRecords();
+                    calRoot.isManagingHabits = false;
                 }
             }
         }
 
-        // 右侧日历网格
-        Column {
-            width: parent.width - 142; height: parent.height
-            spacing: 6
+        // 2. 右侧全景月历
+        CalendarMonthView {
+            width: parent.width - 138
+            height: parent.height
+            calYear: calRoot.calYear
+            calMonth: calRoot.calMonth
+            currentHabit: calRoot.currentHabit
+            calGridModel: calRoot.calGridModel
+            checkRecords: calRoot.checkRecords
+            effectiveFont: calRoot.effectiveFont
+            effectiveMonoFont: calRoot.effectiveMonoFont
+            selYear: calRoot.selYear
+            selMonth: calRoot.selMonth
+            selDay: calRoot.selDay
+            isAlreadyToday: calRoot.isAlreadyToday
 
-            Item {
-                width: parent.width; height: 22
-                Text {
-                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                    text: calRoot.calYear + "年 " + (calRoot.calMonth + 1) + "月"
-                    color: "white"; font.pixelSize: 14; font.weight: Font.Black; font.family: calRoot.effectiveFont
-                }
-                Row {
-                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                    spacing: 12
-                    Rectangle {
-                        width: 22; height: 22; radius: 11
-                        color: prevMonthArea.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
-                        scale: prevMonthArea.pressed ? 0.9 : 1.0
-                        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        Text { anchors.centerIn: parent; text: "‹"; font.pixelSize: 16; font.weight: Font.Bold; color: prevMonthArea.containsMouse ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.7) }
-                        MouseArea { id: prevMonthArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: calRoot.prevCalMonth() }
-                    }
-                    Rectangle {
-                        width: 22; height: 22; radius: 11
-                        color: nextMonthArea.containsMouse ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
-                        scale: nextMonthArea.pressed ? 0.9 : 1.0
-                        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
-                        Behavior on color { ColorAnimation { duration: 120 } }
-                        Text { anchors.centerIn: parent; text: "›"; font.pixelSize: 16; font.weight: Font.Bold; color: nextMonthArea.containsMouse ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.7) }
-                        MouseArea { id: nextMonthArea; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: calRoot.nextCalMonth() }
-                    }
-                }
-            }
-
-            Row {
-                width: parent.width
-                Repeater {
-                    model: ["一", "二", "三", "四", "五", "六", "日"]
-                    Item {
-                        width: parent.width / 7; height: 16
-                        Text {
-                            anchors.centerIn: parent
-                            text: modelData; font.pixelSize: 11; font.weight: Font.Bold
-                            color: (index >= 5) ? Qt.rgba(244, 114, 182, 0.85) : Qt.rgba(1, 1, 1, 0.45)
-                            font.family: calRoot.effectiveFont
-                        }
-                    }
-                }
-            }
-
-            Grid {
-                columns: 7; width: parent.width; spacing: 0
-                Repeater {
-                    model: calRoot.calGridModel
-                    Item {
-                        width: Math.floor(parent.width / 7); height: 22
-
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: 22; height: 22; radius: 11
-                            color: modelData.isToday ? "#10b981" : (cellArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent")
-                            Behavior on color { ColorAnimation { duration: 120 } }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: modelData.day; font.pixelSize: 12
-                            font.weight: modelData.isToday ? Font.Black : Font.DemiBold
-                            color: modelData.isToday ? "white" : (modelData.isCurrentMonth ? Qt.rgba(1, 1, 1, 0.95) : Qt.rgba(1, 1, 1, 0.25))
-                            font.family: calRoot.effectiveMonoFont
-                        }
-
-                        MouseArea { id: cellArea; anchors.fill: parent; hoverEnabled: true }
-                    }
-                }
-            }
+            onPrevMonthRequested: calRoot.gotoPrevMonth()
+            onNextMonthRequested: calRoot.gotoNextMonth()
+            onTodayRequested: calRoot.gotoToday()
+            onDaySelected: (item) => calRoot.selectDay(item)
+            onDayToggled: (item) => calRoot.quickToggleDay(item)
+            onWheelFlipped: (deltaY) => calRoot.handleWheelStep(deltaY)
         }
     }
 }

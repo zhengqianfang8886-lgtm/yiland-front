@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (防震感锁定版)
+// 📄 File: IslandCapsule.qml (34px 黄金对齐·彻底平滑版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -7,6 +7,9 @@ import QtQuick.Controls
 Rectangle {
     id: capsuleRoot
 
+    // =========================================================================
+    // 1. 外部接口与全量业务属性（完整保留）
+    // =========================================================================
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
 
@@ -62,22 +65,6 @@ Rectangle {
 
     property real clipGlowOpacity: 0.0
 
-    // =========================================================================
-    // 🔍 诊断日志模块（保留）
-    // =========================================================================
-    onActiveTransientChanged: {
-        printDebugDimensions("TRANSIENT_CHANGE -> " + (activeTransient || "NORMAL_CLOCK"))
-    }
-
-    onWidthChanged: {
-        if (width === targetWidth) {
-            printDebugDimensions("WIDTH_SETTLED")
-        }
-    }
-
-    function printDebugDimensions(tag) {
-    }
-
     SequentialAnimation {
         id: clipGlowAnim
         NumberAnimation { target: capsuleRoot; property: "clipGlowOpacity"; to: 0.95; duration: Theme.animInstant; easing.type: Easing.OutQuad }
@@ -122,20 +109,17 @@ Rectangle {
     }
 
     // =========================================================================
-    // 🚀【核心机制】：时钟稳定锚定宽（彻底杜绝坍塌抽搐）
+    // 2. 宽度与几何规格
     // =========================================================================
     readonly property int currentNormalWidth: {
         var baseW = compactCapsuleView.textRowImplicitWidth + 26
         return Math.max(106, Math.ceil(baseW / 2) * 2)
     }
 
-    // 锚定变量：默认锚定 186
     property int stableClockWidth: 186
-
-    // 🚀【防震感核心】：仅在完全稳定且宽度大于 170 的常态下才允许更新，绝不被淡出时的 139/166 污染！
     onCurrentNormalWidthChanged: {
         if (activeTransient === "" && !isExpanded && !isCalling && currentNormalWidth >= 170) {
-            stableClockWidth = currentNormalWidth
+            stableClockWidth = Math.round(currentNormalWidth)
         }
     }
 
@@ -145,27 +129,19 @@ Rectangle {
         if (capsuleRoot.activeTransient === "SEDENTARY") return 520
         if (capsuleRoot.activeTransient === "ALERT") {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 26
-            return Math.min(420, Math.max(160, dynamicW))
+            return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
-
-        // 🚀【绝对防震】：桌面切换与时钟常态共享绝对平稳锚定宽（186），差值恒为 0！
-        if (capsuleRoot.activeTransient === "WORKSPACE") {
-            return stableClockWidth
-        }
-
-        if (capsuleRoot.activeTransient === "OSD") {
-            return Math.max(stableClockWidth, 184)
-        }
-
-        // 🚀 常态下也通过 Math.max 防止任何淡入期的毫秒级向内坍塌
+        if (capsuleRoot.activeTransient === "WORKSPACE") return stableClockWidth
+        if (capsuleRoot.activeTransient === "OSD") return Math.max(stableClockWidth, 184)
         return Math.max(stableClockWidth, currentNormalWidth)
     }
 
+    // 🌟 与所有副岛统一规格：常态高度 34px
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "SEDENTARY") return 108
         if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 64 : 48
-        return capsuleRoot.isCalling ? 44 : 36
+        return capsuleRoot.isCalling ? 44 : 34
     }
 
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
@@ -176,7 +152,7 @@ Rectangle {
     z: 2
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
-    anchors.horizontalCenterOffset: Config.offsetX
+    anchors.horizontalCenterOffset: Math.round(Config.offsetX)
     Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
 
     anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 6)
@@ -190,7 +166,9 @@ Rectangle {
 
     width: targetWidth
     height: targetHeight
-    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : Math.min(height / 2, 27))))
+
+    // 🌟 与音乐岛完全同源：常态下 17px 半径（34 / 2），严格真胶囊曲线
+    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
     clip: false
 
     opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
@@ -206,25 +184,23 @@ Rectangle {
     smooth: true
     color: Theme.bgCapsule
 
+    border.width: 1.8
     border.color: clipGlowOpacity > 0.01 ?
-                  Qt.rgba(1.0, 1.0, 1.0, 0.35 + clipGlowOpacity * 0.65) :
-                  (isCalling ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.85) :
-                  ((activeTransient === "SEDENTARY") ? Qt.rgba(52, 211, 153, 0.8) :
-                  ((activeTransient === "ALERT") ? Qt.rgba(compactCapsuleView.alertThemeColor.r, compactCapsuleView.alertThemeColor.g, compactCapsuleView.alertThemeColor.b, 0.7) :
-                  ((activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.75) :
-                  ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.55) :
-                  ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.32) : Qt.rgba(1, 1, 1, 0.18)))))))
-
-    border.width: 3
+                  Qt.rgba(1.0, 1.0, 1.0, 0.70 + clipGlowOpacity * 0.30) :
+                  (isCalling ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.95) :
+                  ((activeTransient === "SEDENTARY") ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.95) :
+                  ((activeTransient === "ALERT") ? Qt.rgba(compactCapsuleView.alertThemeColor.r, compactCapsuleView.alertThemeColor.g, compactCapsuleView.alertThemeColor.b, 0.92) :
+                  ((activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.95) :
+                  ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.92) :
+                  ((isMouseOver || isExpanded) ? Qt.rgba(1, 1, 1, 0.42) : Qt.rgba(1, 1, 1, 0.20)))))))
 
     Behavior on border.color {
         enabled: clipGlowOpacity <= 0.01
         ColorAnimation { duration: Theme.animNormal }
     }
 
-    // 🚀【绝对稳定】：目标宽度差 <= 1px 时直接阻断动画，彻底消灭任何微小抖动
     Behavior on width {
-        enabled: !capsuleRoot.isIslandHidden && Math.abs(capsuleRoot.width - capsuleRoot.targetWidth) > 1
+        enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
             duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 180
@@ -382,10 +358,13 @@ Rectangle {
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.top: parent.top
+        anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: capsuleRoot.isExpanded ? 36 : parent.height
-        clip: true
+        anchors.leftMargin: 4
+        anchors.rightMargin: 4
+        height: capsuleRoot.isExpanded ? 34 : parent.height
+        clip: false
         z: capsuleRoot.isExpanded ? 1 : 5
 
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
