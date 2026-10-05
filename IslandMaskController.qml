@@ -108,7 +108,7 @@ Item {
 
         if (isExpanded || isCollapsing || isMorphing || isAnySubExpanded || islandSlideTimer.running) return
 
-        var margin = 2
+        var margin = 5
         var rectList = []
 
         rectList.push({

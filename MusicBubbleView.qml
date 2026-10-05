@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: MusicBubbleView.qml (流体水晶内发光版)
+// 📄 File: MusicBubbleView.qml (相位错位·冷却余烬版)
 // ==========================================
 import QtQuick
 
@@ -17,11 +17,51 @@ Rectangle {
     property real spec4: 0.2
     property real spec5: 0.2
 
-    readonly property real barVal1: Math.max(0.20, Math.min(1.0, spec1))
-    readonly property real barVal2: Math.max(0.20, Math.min(1.0, spec2))
-    readonly property real barVal3: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec3 : Math.max(spec2, spec3) * 1.15))
-    readonly property real barVal4: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec4 : spec3))
-    readonly property real barVal5: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec5 : spec4))
+    // 5 频段声学与打字心流响应
+    readonly property real rawBar1: Math.max(0.20, Math.min(1.0, spec1))
+    readonly property real rawBar2: Math.max(0.20, Math.min(1.0, spec2))
+    readonly property real rawBar3: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec3 : Math.max(spec2, spec3) * 1.15))
+    readonly property real rawBar4: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec4 : spec3))
+    readonly property real rawBar5: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec5 : spec4))
+
+    // =========================================================================
+    // 🌟 建议 3 核心机制：物理冷却余烬（Thermal Ember Decay）
+    // 当按键停止或声学能量减退时，余热以指数阻尼（2.4 秒）缓缓消退，绝不骤然熄火
+    // =========================================================================
+    property real emberHeat: 0.0
+
+    // 能量上升迅速汲热，能量跌落时由定时器以长阻尼释放
+    onRawBar3Changed: {
+        if (rawBar3 > 0.38) {
+            emberHeat = Math.min(1.0, emberHeat + 0.35)
+            emberCoolingTimer.stop()
+        } else {
+            emberCoolingTimer.restart()
+        }
+    }
+
+    Timer {
+        id: emberCoolingTimer
+        interval: 180
+        repeat: false
+        onTriggered: emberDecayAnim.restart()
+    }
+
+    NumberAnimation {
+        id: emberDecayAnim
+        target: musicBubbleRoot
+        property: "emberHeat"
+        to: 0.0
+        duration: 2400
+        easing.type: Easing.OutCubic
+    }
+
+    // 带有余温阻尼的最终高度：即使 rawBar 掉回 0.20，仍保留淡淡的温润浮动
+    readonly property real barVal1: Math.max(rawBar1, 0.20 + emberHeat * 0.10)
+    readonly property real barVal2: Math.max(rawBar2, 0.20 + emberHeat * 0.14)
+    readonly property real barVal3: Math.max(rawBar3, 0.20 + emberHeat * 0.18)
+    readonly property real barVal4: Math.max(rawBar4, 0.20 + emberHeat * 0.14)
+    readonly property real barVal5: Math.max(rawBar5, 0.20 + emberHeat * 0.10)
 
     signal clicked()
     signal wheelInteracted()
@@ -37,19 +77,34 @@ Rectangle {
     color: Theme.bgCapsule
 
     // =========================================================================
-    // 🌟 外沿极净主光圈（纯粹几何轮廓，剔除一切生硬黑边，边缘极其顺滑）
+    // 🌟 建议 2 核心机制：副岛专属 6.2 秒微呼吸（带 0.8s 相位差，绝不与主岛机械同步）
     // =========================================================================
+    property real dynamicBreathAlpha: 0.82
+
+    SequentialAnimation on dynamicBreathAlpha {
+        running: musicBubbleRoot.active
+        loops: Animation.Infinite
+
+        // 初始相位错位：启动时静默沉浸 800ms，避开主岛节拍点
+        PauseAnimation { duration: 800 }
+        // 缓慢舒展提升 (2.6 秒)
+        NumberAnimation { to: 0.94; duration: 2600; easing.type: Easing.InOutQuad }
+        // 微停顿 (0.4 秒)
+        PauseAnimation { duration: 400 }
+        // 缓和回落 (2.4 秒)
+        NumberAnimation { to: 0.76; duration: 2400; easing.type: Easing.InOutSine }
+    }
+
     border.width: 1.8
     border.color: isWheelActive ? dominantColor :
                   (musicBubbleRoot.isHovered ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.95) :
-                  Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.85))
+                  Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, dynamicBreathAlpha))
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    // 统一 Spring 物理曲线
     Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
     Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
@@ -60,32 +115,17 @@ Rectangle {
         onTriggered: musicBubbleRoot.isWheelActive = false
     }
 
-    // =========================================================================
-    // 🌟 内嵌次级柔光环（Inset Halo，向内部黑底弥散，产生饱满的流体光泽）
-    // =========================================================================
-    Rectangle {
-        id: innerGlowRim
-        anchors.fill: parent
-        anchors.margins: 1.8
-        radius: Math.max(1, musicBubbleRoot.radius - 1.8)
-        color: "transparent"
-        border.width: 1.0
-        antialiasing: true
-        smooth: true
-        z: 0
-        border.color: Qt.rgba(musicBubbleRoot.dominantColor.r, musicBubbleRoot.dominantColor.g, musicBubbleRoot.dominantColor.b, 0.32)
-        visible: musicBubbleRoot.active || isWheelActive
-    }
-
-    // 中心微光底托
+    // 建议 3：中心微光底托带“余烬渐褪”能力（emberHeat 延长温馨光照感）
     Rectangle {
         anchors.centerIn: parent
         width: 30; height: 20; radius: 10
-        color: (musicBubbleRoot.active || isWheelActive) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, isWheelActive ? 0.32 : 0.18) : "transparent"
+        color: (musicBubbleRoot.active || isWheelActive) ?
+               Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, isWheelActive ? 0.32 : (0.16 + emberHeat * 0.12)) :
+               "transparent"
         Behavior on color { ColorAnimation { duration: Theme.animFast } }
     }
 
-    // 5 频段加粗音波柱
+    // 5 频段加粗音波柱（上升迅捷，回落平顺）
     Row {
         id: waveRow
         anchors.centerIn: parent
@@ -100,7 +140,7 @@ Rectangle {
                 transform: Scale {
                     origin.y: 8
                     yScale: musicBubbleRoot.barVal1
-                    Behavior on yScale { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                 }
             }
         }
@@ -112,7 +152,7 @@ Rectangle {
                 transform: Scale {
                     origin.y: 8
                     yScale: musicBubbleRoot.barVal2
-                    Behavior on yScale { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                 }
             }
         }
@@ -124,7 +164,7 @@ Rectangle {
                 transform: Scale {
                     origin.y: 8
                     yScale: musicBubbleRoot.barVal3
-                    Behavior on yScale { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                 }
             }
         }
@@ -136,7 +176,7 @@ Rectangle {
                 transform: Scale {
                     origin.y: 8
                     yScale: musicBubbleRoot.barVal4
-                    Behavior on yScale { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                 }
             }
         }
@@ -148,7 +188,7 @@ Rectangle {
                 transform: Scale {
                     origin.y: 8
                     yScale: musicBubbleRoot.barVal5
-                    Behavior on yScale { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                 }
             }
         }
