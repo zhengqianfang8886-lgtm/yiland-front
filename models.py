@@ -1,3 +1,6 @@
+# ==========================================
+# 📄 File: models.py
+# ==========================================
 """
 Alcove Island - 专用高性能 QAbstractListModel 实现
 为通知列表、蓝牙设备列表及进程监控提供行级增量刷新 (Fine-grained Diffing)
@@ -162,7 +165,6 @@ class BluetoothListModel(QAbstractListModel):
             self.IconRole: b"icon",
         }
 
-    # 🚀 彻底消除 QML 内部 data(idx, 259) 的优雅响应式属性
     @Property(int, notify=devicesChanged)
     def connectedCount(self):
         return self._connected_count
@@ -243,6 +245,7 @@ class ProcessListModel(QAbstractListModel):
     CmdRole = Qt.ItemDataRole.UserRole + 4
     StatusRole = Qt.ItemDataRole.UserRole + 5
     PidRole = Qt.ItemDataRole.UserRole + 6
+    IconRole = Qt.ItemDataRole.UserRole + 7  # 🚀 新增真实图片图标角色支持
 
     countChanged = Signal()
     runningCountChanged = Signal()
@@ -261,12 +264,20 @@ class ProcessListModel(QAbstractListModel):
         if not index.isValid() or not (0 <= index.row() < len(tasks)):
             return None
         t = tasks[index.row()]
-        if role == self.IdRole: return t.get("id")
-        elif role == self.NameRole: return t.get("name")
-        elif role == self.CwdRole: return t.get("cwd")
-        elif role == self.CmdRole: return t.get("cmd")
-        elif role == self.StatusRole: return t.get("status")
-        elif role == self.PidRole: return t.get("pid", 0)
+        if role == self.IdRole:
+            return t.get("id")
+        elif role == self.NameRole:
+            return t.get("name")
+        elif role == self.CwdRole:
+            return t.get("cwd")
+        elif role == self.CmdRole:
+            return t.get("cmd")
+        elif role == self.StatusRole:
+            return t.get("status")
+        elif role == self.PidRole:
+            return t.get("pid", 0)
+        elif role == self.IconRole:
+            return t.get("icon", "")  # 🚀 返回持久化存储的图片路径
         return None
 
     def roleNames(self):
@@ -276,7 +287,8 @@ class ProcessListModel(QAbstractListModel):
             self.CwdRole: b"cwd",
             self.CmdRole: b"cmd",
             self.StatusRole: b"status",
-            self.PidRole: b"pid"
+            self.PidRole: b"pid",
+            self.IconRole: b"icon",  # 🚀 暴露给 QML 视图绑定 model.icon
         }
 
     @Property(int, notify=countChanged)

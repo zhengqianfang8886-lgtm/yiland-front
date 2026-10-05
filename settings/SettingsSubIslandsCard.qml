@@ -159,6 +159,58 @@ Rectangle {
             }
         }
 
+        // 🎵 音乐岛声波条数控制 (5-10条)
+        Column {
+            width: parent.width
+            spacing: 6
+
+            Item {
+                width: parent.width
+                height: 16
+
+                Row {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 5
+                    Text { text: "🎵"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "音乐岛声波频段条数"; color: "white"; font.pixelSize: 11; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                Text {
+                    text: ((typeof Config !== "undefined" && Config.musicVisualizerBars !== undefined) ? Config.musicVisualizerBars : 5) + " 条"
+                    color: "#22c55e"; font.pixelSize: 11; font.weight: Font.Black; font.family: "Monospace"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            // 5 ~ 10 快捷点选胶囊行
+            Row {
+                spacing: 5
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                Repeater {
+                    model: [5, 6, 7, 8, 9, 10]
+                    Rectangle {
+                        width: 38; height: 22; radius: 11
+                        readonly property bool isSel: (typeof Config !== "undefined" && Config.musicVisualizerBars === modelData)
+                        color: isSel ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.28) : Qt.rgba(1, 1, 1, 0.08)
+                        border.color: isSel ? "#22c55e" : "transparent"; border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData + "条"
+                            color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                            font.pixelSize: 10; font.weight: Font.Bold
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: if (typeof Config !== "undefined") Config.musicVisualizerBars = modelData
+                        }
+                    }
+                }
+            }
+        }
+
         // 呼吸间距滑块
         Column {
             width: parent.width; spacing: 6

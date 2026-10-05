@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: TimeDetailPage.qml
+// 📄 File: TimeDetailPage.qml (黄金比例·彻底根绝截断·自洽逻辑版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -36,7 +36,7 @@ Item {
         return h >= 6 && h < 18
     }
 
-    // 1. 今日流逝与倒数
+    // 1. 今日流逝与倒数 (逻辑自洽：分清已过与剩余)
     readonly property var dayInfo: {
         var d = timeDetailRoot.currentTime
         var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds()
@@ -45,9 +45,12 @@ Item {
         var remSec = Math.max(0, totalSec - passedSec)
         var remH = Math.floor(remSec / 3600)
         var remM = Math.floor((remSec % 3600) / 60)
+        var passedRatio = passedSec / totalSec
+        var remPercent = Math.max(0, Math.min(100, Math.round((1.0 - passedRatio) * 100)))
+
         return {
-            progress: passedSec / totalSec,
-            percent: Math.round((passedSec / totalSec) * 100),
+            passedProgress: passedRatio,
+            remPercentStr: remPercent + "%",
             remH: remH,
             remM: remM,
             passedStr: "已过 " + h + "小时" + m + "分"
@@ -67,11 +70,12 @@ Item {
             isWeekend: isWeekend,
             todayName: dayNames[currentIdx],
             daysToWeekend: daysToWeekend,
-            subText: isWeekend ? "周末休整 · 蓄能焕新" : ("工作日已过 " + (currentIdx + 1) + " 天")
+            subNotice: isWeekend ? "休整蓄能中" : ("距周末 " + daysToWeekend + " 天"),
+            passedNotice: "工作日第 " + (currentIdx + 1) + "/5 天"
         }
     }
 
-    // 3. 年度信息
+    // 3. 年度信息 (逻辑自洽：倒计与剩余自洽)
     readonly property var yearInfo: {
         var now = timeDetailRoot.currentTime
         var year = now.getFullYear()
@@ -83,13 +87,16 @@ Item {
         var daysLeft = Math.max(0, totalDays - dayOfYear)
         var startDay = start.getDay() === 0 ? 6 : start.getDay() - 1
         var weekNum = Math.ceil((dayOfYear + startDay) / 7)
+        var passedRatio = dayOfYear / totalDays
+        var remPercent = Math.max(0, Math.min(100, Math.round((1.0 - passedRatio) * 100)))
+
         return {
             daysLeft: daysLeft,
             day: dayOfYear,
             totalDays: totalDays,
             week: weekNum,
-            progress: dayOfYear / totalDays,
-            percent: Math.round((dayOfYear / totalDays) * 100)
+            passedProgress: passedRatio,
+            remPercentStr: remPercent + "%"
         }
     }
 
@@ -113,13 +120,13 @@ Item {
 
     Row {
         anchors.fill: parent
-        spacing: 12
+        spacing: 10
 
         // =====================================================================
-        // 1. 🚀【重构优化】：左侧精修大看板 (彻底重塑截图中生硬的时间排版)
+        // 1. 左侧大看板 (微调至 130px，紧凑聚拢，释放右侧宝贵空间)
         // =====================================================================
         Rectangle {
-            width: 142
+            width: 130
             height: parent.height
             radius: Theme.radiusCard
             color: Theme.bgCardItem
@@ -127,21 +134,14 @@ Item {
             border.width: 1
             clip: true
 
-            // 背景微光渐变球
-            Rectangle {
-                width: 90; height: 90; radius: 45
-                x: parent.width / 2 - 45; y: 16
-                color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.08)
-            }
-
             Column {
                 anchors.centerIn: parent
                 spacing: 5
-                width: parent.width - 16
+                width: parent.width - 12
 
-                // 1.1 标头胶囊
+                // 标头
                 Row {
-                    spacing: 5
+                    spacing: 4
                     anchors.horizontalCenter: parent.horizontalCenter
                     Rectangle {
                         width: 5; height: 5; radius: 2.5
@@ -153,16 +153,16 @@ Item {
                         font.pixelSize: 9
                         font.weight: Font.Black
                         color: Theme.calendar
-                        font.letterSpacing: 1.0
+                        font.letterSpacing: 0.8
                         font.family: timeDetailRoot.textFont
                     }
                 }
 
-                // 1.2 核心时间大字：彻底消除基线不齐与冒号飞离，采用矢量级排版
+                // 时间大字
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 2
-                    height: 42
+                    height: 40
 
                     Text {
                         text: {
@@ -170,32 +170,23 @@ Item {
                             return (h < 10 ? "0" : "") + h
                         }
                         color: "white"
-                        font.pixelSize: 36
+                        font.pixelSize: 34
                         font.weight: Font.Black
                         font.family: timeDetailRoot.displayFont
+                        font.features: { "tnum": 1 }
                         anchors.verticalCenter: parent.verticalCenter
                     }
 
-                    // 矢量级匀称呼吸冒号
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        spacing: 6
-                        width: 6
+                        spacing: 5
+                        width: 5
 
-                        Rectangle {
-                            width: 3.5; height: 3.5; radius: 1.75
-                            color: Theme.calendar
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-                        Rectangle {
-                            width: 3.5; height: 3.5; radius: 1.75
-                            color: Theme.calendar
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
+                        Rectangle { width: 3.2; height: 3.2; radius: 1.6; color: Theme.calendar; anchors.horizontalCenter: parent.horizontalCenter }
+                        Rectangle { width: 3.2; height: 3.2; radius: 1.6; color: Theme.calendar; anchors.horizontalCenter: parent.horizontalCenter }
 
                         SequentialAnimation on opacity {
-                            loops: Animation.Infinite
-                            running: true
+                            loops: Animation.Infinite; running: true
                             NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
                             NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
                         }
@@ -207,17 +198,18 @@ Item {
                             return (m < 10 ? "0" : "") + m
                         }
                         color: "white"
-                        font.pixelSize: 36
+                        font.pixelSize: 34
                         font.weight: Font.Black
                         font.family: timeDetailRoot.displayFont
+                        font.features: { "tnum": 1 }
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
 
-                // 1.3 极简律动秒数胶囊：带精细进度与 SEC 徽章，彻底告别单薄的 ":08"
+                // 秒数胶囊
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: 58; height: 18; radius: 9
+                    width: 56; height: 18; radius: 9
                     color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.12)
                     border.color: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.35)
                     border.width: 1
@@ -235,6 +227,7 @@ Item {
                             font.pixelSize: 11
                             font.weight: Font.Black
                             font.family: timeDetailRoot.displayFont
+                            font.features: { "tnum": 1 }
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
@@ -244,7 +237,6 @@ Item {
                             font.pixelSize: 8
                             font.weight: Font.Black
                             font.family: timeDetailRoot.textFont
-                            font.letterSpacing: 0.5
                             anchors.verticalCenter: parent.verticalCenter
                         }
                     }
@@ -252,7 +244,7 @@ Item {
 
                 Item { height: 1 }
 
-                // 1.4 日期行
+                // 日期
                 Text {
                     text: {
                         var d = timeDetailRoot.currentTime
@@ -266,7 +258,7 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                // 1.5 时区胶囊徽标
+                // 时区
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 16
@@ -291,7 +283,7 @@ Item {
                             font.family: timeDetailRoot.displayFont
                         }
                         Text {
-                            text: "本地区"
+                            text: "本地"
                             color: Theme.textMuted
                             font.pixelSize: 9
                             font.family: timeDetailRoot.textFont
@@ -302,15 +294,17 @@ Item {
         }
 
         // =====================================================================
-        // 2. 右侧 4 卡 Bento 网格
+        // 2. 右侧 4 卡 Bento 网格 (拓宽至 258px，单卡 125px，彻底容纳文字)
         // =====================================================================
         Grid {
-            width: parent.width - 154
+            width: parent.width - 140
             height: parent.height
             columns: 2
             spacing: 8
 
-            // 卡片 1：今日剩余
+            // -----------------------------------------------------------------
+            // 卡片 1：今日剩余 (逻辑自洽：右上角标“剩 31%”)
+            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -318,8 +312,7 @@ Item {
                 color: c1Hover.hovered ? Theme.bgCardHover : Theme.bgCardItem
                 border.color: c1Hover.hovered ? Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.45) : Theme.borderSubtle
                 border.width: 1
-                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+
                 HoverHandler { id: c1Hover }
 
                 Column {
@@ -334,9 +327,10 @@ Item {
                             Rectangle { width: 3; height: 10; radius: 1.5; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
                             Text { text: "今日剩余"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; font.family: timeDetailRoot.textFont }
                         }
+                        // 🚀【自洽】：明确显示“余 xx%”
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            text: timeDetailRoot.dayInfo.percent + "%"
+                            text: "余 " + timeDetailRoot.dayInfo.remPercentStr
                             color: Theme.calendar; font.pixelSize: 10; font.weight: Font.Bold; font.family: timeDetailRoot.displayFont
                         }
                     }
@@ -349,14 +343,15 @@ Item {
                             id: remHNum
                             text: timeDetailRoot.dayInfo.remH
                             color: "white"
-                            font.pixelSize: 21
+                            font.pixelSize: 20
                             font.weight: Font.Black
                             font.family: timeDetailRoot.displayFont
+                            font.features: { "tnum": 1 }
                         }
                         Text {
                             text: "h"
                             color: Theme.calendar
-                            font.pixelSize: 12
+                            font.pixelSize: 11
                             font.weight: Font.Bold
                             font.family: timeDetailRoot.textFont
                             anchors.baseline: remHNum.baseline
@@ -366,15 +361,16 @@ Item {
                             id: remMNum
                             text: (timeDetailRoot.dayInfo.remM < 10 ? "0" : "") + timeDetailRoot.dayInfo.remM
                             color: "white"
-                            font.pixelSize: 21
+                            font.pixelSize: 20
                             font.weight: Font.Black
                             font.family: timeDetailRoot.displayFont
+                            font.features: { "tnum": 1 }
                             anchors.baseline: remHNum.baseline
                         }
                         Text {
                             text: "m"
                             color: Theme.calendar
-                            font.pixelSize: 12
+                            font.pixelSize: 11
                             font.weight: Font.Bold
                             font.family: timeDetailRoot.textFont
                             anchors.baseline: remHNum.baseline
@@ -385,7 +381,7 @@ Item {
                         width: parent.width; height: 3; radius: 1.5; color: Qt.rgba(1, 1, 1, 0.10)
                         Rectangle {
                             height: parent.height; radius: 1.5; color: Theme.calendar
-                            width: parent.width * timeDetailRoot.dayInfo.progress
+                            width: parent.width * timeDetailRoot.dayInfo.passedProgress
                             Behavior on width { NumberAnimation { duration: 250 } }
                         }
                     }
@@ -395,11 +391,15 @@ Item {
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.family: timeDetailRoot.textFont
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                 }
             }
 
-            // 卡片 2：本周状态
+            // -----------------------------------------------------------------
+            // 卡片 2：本周状态 (彻底根除截断，上下层次分明)
+            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -407,8 +407,7 @@ Item {
                 color: c2Hover.hovered ? Theme.bgCardHover : Theme.bgCardItem
                 border.color: c2Hover.hovered ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.45) : Theme.borderSubtle
                 border.width: 1
-                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+
                 HoverHandler { id: c2Hover }
 
                 Column {
@@ -426,45 +425,60 @@ Item {
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             text: "W" + timeDetailRoot.yearInfo.week
-                            color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 10; font.family: timeDetailRoot.displayFont; font.weight: Font.Bold
+                            color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; font.family: timeDetailRoot.displayFont; font.weight: Font.Bold
                         }
                     }
 
+                    // 🚀【彻底重塑】：主视觉大字独占清晰位置，不再强行塞在一行导致切字
                     Row {
-                        spacing: 4
+                        spacing: 6
                         anchors.left: parent.left
+                        width: parent.width
 
                         Text {
-                            id: weekHeroMain
                             text: timeDetailRoot.weekInfo.isWeekend ? timeDetailRoot.weekInfo.todayName : "工作日"
                             color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : "white"
-                            font.pixelSize: 19
+                            font.pixelSize: 18
                             font.weight: Font.Black
                             font.family: timeDetailRoot.textFont
                         }
 
-                        Text {
-                            text: timeDetailRoot.weekInfo.isWeekend ? "· 休息日" : ("· 距周末" + timeDetailRoot.weekInfo.daysToWeekend + "天")
-                            color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : Theme.workspace
-                            font.pixelSize: 12
-                            font.weight: Font.Bold
-                            font.family: timeDetailRoot.textFont
-                            anchors.baseline: weekHeroMain.baseline
+                        // 极精致小徽标，替代挤扁的长文字
+                        Rectangle {
+                            height: 16
+                            width: tagNoticeText.implicitWidth + 8
+                            radius: 4
+                            color: timeDetailRoot.weekInfo.isWeekend ? Qt.rgba(244 / 255, 63 / 94, 0.16) : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.16)
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            Text {
+                                id: tagNoticeText
+                                anchors.centerIn: parent
+                                text: timeDetailRoot.weekInfo.subNotice
+                                color: timeDetailRoot.weekInfo.isWeekend ? "#f43f5e" : Theme.workspace
+                                font.pixelSize: 9
+                                font.weight: Font.Bold
+                                font.family: timeDetailRoot.textFont
+                            }
                         }
                     }
 
                     Item { height: 1 }
 
                     Text {
-                        text: timeDetailRoot.weekInfo.subText
+                        text: timeDetailRoot.weekInfo.isWeekend ? "周末休整 · 蓄能焕新" : timeDetailRoot.weekInfo.passedNotice
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.family: timeDetailRoot.textFont
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                 }
             }
 
-            // 卡片 3：年度倒计
+            // -----------------------------------------------------------------
+            // 卡片 3：年度倒计 (逻辑自洽：右上角标“余 24%”)
+            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -472,8 +486,7 @@ Item {
                 color: c3Hover.hovered ? Theme.bgCardHover : Theme.bgCardItem
                 border.color: c3Hover.hovered ? Qt.rgba(16, 185, 129, 0.45) : Theme.borderSubtle
                 border.width: 1
-                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+
                 HoverHandler { id: c3Hover }
 
                 Column {
@@ -488,9 +501,10 @@ Item {
                             Rectangle { width: 3; height: 10; radius: 1.5; color: "#10b981"; anchors.verticalCenter: parent.verticalCenter }
                             Text { text: "年度倒计"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; font.family: timeDetailRoot.textFont }
                         }
+                        // 🚀【自洽】：清晰指明“余 xx%”
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                            text: timeDetailRoot.yearInfo.percent + "%"
+                            text: "余 " + timeDetailRoot.yearInfo.remPercentStr
                             color: "#10b981"; font.pixelSize: 10; font.weight: Font.Bold; font.family: timeDetailRoot.displayFont
                         }
                     }
@@ -503,19 +517,20 @@ Item {
                             id: yearDayNum
                             text: timeDetailRoot.yearInfo.daysLeft
                             color: "white"
-                            font.pixelSize: 22
+                            font.pixelSize: 20
                             font.weight: Font.Black
                             font.family: timeDetailRoot.displayFont
+                            font.features: { "tnum": 1 }
                         }
 
                         Text {
                             text: "天"
                             color: Theme.textSecondary
-                            font.pixelSize: 12
+                            font.pixelSize: 11
                             font.weight: Font.Bold
                             font.family: timeDetailRoot.textFont
                             anchors.baseline: yearDayNum.baseline
-                            leftPadding: 1
+                            leftPadding: 2
                         }
                     }
 
@@ -523,21 +538,25 @@ Item {
                         width: parent.width; height: 3; radius: 1.5; color: Qt.rgba(1, 1, 1, 0.10)
                         Rectangle {
                             height: parent.height; radius: 1.5; color: "#10b981"
-                            width: parent.width * timeDetailRoot.yearInfo.progress
+                            width: parent.width * timeDetailRoot.yearInfo.passedProgress
                             Behavior on width { NumberAnimation { duration: 250 } }
                         }
                     }
 
                     Text {
-                        text: "第" + timeDetailRoot.yearInfo.day + "天 · 全年" + timeDetailRoot.yearInfo.totalDays + "天"
+                        text: "已过 " + timeDetailRoot.yearInfo.day + " 天 · 全年 " + timeDetailRoot.yearInfo.totalDays + " 天"
                         color: Theme.textMuted
                         font.pixelSize: 10
                         font.family: timeDetailRoot.textFont
+                        elide: Text.ElideRight
+                        width: parent.width
                     }
                 }
             }
 
-            // 卡片 4：作息时相
+            // -----------------------------------------------------------------
+            // 卡片 4：作息节律
+            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -545,8 +564,7 @@ Item {
                 color: c4Hover.hovered ? Theme.bgCardHover : Theme.bgCardItem
                 border.color: c4Hover.hovered ? Qt.rgba(timeDetailRoot.rhythmInfo.color.r, timeDetailRoot.rhythmInfo.color.g, timeDetailRoot.rhythmInfo.color.b, 0.45) : Theme.borderSubtle
                 border.width: 1
-                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+
                 HoverHandler { id: c4Hover }
 
                 Column {
@@ -571,7 +589,7 @@ Item {
                     Text {
                         text: timeDetailRoot.rhythmInfo.hero
                         color: "white"
-                        font.pixelSize: 17
+                        font.pixelSize: 16
                         font.weight: Font.Black
                         font.family: timeDetailRoot.textFont
                     }

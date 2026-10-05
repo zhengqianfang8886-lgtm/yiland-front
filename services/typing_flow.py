@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/typing_flow.py
+# 📄 File: services/typing_flow.py (平滑 Intensity 与迟滞防抖引擎)
 # ==========================================
 import os
 import sys
@@ -65,18 +65,40 @@ def find_system_keyboards() -> list:
                 if os.path.exists(node_path):
                     keyboards.append(node_path)
     except Exception as e:
-        app_logger.warning(f"[TypingFlow] 解析输入设备列表异常: {e}")
+        app_logger.warning(f"[TypingFlow] 设备解析异常: {e}")
 
     return list(set(keyboards))
 
 
+# 🚀 色彩多段连续线性插值辅助函数 (蓝 -> 紫 -> 橙 -> 绯红)
+def lerp_color(c1, c2, t):
+    t = max(0.0, min(1.0, t))
+    r = int(c1[0] + (c2[0] - c1[0]) * t)
+    g = int(c1[1] + (c2[1] - c1[1]) * t)
+    b = int(c1[2] + (c2[2] - c1[2]) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+COLOR_BLUE   = (56, 189, 248)  # #38bdf8
+COLOR_PURPLE = (168, 85, 247)  # #a855f7
+COLOR_ORANGE = (249, 115, 22)  # #f97316
+COLOR_RED    = (244, 63, 94)   # #f43f5e
+
+
+def interpolate_typing_color(intensity: float) -> str:
+    if intensity <= 0.35:
+        # 0.0 ~ 0.35: 蓝 -> 紫
+        return lerp_color(COLOR_BLUE, COLOR_PURPLE, intensity / 0.35)
+    elif intensity <= 0.70:
+        # 0.35 ~ 0.70: 紫 -> 橙
+        return lerp_color(COLOR_PURPLE, COLOR_ORANGE, (intensity - 0.35) / 0.35)
+    else:
+        # 0.70 ~ 1.0: 橙 -> 绯红
+        return lerp_color(COLOR_ORANGE, COLOR_RED, (intensity - 0.70) / 0.30)
+
+
 class TypingFlowService(QObject):
     typingUpdated = Signal(bool, str, float, float, float, float, float)
-
-    ACTIVATION_STROKE_COUNT = 3
-    INTENT_EVAL_WINDOW = 0.95
-    REST_IDLE_TIMEOUT = 1.85
-    MIN_DISPLAY_DURATION = 1.8
 
     def __init__(self, executor, config=None, parent=None):
         super().__init__(parent)
@@ -86,19 +108,17 @@ class TypingFlowService(QObject):
 
         self._keystrokes = deque(maxlen=64)
         self._last_key_time = 0.0
-        self._activated_at = 0.0
 
-        self._energy = 0.0
-        self._active = False
-        self._current_kps = 0.0
+        # 按键反馈层：4 颗键各自独立的物理冲程 (0.0 ~ 1.0)
+        self._strokes = [0.0, 0.0, 0.0, 0.0]
+        self._key_rotation = 0
 
-        self._s1_smooth = 0.18
-        self._s2_smooth = 0.18
-        self._s3_smooth = 0.18
-        self._s4_smooth = 0.18
+        # 状态反馈层：平滑 intensity (0.0 ~ 1.0) 与迟滞状态
+        self._smooth_intensity = 0.0
+        self._in_rage_state = False
 
         self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(33)
+        self._tick_timer.setInterval(25)  # 40 FPS 连续平滑模拟
         self._tick_timer.timeout.connect(self._physics_tick)
         self._tick_timer.start()
 
@@ -107,9 +127,6 @@ class TypingFlowService(QObject):
 
     def set_media_playing(self, playing: bool):
         self._is_media_playing = playing
-        if playing and self._active:
-            self._active = False
-            self.typingUpdated.emit(False, "#38bdf8", 0.18, 0.18, 0.18, 0.18, 0.0)
 
     def _start_keyboard_listener(self):
         kbd_paths = find_system_keyboards()
@@ -119,7 +136,6 @@ class TypingFlowService(QObject):
             try:
                 fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
                 open_fds[fd] = path
-                app_logger.info(f"✨ [TypingFlow] 成功挂载键盘节点: {path}")
             except Exception:
                 pass
 
@@ -134,144 +150,103 @@ class TypingFlowService(QObject):
                             data = os.read(fd, EVENT_SIZE)
                             if len(data) >= EVENT_SIZE:
                                 _, _, ev_type, code, val = struct.unpack(EVENT_FORMAT, data[:EVENT_SIZE])
-                                if ev_type != 1 or val != 1:
-                                    continue
-                                if code >= 0x100:  # 过滤非键盘实体按键
+                                if ev_type != 1 or val != 1 or code >= 0x100:
                                     continue
                                 if code in (113, 114, 115, 142, 143, 224, 225):
                                     continue
                                 self._record_stroke()
-                        except (OSError, Exception) as read_err:
-                            # 🚀【关键修复】：外设拔除或报错时立即清理破损句柄，绝不引起 CPU 盲轮询
-                            app_logger.info(f"[TypingFlow] 输入节点已断开，安全释放: {open_fds.get(fd)}")
-                            try:
-                                os.close(fd)
-                            except Exception:
-                                pass
+                        except (OSError, Exception):
+                            try: os.close(fd)
+                            except Exception: pass
                             open_fds.pop(fd, None)
                 except Exception:
                     time.sleep(0.05)
-
-            for fd in list(open_fds.keys()):
-                try:
-                    os.close(fd)
-                except Exception:
-                    pass
-            if not self._stop_event.is_set():
-                # 若所有节点因拔出失效，等待后可重新探测
-                time.sleep(2.0)
-                if not self._stop_event.is_set():
-                    self._pool.submit(self._start_keyboard_listener)
             return
 
-        # 降级模式 2：X11 xinput
         if os.environ.get("DISPLAY") and shutil.which("xinput"):
             try:
-                app_logger.info("[TypingFlow] 降级至 X11 xinput 监听通道")
                 proc = subprocess.Popen(
                     ["xinput", "test-xi2", "--root"],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    bufsize=1
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1
                 )
                 while not self._stop_event.is_set() and proc.poll() is None:
                     line = proc.stdout.readline()
                     if not line: break
-                    if "RawButton" in line or "ButtonPress" in line: continue
                     if "EVENT type 2 (KeyPress)" in line or "RawKeyPress" in line:
                         self._record_stroke()
                 proc.terminate()
-                return
-            except Exception as e:
-                app_logger.warning(f"[TypingFlow] xinput 通道异常: {e}")
-
-        # 降级模式 3：pynput
-        try:
-            from pynput import keyboard
-            def on_press(key):
-                self._record_stroke()
-            with keyboard.Listener(on_press=on_press) as listener:
-                app_logger.info("[TypingFlow] 启动 pynput 兜底键盘监听")
-                self._stop_event.wait()
-                listener.stop()
-            return
-        except Exception:
-            pass
-
-        app_logger.warning("⚠️ [TypingFlow] 缺少 input 设备权限。运行: sudo usermod -aG input $USER")
+            except Exception:
+                pass
 
     def _record_stroke(self):
-        if self._is_media_playing:
-            return
         if self._config and hasattr(self._config, "typingVisualizerEnabled") and not self._config.typingVisualizerEnabled:
             return
 
         now = time.monotonic()
         self._keystrokes.append(now)
         self._last_key_time = now
-        self._energy = min(1.0, self._energy + 0.35)
+
+        # 【按键反馈】：按下的单键瞬间获取 1.0 冲量，相邻键极其轻微带动 (0.15)
+        idx = self._key_rotation
+        self._strokes[idx] = 1.0
+        self._strokes[(idx - 1) % 4] = min(1.0, self._strokes[(idx - 1) % 4] + 0.15)
+        self._strokes[(idx + 1) % 4] = min(1.0, self._strokes[(idx + 1) % 4] + 0.15)
+        self._key_rotation = (self._key_rotation + 1) % 4
 
     def _physics_tick(self):
-        if self._is_media_playing:
-            return
-
         now = time.monotonic()
         while self._keystrokes and (now - self._keystrokes[0]) > 1.0:
             self._keystrokes.popleft()
 
-        kps = len(self._keystrokes)
-        self._current_kps = kps
+        kps = float(len(self._keystrokes))
         idle_duration = (now - self._last_key_time) if self._last_key_time > 0 else 999.0
-        self._energy *= 0.88
 
-        if not self._active:
-            if len(self._keystrokes) >= self.ACTIVATION_STROKE_COUNT:
-                recent_gap = self._keystrokes[-1] - self._keystrokes[-2]
-                if recent_gap < 0.65 and idle_duration < 0.4:
-                    self._active = True
-                    self._activated_at = now
+        # 1. 瞬态按键阻尼衰减（慢打时回落）
+        for i in range(4):
+            self._strokes[i] *= 0.80
+            if self._strokes[i] < 0.005:
+                self._strokes[i] = 0.0
 
-        if self._active:
-            is_timeout = (idle_duration >= self.REST_IDLE_TIMEOUT)
-            is_min_time_passed = (now - self._activated_at >= self.MIN_DISPLAY_DURATION)
+        # 2. 计算目标 intensity (0.0 ~ 1.0)
+        if idle_duration > 1.4:
+            target_intensity = 0.0
+        else:
+            # 0~10 KPS 平滑映射到 0.0 ~ 1.0
+            target_intensity = min(1.0, max(0.05, kps / 10.0))
 
-            if is_timeout and is_min_time_passed:
-                if self._energy < 0.08 or kps == 0:
-                    self._active = False
-                    self._s1_smooth = 0.18
-                    self._s2_smooth = 0.18
-                    self._s3_smooth = 0.18
-                    self._s4_smooth = 0.18
-                    self.typingUpdated.emit(False, "#38bdf8", 0.18, 0.18, 0.18, 0.18, 0.0)
-                    return
+        # 3. 对 intensity 做低通平滑滤波 (EMA: 上升灵敏 0.25，回落柔和 0.08)
+        lerp_rate = 0.25 if target_intensity > self._smooth_intensity else 0.08
+        self._smooth_intensity += (target_intensity - self._smooth_intensity) * lerp_rate
+        if self._smooth_intensity < 0.005:
+            self._smooth_intensity = 0.0
 
-        if not self._active:
-            return
+        # 4. Hysteresis (迟滞区间判定)：防超频档位抖动
+        if not self._in_rage_state and self._smooth_intensity >= 0.85:
+            self._in_rage_state = True
+        elif self._in_rage_state and self._smooth_intensity < 0.68:
+            self._in_rage_state = False
 
-        phase = now * 13.0
-        target_w1 = 0.18 + min(0.70, (kps / 9.5) * 0.55 + self._energy * 0.28 + math.sin(phase) * 0.05)
-        target_w2 = 0.18 + min(0.82, (kps / 8.5) * 0.65 + self._energy * 0.35 + math.sin(phase + 1.2) * 0.07)
-        target_w3 = 0.18 + min(0.80, (kps / 9.0) * 0.60 + self._energy * 0.32 + math.cos(phase + 2.3) * 0.06)
-        target_w4 = 0.18 + min(0.75, (kps / 10.5) * 0.50 + self._energy * 0.38 + math.sin(phase * 1.4) * 0.08)
+        # 5. 高速心流时的键帽交替起伏叠加
+        if self._smooth_intensity > 0.35:
+            freq = 9.0 + self._smooth_intensity * 14.0
+            phase = now * freq
+            wave_amp = (self._smooth_intensity - 0.35) * 0.9
+            self._strokes[0] = max(self._strokes[0], (math.sin(phase) * 0.5 + 0.5) * wave_amp)
+            self._strokes[1] = max(self._strokes[1], (math.sin(phase + 1.57) * 0.5 + 0.5) * wave_amp)
+            self._strokes[2] = max(self._strokes[2], (math.sin(phase + 3.14) * 0.5 + 0.5) * wave_amp)
+            self._strokes[3] = max(self._strokes[3], (math.sin(phase + 4.71) * 0.5 + 0.5) * wave_amp)
 
-        lerp_factor = 0.35
-        self._s1_smooth = self._s1_smooth * (1.0 - lerp_factor) + target_w1 * lerp_factor
-        self._s2_smooth = self._s2_smooth * (1.0 - lerp_factor) + target_w2 * lerp_factor
-        self._s3_smooth = self._s3_smooth * (1.0 - lerp_factor) + target_w3 * lerp_factor
-        self._s4_smooth = self._s4_smooth * (1.0 - lerp_factor) + target_w4 * lerp_factor
+        is_active = (self._smooth_intensity > 0.01) or (idle_duration < 1.4)
+        continuous_color = interpolate_typing_color(self._smooth_intensity)
 
-        if kps >= 7.5: color = "#f43f5e"
-        elif kps >= 3.5: color = "#a855f7"
-        else: color = "#38bdf8"
-
+        # 将 smooth_intensity 通过原有的 kps 接口透传（乘以 10 保持量纲与兼容）
         self.typingUpdated.emit(
-            True, color,
-            max(0.18, min(1.0, round(self._s1_smooth, 3))),
-            max(0.18, min(1.0, round(self._s2_smooth, 3))),
-            max(0.18, min(1.0, round(self._s3_smooth, 3))),
-            max(0.18, min(1.0, round(self._s4_smooth, 3))),
-            round(kps, 1)
+            is_active, continuous_color,
+            round(self._strokes[0], 3),
+            round(self._strokes[1], 3),
+            round(self._strokes[2], 3),
+            round(self._strokes[3], 3),
+            round(self._smooth_intensity * 10.0, 2)
         )
 
     def cleanup(self):

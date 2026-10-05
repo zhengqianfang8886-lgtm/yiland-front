@@ -1,13 +1,13 @@
 // ==========================================
-// 📄 File: compact/CompactClockView.qml (苹果灵动岛呼吸比例版)
+// 📄 File: compact/CompactClockView.qml (流体自适应紧凑包裹版)
 // ==========================================
 import QtQuick
 
 Row {
     id: clockRoot
     spacing: 6
-    leftPadding: 8
-    rightPadding: 8
+    leftPadding: 6
+    rightPadding: 6
 
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
@@ -32,7 +32,7 @@ Row {
     Behavior on scale { NumberAnimation { duration: clockRoot.isClockActive ? 170 : 80; easing.type: Easing.OutCubic } }
 
     // =========================================================================
-    // 1. 大写锁定微胶囊 (CAPS LOCK - 19px 极简微悬浮)
+    // 1. 大写锁定微胶囊 (CAPS LOCK - 宽度归零时彻底隐藏，消除 Row spacing)
     // =========================================================================
     Rectangle {
         id: capsLockBadge
@@ -41,6 +41,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
+        visible: width > 0
         width: clockRoot.isCapsLock ? 45 : 0
         opacity: clockRoot.isCapsLock ? 1.0 : 0.0
         scale: clockRoot.isCapsLock ? 1.0 : 0.75
@@ -78,7 +79,7 @@ Row {
     }
 
     // =========================================================================
-    // 2. 数字键盘锁定微胶囊 (NUM LOCK - 19px 薄荷微光)
+    // 2. 数字键盘锁定微胶囊 (NUM LOCK - 宽度归零时彻底隐藏)
     // =========================================================================
     Rectangle {
         id: numLockBadge
@@ -87,6 +88,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
+        visible: width > 0
         width: clockRoot.isNumLock ? 45 : 0
         opacity: clockRoot.isNumLock ? 1.0 : 0.0
         scale: clockRoot.isNumLock ? 1.0 : 0.75
@@ -125,7 +127,7 @@ Row {
     }
 
     // =========================================================================
-    // 3. 实时网速微卡片 (19px 高度统一)
+    // 3. 实时网速微卡片 (未开启时彻底释放 Row 间距)
     // =========================================================================
     Rectangle {
         id: netSpeedItem
@@ -134,6 +136,7 @@ Row {
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
+        visible: width > 0
         width: clockRoot.showNetSpeed ? 46 : 0
         opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
         scale: clockRoot.showNetSpeed ? 1.0 : 0.80
@@ -176,7 +179,7 @@ Row {
     }
 
     // =========================================================================
-    // 4. 纯净日期卡片 (19px 灵动微岛风格)
+    // 4. 纯净日期卡片
     // =========================================================================
     Rectangle {
         id: dateCard
@@ -186,6 +189,7 @@ Row {
         clip: true
 
         readonly property bool shouldShow: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
+        visible: width > 0
         width: shouldShow ? (dateText.implicitWidth + 14) : 0
         opacity: shouldShow ? 1.0 : 0.0
         scale: shouldShow ? 1.0 : 0.80
@@ -211,7 +215,7 @@ Row {
     }
 
     // =========================================================================
-    // 5. 日期与时间之间的微细分割线
+    // 5. 分割线
     // =========================================================================
     Rectangle {
         id: dateDivider
@@ -220,14 +224,14 @@ Row {
         radius: 0.5
         color: Qt.rgba(1, 1, 1, 0.16)
         anchors.verticalCenter: parent.verticalCenter
-        visible: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
+        visible: dateCard.visible && (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
         opacity: dateCard.opacity
 
         Behavior on opacity { NumberAnimation { duration: 140 } }
     }
 
     // =========================================================================
-    // 6. 核心时间行 (时间样式完全不变)
+    // 6. 核心时间行 (等宽字体支持，彻底告别跳动)
     // =========================================================================
     Row {
         spacing: 1
@@ -283,23 +287,5 @@ Row {
             anchors.verticalCenter: parent.verticalCenter
             leftPadding: 2
         }
-    }
-
-    Component.onCompleted: printClockItemWidths()
-
-    // 当大写锁、数字锁、日期变化时重新打印
-    onIsCapsLockChanged: printClockItemWidths()
-    onIsNumLockChanged: printClockItemWidths()
-
-    function printClockItemWidths() {
-        console.log("------ [CLOCK VIEW 各项宽度细分] ------")
-        console.log("  Row 总 implicitWidth : " + clockRoot.implicitWidth)
-        console.log("  Row 内部间距 (spacing): " + clockRoot.spacing + " | leftPadding: " + clockRoot.leftPadding + " | rightPadding: " + clockRoot.rightPadding)
-        console.log("  1. 大写锁徽章 (capsLockBadge) : width=" + capsLockBadge.width + ", visible=" + capsLockBadge.visible)
-        console.log("  2. 数字锁徽章 (numLockBadge)  : width=" + numLockBadge.width + ", visible=" + numLockBadge.visible)
-        console.log("  3. 实时网速项 (netSpeedItem)  : width=" + netSpeedItem.width + ", visible=" + netSpeedItem.visible)
-        console.log("  4. 日期卡片项 (dateCard)      : width=" + dateCard.width + ", visible=" + dateCard.visible)
-        console.log("  5. 日期分割线 (dateDivider)   : width=" + dateDivider.width + ", visible=" + dateDivider.visible)
-        console.log("-----------------------------------------")
     }
 }

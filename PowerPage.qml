@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: PowerPage.qml (macOS 极简克制·纯净语法修复版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Shapes
@@ -7,17 +10,13 @@ Item {
     id: powerRoot
     anchors.fill: parent
 
-    // 🚀 补回供 ExpandedCardView 绑定的属性，消除编译报错
     property string chosenFont: ""
-
-    // 🚀 动态热更新字体：优先直连 Config 监听设置变更，其次使用传入值，默认传空交由系统引擎
     readonly property string effectiveFont: {
+        if (typeof Theme !== "undefined" && Theme.activeFont) return Theme.activeFont
         if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
             return Config.fontFamily
         }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
+        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) return chosenFont
         return ""
     }
 
@@ -26,25 +25,27 @@ Item {
     property string pendingIpcAction: ""
     property string pendingIconType: ""
     property string pendingWarningText: ""
-    property color pendingColor: Theme.danger
+    property color pendingColor: "#ffffff"
 
     signal startCollapse()
 
     readonly property var actionList: [
-        { name: "睡眠", cmd: "POWER_SUSPEND", iconType: "suspend", color: "#818cf8", tag: "SUSPEND", sub: "深度低功耗待机", warn: "系统将进入低功耗待机状态，保留当前所有运行中的会话" },
-        { name: "重启", cmd: "POWER_REBOOT", iconType: "reboot", color: "#f59e0b", tag: "REBOOT", sub: "重新引导系统", warn: "所有正在运行的应用程序将被关闭并重新引导计算机" },
-        { name: "关机", cmd: "POWER_OFF", iconType: "poweroff", color: "#ef4444", tag: "POWER OFF", sub: "安全切断电源", warn: "所有未保存的数据将会丢失，计算机将完全切断电源" },
-        { name: "锁定屏幕", cmd: "SESSION_LOCK", iconType: "lock", color: "#38bdf8", tag: "LOCK", sub: "保留后台任务运行", warn: "屏幕将立即锁定，当前会话与后台程序继续保持安全运行" },
-        { name: "注销会话", cmd: "SESSION_LOGOUT", iconType: "logout", color: "#f43f5e", tag: "LOGOUT", sub: "退出当前账户登录", warn: "将退出当前登录用户，关闭并结束所有用户级进程" },
-        { name: "切换用户", cmd: "SESSION_SWITCH_USER", iconType: "switch", color: "#34d399", tag: "SWITCH", sub: "保留会话在后台运行", warn: "当前用户会话将保持锁定并挂起，返回系统欢迎登录界面" }
+        { name: "锁定屏幕", sub: "保留后台任务", cmd: "SESSION_LOCK", iconType: "lock", isDestructive: false },
+        { name: "睡眠", sub: "深度低功耗待机", cmd: "POWER_SUSPEND", iconType: "suspend", isDestructive: false },
+        { name: "切换用户", sub: "保留当前会话", cmd: "SESSION_SWITCH_USER", iconType: "switch", isDestructive: false },
+        { name: "注销会话", sub: "退出当前登录", cmd: "SESSION_LOGOUT", iconType: "logout", isDestructive: true },
+        { name: "重启", sub: "重新引导系统", cmd: "POWER_REBOOT", iconType: "reboot", isDestructive: true },
+        { name: "关机", sub: "安全切断电源", cmd: "POWER_OFF", iconType: "poweroff", isDestructive: true }
     ]
 
     function requestAction(item) {
         powerRoot.pendingActionName = item.name
         powerRoot.pendingIpcAction = item.cmd
         powerRoot.pendingIconType = item.iconType
-        powerRoot.pendingColor = item.color
-        powerRoot.pendingWarningText = item.warn
+        powerRoot.pendingColor = item.isDestructive ? "#ef4444" : "#ffffff"
+        powerRoot.pendingWarningText = item.name === "关机" ? "所有未保存的数据将会丢失，计算机将完全切断电源。" :
+                                       (item.name === "重启" ? "所有正在运行的程序将被关闭并重新引导系统。" :
+                                       (item.name === "注销会话" ? "将关闭所有用户级应用程序并返回登录窗口。" : "将立即切换系统当前运行状态。"))
         powerRoot.isConfirming = true
     }
 
@@ -57,17 +58,18 @@ Item {
     }
 
     MouseArea {
-        anchors.fill: parent; z: -1
+        anchors.fill: parent
+        z: -1
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onClicked: (mouse) => mouse.accepted = true
     }
 
-    // 🚀 6格 Bento 矩阵（直接填满父容器，卡片高度充裕，绝不切底）
+    // =========================================================================
+    // 6 格 Bento 矩阵 (纯正 macOS 控制中心实体触感风格)
+    // =========================================================================
     Grid {
         id: bentoGrid
         anchors.fill: parent
-        anchors.topMargin: 2
-        anchors.bottomMargin: 4
         columns: 3
         spacing: 8
 
@@ -76,245 +78,251 @@ Item {
 
             Rectangle {
                 id: actionCard
-                width: (bentoGrid.width - 16) / 3
-                height: (bentoGrid.height - 8) / 2
+                width: Math.floor((bentoGrid.width - 16) / 3)
+                height: Math.floor((bentoGrid.height - 8) / 2)
                 radius: 12
-                color: cardArea.containsMouse ? Theme.bgCardHover : Theme.bgCardItem
-                border.color: cardArea.containsMouse ? Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.55) : Theme.borderSubtle
+
+                color: cardMouse.pressed ? Qt.rgba(1, 1, 1, 0.22) : 
+                       (cardMouse.containsMouse ? 
+                        (modelData.isDestructive ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.18) : Qt.rgba(1, 1, 1, 0.12)) : 
+                        Qt.rgba(1, 1, 1, 0.045))
+
+                border.color: cardMouse.containsMouse ? 
+                              (modelData.isDestructive ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.5) : Qt.rgba(1, 1, 1, 0.35)) : 
+                              Qt.rgba(1, 1, 1, 0.08)
                 border.width: 1
 
-                scale: cardArea.pressed ? 0.96 : (cardArea.containsMouse ? 1.015 : 1.0)
-                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
-                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animInstant } }
+                scale: cardMouse.pressed ? 0.96 : (cardMouse.containsMouse ? 1.015 : 1.0)
+                Behavior on scale { NumberAnimation { duration: 100 } }
+                Behavior on color { ColorAnimation { duration: 120 } }
+                Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                Column {
+                Row {
                     anchors.fill: parent
                     anchors.margins: 10
-                    spacing: 4
+                    spacing: 9
 
-                    // 1. 图标与 TAG 胶囊行
-                    Item {
-                        width: parent.width; height: 22
+                    // 1. 实体圆形图标微托盘
+                    Rectangle {
+                        width: 32
+                        height: 32
+                        radius: 16
+                        anchors.verticalCenter: parent.verticalCenter
 
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 22; height: 22; radius: 6
-                            color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.16)
+                        color: cardMouse.containsMouse ?
+                               (modelData.isDestructive ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.3) : "#ffffff") :
+                               Qt.rgba(1, 1, 1, 0.09)
 
-                            Item {
-                                anchors.centerIn: parent
-                                width: 14; height: 14
+                        Behavior on color { ColorAnimation { duration: 120 } }
 
-                                // 🌙 1. 睡眠
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "suspend"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        fillColor: modelData.color
-                                        strokeColor: "transparent"
-                                        startX: 10.5; startY: 2.0
-                                        PathArc { x: 3.5; y: 11.5; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
-                                        PathQuad { x: 10.5; y: 2.0; controlX: 8.0; controlY: 7.5 }
-                                    }
+                        Item {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+
+                            // 🔒 锁定
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "lock"
+                                layer.enabled: true
+                                layer.samples: 4
+
+                                ShapePath {
+                                    strokeColor: (cardMouse.containsMouse && !modelData.isDestructive) ? "#141416" : "#ffffff"
+                                    strokeWidth: 1.4
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: 5.0
+                                    startY: 6.5
+                                    PathLine { x: 5.0; y: 4.8 }
+                                    PathArc { x: 11.0; y: 4.8; radiusX: 3.0; radiusY: 3.0; useLargeArc: false }
+                                    PathLine { x: 11.0; y: 6.5 }
                                 }
-
-                                // ⟳ 2. 重启
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "reboot"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.5
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        startX: 7.0; startY: 1.5
-                                        PathArc { x: 12.5; y: 7.0; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
-                                        PathArc { x: 7.0; y: 12.5; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
-                                        PathArc { x: 2.2; y: 8.5; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
-                                    }
-                                    ShapePath {
-                                        fillColor: modelData.color
-                                        strokeColor: "transparent"
-                                        startX: 0.5; startY: 9.0
-                                        PathLine { x: 3.8; y: 9.0 }
-                                        PathLine { x: 2.2; y: 5.8 }
-                                        PathLine { x: 0.5; y: 9.0 }
-                                    }
-                                }
-
-                                // ⏻ 3. 关机
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "poweroff"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.6
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        startX: 4.2; startY: 4.0
-                                        PathArc { x: 9.8; y: 4.0; radiusX: 4.8; radiusY: 4.8; useLargeArc: true }
-                                    }
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.6
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        startX: 7.0; startY: 1.5
-                                        PathLine { x: 7.0; y: 7.0 }
-                                    }
-                                }
-
-                                // 🔒 4. 锁定
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "lock"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.4
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        startX: 4.5; startY: 6.0
-                                        PathLine { x: 4.5; y: 4.2 }
-                                        PathArc { x: 9.5; y: 4.2; radiusX: 2.5; radiusY: 2.5; useLargeArc: false }
-                                        PathLine { x: 9.5; y: 6.0 }
-                                    }
-                                    ShapePath {
-                                        fillColor: modelData.color
-                                        strokeColor: "transparent"
-                                        startX: 2.5; startY: 6.0
-                                        PathLine { x: 11.5; y: 6.0 }
-                                        PathLine { x: 11.5; y: 12.8 }
-                                        PathLine { x: 2.5; y: 12.8 }
-                                        PathLine { x: 2.5; y: 6.0 }
-                                    }
-                                    ShapePath {
-                                        strokeColor: "#18181b"
-                                        strokeWidth: 1.4
-                                        capStyle: ShapePath.RoundCap
-                                        startX: 7.0; startY: 8.2
-                                        PathLine { x: 7.0; y: 10.6 }
-                                    }
-                                }
-
-                                // ⎋ 5. 注销
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "logout"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.4
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        joinStyle: ShapePath.RoundJoin
-                                        startX: 7.5; startY: 1.8
-                                        PathLine { x: 2.2; y: 1.8 }
-                                        PathLine { x: 2.2; y: 12.2 }
-                                        PathLine { x: 7.5; y: 12.2 }
-                                    }
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.5
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        joinStyle: ShapePath.RoundJoin
-                                        startX: 5.5; startY: 7.0
-                                        PathLine { x: 12.5; y: 7.0 }
-                                        PathMove { x: 9.8; y: 4.2 }
-                                        PathLine { x: 12.5; y: 7.0 }
-                                        PathLine { x: 9.8; y: 9.8 }
-                                    }
-                                }
-
-                                // ⇄ 6. 切换用户
-                                Shape {
-                                    anchors.fill: parent
-                                    visible: modelData.iconType === "switch"
-                                    layer.enabled: true
-                                    layer.samples: 4
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.4
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        joinStyle: ShapePath.RoundJoin
-                                        startX: 1.8; startY: 4.5
-                                        PathLine { x: 11.5; y: 4.5 }
-                                        PathMove { x: 8.8; y: 2.2 }
-                                        PathLine { x: 11.5; y: 4.5 }
-                                        PathLine { x: 8.8; y: 6.8 }
-                                    }
-                                    ShapePath {
-                                        strokeColor: modelData.color
-                                        strokeWidth: 1.4
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        joinStyle: ShapePath.RoundJoin
-                                        startX: 12.2; startY: 9.5
-                                        PathLine { x: 2.5; y: 9.5 }
-                                        PathMove { x: 5.2; y: 7.2 }
-                                        PathLine { x: 2.5; y: 9.5 }
-                                        PathLine { x: 5.2; y: 11.8 }
-                                    }
+                                ShapePath {
+                                    fillColor: (cardMouse.containsMouse && !modelData.isDestructive) ? "#141416" : "#ffffff"
+                                    strokeColor: "transparent"
+                                    startX: 3.0
+                                    startY: 6.5
+                                    PathLine { x: 13.0; y: 6.5 }
+                                    PathLine { x: 13.0; y: 13.5 }
+                                    PathLine { x: 3.0; y: 13.5 }
+                                    PathLine { x: 3.0; y: 6.5 }
                                 }
                             }
-                        }
 
-                        Rectangle {
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            height: 14; width: tagText.implicitWidth + 8; radius: 7
-                            color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.10)
-                            border.color: Qt.rgba(modelData.color.r, modelData.color.g, modelData.color.b, 0.25)
-                            border.width: 1
+                            // 🌙 睡眠
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "suspend"
+                                layer.enabled: true
+                                layer.samples: 4
 
-                            Text {
-                                id: tagText
-                                anchors.centerIn: parent
-                                text: modelData.tag
-                                font.pixelSize: 8
-                                font.weight: Font.Black
-                                color: modelData.color
-                                font.letterSpacing: 0.5
-                                font.family: powerRoot.effectiveFont
+                                ShapePath {
+                                    fillColor: (cardMouse.containsMouse && !modelData.isDestructive) ? "#141416" : "#ffffff"
+                                    strokeColor: "transparent"
+                                    startX: 12.0
+                                    startY: 2.2
+                                    PathArc { x: 4.0; y: 13.5; radiusX: 6.5; radiusY: 6.5; useLargeArc: false }
+                                    PathQuad { x: 12.0; y: 2.2; controlX: 9.0; controlY: 8.5 }
+                                }
+                            }
+
+                            // ⇄ 切换用户
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "switch"
+                                layer.enabled: true
+                                layer.samples: 4
+
+                                ShapePath {
+                                    strokeColor: (cardMouse.containsMouse && !modelData.isDestructive) ? "#141416" : "#ffffff"
+                                    strokeWidth: 1.4
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+                                    startX: 2.0
+                                    startY: 5.0
+                                    PathLine { x: 13.5; y: 5.0 }
+                                    PathMove { x: 10.5; y: 2.5 }
+                                    PathLine { x: 13.5; y: 5.0 }
+                                    PathLine { x: 10.5; y: 7.5 }
+                                }
+                                ShapePath {
+                                    strokeColor: (cardMouse.containsMouse && !modelData.isDestructive) ? "#141416" : "#ffffff"
+                                    strokeWidth: 1.4
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+                                    startX: 14.0
+                                    startY: 11.0
+                                    PathLine { x: 2.5; y: 11.0 }
+                                    PathMove { x: 5.5; y: 8.5 }
+                                    PathLine { x: 2.5; y: 11.0 }
+                                    PathLine { x: 5.5; y: 13.5 }
+                                }
+                            }
+
+                            // ⎋ 注销
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "logout"
+                                layer.enabled: true
+                                layer.samples: 4
+
+                                ShapePath {
+                                    strokeColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeWidth: 1.4
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+                                    startX: 8.0
+                                    startY: 2.5
+                                    PathLine { x: 2.5; y: 2.5 }
+                                    PathLine { x: 2.5; y: 13.5 }
+                                    PathLine { x: 8.0; y: 13.5 }
+                                }
+                                ShapePath {
+                                    strokeColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeWidth: 1.5
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    joinStyle: ShapePath.RoundJoin
+                                    startX: 6.0
+                                    startY: 8.0
+                                    PathLine { x: 13.5; y: 8.0 }
+                                    PathMove { x: 10.5; y: 5.0 }
+                                    PathLine { x: 13.5; y: 8.0 }
+                                    PathLine { x: 10.5; y: 11.0 }
+                                }
+                            }
+
+                            // ⟳ 重启
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "reboot"
+                                layer.enabled: true
+                                layer.samples: 4
+
+                                ShapePath {
+                                    strokeColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeWidth: 1.5
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: 8.0
+                                    startY: 1.8
+                                    PathArc { x: 14.0; y: 8.0; radiusX: 6.0; radiusY: 6.0; useLargeArc: false }
+                                    PathArc { x: 8.0; y: 14.0; radiusX: 6.0; radiusY: 6.0; useLargeArc: false }
+                                    PathArc { x: 2.6; y: 9.6; radiusX: 6.0; radiusY: 6.0; useLargeArc: false }
+                                }
+                                ShapePath {
+                                    fillColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeColor: "transparent"
+                                    startX: 1.0
+                                    startY: 10.5
+                                    PathLine { x: 4.5; y: 10.5 }
+                                    PathLine { x: 2.6; y: 7.0 }
+                                    PathLine { x: 1.0; y: 10.5 }
+                                }
+                            }
+
+                            // ⏻ 关机
+                            Shape {
+                                anchors.fill: parent
+                                visible: modelData.iconType === "poweroff"
+                                layer.enabled: true
+                                layer.samples: 4
+
+                                ShapePath {
+                                    strokeColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeWidth: 1.6
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: 4.5
+                                    startY: 4.5
+                                    PathArc { x: 11.5; y: 4.5; radiusX: 5.2; radiusY: 5.2; useLargeArc: true }
+                                }
+                                ShapePath {
+                                    strokeColor: cardMouse.containsMouse ? "#f87171" : "#ffffff"
+                                    strokeWidth: 1.6
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: 8.0
+                                    startY: 1.8
+                                    PathLine { x: 8.0; y: 8.0 }
+                                }
                             }
                         }
                     }
 
-                    // 2. 主标题
-                    Text {
-                        text: modelData.name
-                        color: "white"
-                        font.pixelSize: 13
-                        font.weight: Font.Black
-                        font.family: powerRoot.effectiveFont
-                    }
+                    // 2. 文本信息列
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+                        width: parent.width - 41
 
-                    // 3. 副标题说明
-                    Text {
-                        text: modelData.sub
-                        color: Theme.textMuted
-                        font.pixelSize: 9
-                        font.weight: Font.DemiBold
-                        font.family: powerRoot.effectiveFont
-                        elide: Text.ElideRight
-                        width: parent.width
+                        Text {
+                            text: modelData.name
+                            color: "white"
+                            font.pixelSize: 13
+                            font.weight: Font.Bold
+                            font.family: powerRoot.effectiveFont
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+
+                        Text {
+                            text: modelData.sub
+                            color: cardMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.75) : Qt.rgba(1, 1, 1, 0.42)
+                            font.pixelSize: 9
+                            font.family: powerRoot.effectiveFont
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
                     }
                 }
 
                 MouseArea {
-                    id: cardArea
+                    id: cardMouse
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor

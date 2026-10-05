@@ -1,291 +1,214 @@
 // ==========================================
-// 📄 File: HardwareBubbleView.qml
+// 📄 File: HardwareBubbleView.qml (触感分层·非对称冲程·渐隐流光版)
 // ==========================================
 import QtQuick
-import QtQuick.Shapes
-import "control"
 
 Rectangle {
-    id: hwBubbleRoot
+    id: typingBubbleRoot
 
-    readonly property string displayFont: (typeof Config !== "undefined") ? Config.numberFont : "Monospace"
-    readonly property string textFont: (typeof Config !== "undefined") ? Config.activeFont : ""
-
-    readonly property int dwellTime: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
-    readonly property int leaveGraceTime: 300
+    // 外部数据直接接口
+    property bool isTyping: false
+    property color typingThemeColor: "#38bdf8"
+    property real spec1: 0.0  // 键 1 瞬态冲程 (0.0 ~ 1.0)
+    property real spec2: 0.0  // 键 2 瞬态冲程 (0.0 ~ 1.0)
+    property real spec3: 0.0  // 键 3 瞬态冲程 (0.0 ~ 1.0)
+    property real spec4: 0.0  // 键 4 瞬态冲程 (0.0 ~ 1.0)
+    property real kps: 0.0    // 实际代表平滑后的 intensity * 10 (0.0 ~ 10.0)
 
     property bool active: true
     readonly property bool isHovered: bubbleHover.hovered
 
-    property int currentVolume: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
-    property int currentBrightness: (typeof Bridge !== "undefined" && Bridge.currentBrightness !== undefined) ? Bridge.currentBrightness : 100
-    property bool isVolMuted: false
-    property bool isMicMuted: false
+    // =========================================================================
+    // 状态反馈层 (Macro Flow / State Layer)
+    // =========================================================================
+    readonly property real intensity: Math.max(0.0, Math.min(1.0, kps / 10.0))
+    readonly property bool isIdle: intensity < 0.02 && !isTyping
 
-    property bool isExpanded: false
-    property bool isInteracting: false
+    // 迟滞区间状态 (进入需 >= 0.85，退出需 < 0.68)
+    property bool inRageState: false
+    onIntensityChanged: {
+        if (!inRageState && intensity >= 0.85) inRageState = true
+        else if (inRageState && intensity < 0.68) inRageState = false
+    }
 
-    signal modeChanged(int newMode)
-    signal wheelAdjusted(int mode, int delta)
-    signal toggleMuteTriggered(int mode)
-    signal requestSettings()
+    // Rage 外圈只在刚刚进入该状态的瞬间单次爆发
+    onInRageStateChanged: {
+        if (inRageState) rageSingleBurstAnim.restart()
+    }
 
-    readonly property int collapsedWidth: 44
-    // 🚀 宽敞舒适空间：102(音量) + 96(亮度) + 26(麦) + 26(设置) + 18(折叠) + 间距 = 284
-    readonly property int expandedWidth: 284
+    readonly property int islandWidth: 60
     readonly property int islandHeight: 34
+    readonly property bool isExpanded: false
 
-    width: isExpanded ? expandedWidth : collapsedWidth
+    width: islandWidth
     height: islandHeight
     radius: 17
     clip: false
     transformOrigin: Item.Left
 
     color: Theme.bgCapsule
-    border.width: 1.2
-    border.color: isExpanded ?
-                  Qt.rgba(1, 1, 1, 0.28) :
-                  (hwBubbleRoot.isHovered ? Qt.rgba(1, 1, 1, 0.24) : Qt.rgba(1, 1, 1, 0.12))
 
-    Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
+    // 状态反馈：边框无级柔和过渡
+    border.width: isIdle ? 1.0 : (1.2 + intensity * 0.6)
+    border.color: isIdle ? Qt.rgba(1, 1, 1, 0.15) : typingThemeColor
+
+    Behavior on border.width { NumberAnimation { duration: 120 } }
+    Behavior on border.color { ColorAnimation { duration: isIdle ? 300 : 90 } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
-    scale: active ? 1.0 : 0.0
 
-    Behavior on width {
-        NumberAnimation {
-            duration: Theme.animSpring
-            easing.type: Easing.OutBack
-            easing.overshoot: Theme.springOvershootSubtle
-        }
-    }
-    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
-
-    Connections {
-        target: (typeof Bridge !== "undefined") ? Bridge : null
-        function onHardwareMuteStateChanged(volMuted, micMuted) {
-            hwBubbleRoot.isVolMuted = volMuted
-            hwBubbleRoot.isMicMuted = micMuted
-        }
-        function onVolumeChanged(val) { hwBubbleRoot.currentVolume = val }
-        function onBrightnessChanged(val) { hwBubbleRoot.currentBrightness = val }
-        function onOsdTriggered(icon, label, val) {
-            if (label === "Volume") hwBubbleRoot.currentVolume = val
-            else if (label === "Display") hwBubbleRoot.currentBrightness = val
-        }
-    }
-
-    Timer {
-        id: hoverDwellTimer
-        interval: hwBubbleRoot.dwellTime
-        repeat: false
-        onTriggered: {
-            if (hwBubbleRoot.isHovered && !hwBubbleRoot.isExpanded) {
-                hwBubbleRoot.isExpanded = true
-            }
-        }
-    }
-
-    Timer {
-        id: mouseLeaveTimer
-        interval: hwBubbleRoot.leaveGraceTime
-        repeat: false
-        onTriggered: {
-            if (!hwBubbleRoot.isHovered && !hwBubbleRoot.isInteracting && hwBubbleRoot.isExpanded) {
-                hwBubbleRoot.isExpanded = false
-            }
-        }
-    }
-
-    Timer {
-        id: resetInteractTimer
-        interval: 600
-        repeat: false
-        onTriggered: hwBubbleRoot.isInteracting = false
-    }
-
-    function resetActivity() {
-        mouseLeaveTimer.stop()
-        hwBubbleRoot.isInteracting = true
-        resetInteractTimer.restart()
-    }
-
-    // 1. 常态：44px 圆形小岛
-    Item {
-        id: collapsedItem
-        anchors.left: parent.left
-        width: hwBubbleRoot.collapsedWidth
-        height: parent.height
-        visible: !hwBubbleRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: 24; height: 24; radius: 12
-            color: hwBubbleRoot.isHovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.08)
-            Behavior on color { ColorAnimation { duration: Theme.animInstant } }
-        }
-
-        ControlCenterIcon {
-            anchors.centerIn: parent
-            width: 14; height: 14
-            iconType: "controlCenter"
-            iconColor: hwBubbleRoot.isHovered ? "white" : Qt.rgba(1, 1, 1, 0.82)
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: {
-                hoverDwellTimer.stop()
-                mouseLeaveTimer.stop()
-                hwBubbleRoot.isExpanded = true
-            }
-        }
-    }
-
-    // 2. 展开态：长行程控制流
-    Row {
-        id: expandedControlRow
+    // =========================================================================
+    // 1. 状态层：Rage 单次脉冲冲击波 (单次爆发消散，不持续循环)
+    // =========================================================================
+    Rectangle {
+        id: rageBurstRing
         anchors.fill: parent
-        anchors.leftMargin: 6
-        anchors.rightMargin: 6
-        spacing: 5
-        visible: hwBubbleRoot.isExpanded
-        opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
+        radius: parent.radius
+        color: "transparent"
+        border.color: typingBubbleRoot.typingThemeColor
+        border.width: 1.5
+        visible: opacity > 0.001
+        opacity: 0.0
+        scale: 1.0
 
-        // 组件 1：超长音量流体滑轨 (102px，滑轨净长达 55px)
-        ControlSlider {
-            width: 102
-            anchors.verticalCenter: parent.verticalCenter
-            currentValue: hwBubbleRoot.currentVolume
-            iconType: "volume"
-            isMuted: hwBubbleRoot.isVolMuted
-            labelText: hwBubbleRoot.isVolMuted ? "静音" : ""
-            chosenFont: hwBubbleRoot.isVolMuted ? hwBubbleRoot.textFont : hwBubbleRoot.displayFont
-            onValueAdjusted: (delta) => hwBubbleRoot.wheelAdjusted(0, delta)
-            onIconClicked: hwBubbleRoot.toggleMuteTriggered(0)
-            onInteractionStarted: hwBubbleRoot.resetActivity()
+        ParallelAnimation {
+            id: rageSingleBurstAnim
+            NumberAnimation { target: rageBurstRing; property: "scale"; from: 1.0; to: 1.34; duration: 460; easing.type: Easing.OutCubic }
+            NumberAnimation { target: rageBurstRing; property: "opacity"; from: 0.85; to: 0.0; duration: 460; easing.type: Easing.OutQuad }
         }
+    }
 
-        // 组件 2：超长屏幕亮度流体滑轨 (96px，滑轨净长达 50px)
-        ControlSlider {
-            width: 96
-            anchors.verticalCenter: parent.verticalCenter
-            currentValue: hwBubbleRoot.currentBrightness
-            iconType: "brightness"
-            chosenFont: hwBubbleRoot.displayFont
-            minValue: 5
-            onValueAdjusted: (delta) => hwBubbleRoot.wheelAdjusted(1, delta)
-            onInteractionStarted: hwBubbleRoot.resetActivity()
-        }
+    // =========================================================================
+    // 2. 状态层：机身核心氛围底光 (根据 intensity 平滑膨胀与增亮)
+    // =========================================================================
+    Rectangle {
+        anchors.centerIn: parent
+        width: 38 + typingBubbleRoot.intensity * 12
+        height: 16 + typingBubbleRoot.intensity * 8
+        radius: 11
+        color: Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 
+                       typingBubbleRoot.isIdle ? 0.04 : (0.10 + typingBubbleRoot.intensity * 0.20))
 
-        // 组件 3：麦克风胶囊键
-        Rectangle {
-            width: 26; height: 26; radius: 13
-            anchors.verticalCenter: parent.verticalCenter
-            color: micTap.pressed ? Qt.rgba(1, 1, 1, 0.22) :
-                   (hwBubbleRoot.isMicMuted ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.24) :
-                   (micHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05)))
-            border.color: hwBubbleRoot.isMicMuted ? Theme.danger : (micHover.hovered ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(1, 1, 1, 0.08))
-            border.width: 1
-            scale: micTap.pressed ? 0.92 : 1.0
+        Behavior on color { ColorAnimation { duration: 150 } }
+    }
 
-            Behavior on color { ColorAnimation { duration: 120 } }
-            Behavior on border.color { ColorAnimation { duration: 120 } }
+    // =========================================================================
+    // 3. 按键反馈层 (Key Stroke Tactile Layer)：4 颗微型机械键帽
+    // 彻底解耦：下潜/回弹完全遵循“40ms 快下沉 + 180ms 慢回弹”
+    // =========================================================================
+    Item {
+        id: keyboardContainer
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: -2
+        width: 40
+        height: 18
 
-            ControlCenterIcon {
-                anchors.centerIn: parent
-                width: 12; height: 12
-                iconType: "mic"
-                iconColor: hwBubbleRoot.isMicMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.88)
-                isMuted: hwBubbleRoot.isMicMuted
-            }
+        Row {
+            anchors.fill: parent
+            spacing: 2.4
 
-            HoverHandler { id: micHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler {
-                id: micTap
-                onTapped: {
-                    hwBubbleRoot.resetActivity()
-                    hwBubbleRoot.toggleMuteTriggered(2)
+            // --- 单颗机械键帽模板 ---
+            component KeyCap: Rectangle {
+                id: capRoot
+                property real strokeRatio: 0.0
+                // 慢打下潜 1.8px，高速下潜到 3.0px
+                readonly property real maxStrokePx: 1.8 + typingBubbleRoot.intensity * 1.2
+                readonly property real targetY: Math.round(strokeRatio * maxStrokePx)
+
+                width: 8.2; height: 13.5
+                radius: 2.5
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: capRoot.targetY
+
+                // 非对称物理动画：下沉 40ms 干脆触底，回弹 180ms 阻尼温和复位
+                Behavior on anchors.verticalCenterOffset {
+                    NumberAnimation {
+                        duration: capRoot.anchors.verticalCenterOffset < capRoot.targetY ? 40 : 180
+                        easing.type: capRoot.anchors.verticalCenterOffset < capRoot.targetY ? Easing.OutQuad : Easing.OutCubic
+                    }
+                }
+
+                // 按键局部透光反馈
+                color: {
+                    if (strokeRatio > 0.06) {
+                        return Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 
+                                       0.18 + strokeRatio * (0.35 + typingBubbleRoot.intensity * 0.25))
+                    }
+                    return Qt.rgba(1, 1, 1, 0.08)
+                }
+
+                border.color: strokeRatio > 0.06 ? 
+                              Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 0.45 + strokeRatio * 0.55) : 
+                              Qt.rgba(1, 1, 1, 0.16)
+                border.width: 1
+
+                Behavior on color { ColorAnimation { duration: 90 } }
+                Behavior on border.color { ColorAnimation { duration: 90 } }
+
+                // 键帽顶面局部微高光
+                Rectangle {
+                    anchors.top: parent.top; anchors.topMargin: 1.0
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2.0; height: 1; radius: 0.5
+                    color: Qt.rgba(1, 1, 1, capRoot.strokeRatio > 0.1 ? (0.4 + typingBubbleRoot.intensity * 0.4) : 0.22)
                 }
             }
+
+            KeyCap { strokeRatio: typingBubbleRoot.spec1 }
+            KeyCap { strokeRatio: typingBubbleRoot.spec2 }
+            KeyCap { strokeRatio: typingBubbleRoot.spec3 }
+            KeyCap { strokeRatio: typingBubbleRoot.spec4 }
+        }
+    }
+
+    // =========================================================================
+    // 4. 状态层：底部 Caret 激光流 (中心聚光高亮、两端柔和渐隐)
+    // =========================================================================
+    Rectangle {
+        id: typingCaret
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 4.8
+        anchors.horizontalCenter: parent.horizontalCenter
+
+        // 宽度根据 intensity 从 12px 连续平滑拓展至 38px
+        width: typingBubbleRoot.isIdle ? 10 : (12 + typingBubbleRoot.intensity * 26)
+        height: 1.6
+        radius: 0.8
+        clip: true
+
+        Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+        // 柔和中心亮、两端羽化渐隐
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "transparent" }
+            GradientStop { 
+                position: 0.25; 
+                color: Qt.rgba(typingBubbleRoot.typingThemeColor.r, typingBubbleRoot.typingThemeColor.g, typingBubbleRoot.typingThemeColor.b, typingBubbleRoot.isIdle ? 0.25 : 0.65) 
+            }
+            GradientStop { 
+                position: 0.5; 
+                color: typingBubbleRoot.inRageState ? "#ffffff" : typingBubbleRoot.typingThemeColor 
+            }
+            GradientStop { 
+                position: 0.75; 
+                color: Qt.rgba(typingBubbleRoot.typingThemeColor.r, typingBubbleRoot.typingThemeColor.g, typingBubbleRoot.typingThemeColor.b, typingBubbleRoot.isIdle ? 0.25 : 0.65) 
+            }
+            GradientStop { position: 1.0; color: "transparent" }
         }
 
-        // 组件 4：偏好设置按键
-        Rectangle {
-            width: 26; height: 26; radius: 13
-            anchors.verticalCenter: parent.verticalCenter
-            color: setTap.pressed ? Qt.rgba(1, 1, 1, 0.22) : (setHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05))
-            border.color: setHover.hovered ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(1, 1, 1, 0.08)
-            border.width: 1
-            scale: setTap.pressed ? 0.92 : 1.0
-
-            Behavior on color { ColorAnimation { duration: 120 } }
-
-            ControlCenterIcon {
-                anchors.centerIn: parent
-                width: 12; height: 12
-                iconType: "settings"
-                iconColor: setHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.75)
-            }
-
-            HoverHandler { id: setHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler {
-                id: setTap
-                onTapped: {
-                    hwBubbleRoot.isExpanded = false
-                    hwBubbleRoot.requestSettings()
-                }
-            }
-        }
-
-        // 组件 5：纯矢量收起微胶囊按键
-        Rectangle {
-            width: 18; height: 26; radius: 9
-            anchors.verticalCenter: parent.verticalCenter
-            color: collapseTap.pressed ? Qt.rgba(1, 1, 1, 0.18) : (collapseHover.hovered ? Qt.rgba(1, 1, 1, 0.10) : "transparent")
-            scale: collapseTap.pressed ? 0.92 : 1.0
-
-            Behavior on color { ColorAnimation { duration: 120 } }
-
-            ControlCenterIcon {
-                anchors.centerIn: parent
-                width: 10; height: 10
-                iconType: "chevron"
-                iconColor: collapseHover.hovered ? "white" : Qt.rgba(1, 1, 1, 0.60)
-            }
-
-            HoverHandler { id: collapseHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler {
-                id: collapseTap
-                onTapped: {
-                    hoverDwellTimer.stop()
-                    hwBubbleRoot.isExpanded = false
-                }
-            }
+        // Idle 静息呼吸放慢至 3000ms（3 秒循环），安详沉稳
+        SequentialAnimation on opacity {
+            running: typingBubbleRoot.isIdle
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.20; duration: 1500; easing.type: Easing.InOutSine }
+            NumberAnimation { to: 0.60; duration: 1500; easing.type: Easing.InOutSine }
         }
     }
 
     HoverHandler {
         id: bubbleHover
-        cursorShape: hwBubbleRoot.isExpanded ? Qt.ArrowCursor : Qt.PointingHandCursor
-        onHoveredChanged: {
-            if (hovered) {
-                mouseLeaveTimer.stop()
-                if (!hwBubbleRoot.isExpanded) {
-                    hoverDwellTimer.restart()
-                }
-            } else {
-                hoverDwellTimer.stop()
-                if (hwBubbleRoot.isExpanded) {
-                    mouseLeaveTimer.restart()
-                }
-            }
-        }
+        cursorShape: Qt.ArrowCursor
     }
 }

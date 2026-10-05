@@ -1,13 +1,13 @@
+// ==========================================
+// 📄 File: TimerBubbleView.qml (定宽槽位·表格等宽·零抖动稳定版)
+// ==========================================
 import QtQuick
 import QtQuick.Shapes
 
 Rectangle {
     id: timerBubbleRoot
 
-    // 🚀 补回供 Island.qml 绑定的接口属性，彻底消除编译报错
     property string chosenFont: ""
-
-    // 🚀 全局字体响应：时间与数字直连 Config.numberFont，普通文本直连 Config.activeFont
     readonly property string displayFont: (typeof Config !== "undefined") ? Config.numberFont : "Monospace"
     readonly property string textFont: (typeof Config !== "undefined") ? Config.activeFont : ""
 
@@ -56,7 +56,8 @@ Rectangle {
         return Theme.timer
     }
 
-    width: hasHours ? 106 : 90
+    // 🚀【修复 1】：外壳宽度稳定死锁，移除 OutBack 弹簧，禁止橡皮筋抽动
+    width: hasHours ? 104 : 88
     height: 34
     radius: height / 2
     clip: true
@@ -76,7 +77,8 @@ Rectangle {
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    Behavior on width { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
+    // 平滑线性缓动，不超冲
+    Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
     Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
@@ -97,17 +99,18 @@ Rectangle {
     }
 
     // =========================================================================
-    // 1. 常态时间显示
+    // 1. 常态时间显示（锁定槽位宽，彻底杜绝每秒抖动）
     // =========================================================================
     Row {
         id: contentRow
         anchors.centerIn: parent
-        spacing: 6
+        spacing: 5
         visible: !timerBubbleRoot.isConfirmingDismiss
         opacity: visible ? 1.0 : 0.0
 
         Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
 
+        // 暂停时的微弱呼吸
         SequentialAnimation {
             id: pauseBreatheAnim
             running: timerBubbleRoot.currentState === "paused" && !timerBubbleRoot.isConfirmingDismiss
@@ -117,6 +120,7 @@ Rectangle {
             onRunningChanged: if (!running) contentRow.opacity = 1.0
         }
 
+        // 🚀 左侧：尺寸恒定为 18x18 的进度环（位置绝对稳固）
         Item {
             width: 18; height: 18
             anchors.verticalCenter: parent.verticalCenter
@@ -125,7 +129,7 @@ Rectangle {
                 id: progressCanvas
                 anchors.fill: parent
                 renderTarget: Canvas.FramebufferObject
-                renderStrategy: Canvas.Threaded
+                renderStrategy: Canvas.Immediate
 
                 onPaint: {
                     var ctx = getContext("2d")
@@ -172,19 +176,30 @@ Rectangle {
             }
         }
 
-        Text {
+        // 🚀【修复 2 & 3】：时间文本定宽槽位 + 表格等宽数字（tnum）
+        // 46px（无小时）/ 62px（有小时）恒定不变，彻底切断字宽变化对 Row 的推拉！
+        Item {
+            width: timerBubbleRoot.hasHours ? 62 : 46
+            height: 20
             anchors.verticalCenter: parent.verticalCenter
-            text: timerBubbleRoot.currentState === "completed" ? "00:00" : timerBubbleRoot.timerText
-            color: timerBubbleRoot.currentState === "paused" ? "#fcd34d" :
-                   (timerBubbleRoot.currentState === "completed" ? "#6ee7b7" : "white")
-            font.family: timerBubbleRoot.displayFont
-            font.pixelSize: timerBubbleRoot.hasHours ? 12 : 14
-            font.weight: Font.Black
-            font.letterSpacing: 0.3
+
+            Text {
+                anchors.centerIn: parent
+                text: timerBubbleRoot.currentState === "completed" ? "00:00" : timerBubbleRoot.timerText
+                color: timerBubbleRoot.currentState === "paused" ? "#fcd34d" :
+                       (timerBubbleRoot.currentState === "completed" ? "#6ee7b7" : "white")
+                font.family: timerBubbleRoot.displayFont
+                font.pixelSize: timerBubbleRoot.hasHours ? 12 : 13
+                font.weight: Font.Black
+                font.letterSpacing: 0.2
+                // 开启 OpenType 等宽数字，0~9 宽度强制严格相等
+                font.features: { "tnum": 1 }
+                renderType: Text.QtRendering
+            }
         }
     }
 
-    // 🚀【核心手势控制器】：完全隔离左键与右键，进入确认状态时立即禁用，绝无事件穿透！
+    // 交互热区
     MouseArea {
         id: mainTouchArea
         anchors.fill: parent
@@ -194,10 +209,8 @@ Rectangle {
 
         onClicked: (mouse) => {
             if (mouse.button === Qt.LeftButton) {
-                // 🚀 规则 1：左键点击是【唯一】合法的暂停/继续开关！
                 timerBubbleRoot.togglePause()
             } else if (mouse.button === Qt.RightButton) {
-                // 🚀 规则 2：右键点击【绝对禁止触发暂停】！时间继续走，只呼出关闭确认
                 timerBubbleRoot.isConfirmingDismiss = true
                 dismissConfirmTimer.restart()
             }
@@ -219,7 +232,6 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
 
-        // 返回箭头
         Rectangle {
             width: (timerBubbleRoot.width - 18) / 2
             height: 24
@@ -261,7 +273,6 @@ Rectangle {
             }
         }
 
-        // 🚀 红色按钮：点击后时间小岛像灵动岛一样【直接消失】！绝不重置重新开始！
         Rectangle {
             width: (timerBubbleRoot.width - 18) / 2
             height: 24
@@ -296,7 +307,6 @@ Rectangle {
                 onClicked: {
                     dismissConfirmTimer.stop()
                     timerBubbleRoot.isConfirmingDismiss = false
-                    // 🚀 发射 dismissTimer 让小岛静默缩回消失
                     timerBubbleRoot.dismissTimer()
                 }
             }

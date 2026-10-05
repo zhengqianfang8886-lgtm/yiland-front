@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: MusicBubbleView.qml (相位错位·冷却余烬版)
+// 📄 File: MusicBubbleView.qml (5-10条动态自适应声波岛)
 // ==========================================
 import QtQuick
 
@@ -10,95 +10,40 @@ Rectangle {
     property color dominantColor: Theme.media
     readonly property bool isHovered: bubbleHover.hovered
 
-    // 频谱输入通道
+    // 4 通道底层音频输入源
     property real spec1: 0.2
     property real spec2: 0.2
     property real spec3: 0.2
     property real spec4: 0.2
-    property real spec5: 0.2
 
-    // 5 频段声学与打字心流响应
-    readonly property real rawBar1: Math.max(0.20, Math.min(1.0, spec1))
-    readonly property real rawBar2: Math.max(0.20, Math.min(1.0, spec2))
-    readonly property real rawBar3: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec3 : Math.max(spec2, spec3) * 1.15))
-    readonly property real rawBar4: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec4 : spec3))
-    readonly property real rawBar5: Math.max(0.20, Math.min(1.0, (spec5 > 0.2) ? spec5 : spec4))
-
-    // =========================================================================
-    // 🌟 建议 3 核心机制：物理冷却余烬（Thermal Ember Decay）
-    // 当按键停止或声学能量减退时，余热以指数阻尼（2.4 秒）缓缓消退，绝不骤然熄火
-    // =========================================================================
-    property real emberHeat: 0.0
-
-    // 能量上升迅速汲热，能量跌落时由定时器以长阻尼释放
-    onRawBar3Changed: {
-        if (rawBar3 > 0.38) {
-            emberHeat = Math.min(1.0, emberHeat + 0.35)
-            emberCoolingTimer.stop()
-        } else {
-            emberCoolingTimer.restart()
+    // 🚀【条数动态绑定】：直连配置，范围限制在 5 ~ 10 条
+    readonly property int barsCount: {
+        if (typeof Config !== "undefined" && Config.musicVisualizerBars !== undefined) {
+            return Math.max(5, Math.min(10, Config.musicVisualizerBars))
         }
+        return 5
     }
-
-    Timer {
-        id: emberCoolingTimer
-        interval: 180
-        repeat: false
-        onTriggered: emberDecayAnim.restart()
-    }
-
-    NumberAnimation {
-        id: emberDecayAnim
-        target: musicBubbleRoot
-        property: "emberHeat"
-        to: 0.0
-        duration: 2400
-        easing.type: Easing.OutCubic
-    }
-
-    // 带有余温阻尼的最终高度：即使 rawBar 掉回 0.20，仍保留淡淡的温润浮动
-    readonly property real barVal1: Math.max(rawBar1, 0.20 + emberHeat * 0.10)
-    readonly property real barVal2: Math.max(rawBar2, 0.20 + emberHeat * 0.14)
-    readonly property real barVal3: Math.max(rawBar3, 0.20 + emberHeat * 0.18)
-    readonly property real barVal4: Math.max(rawBar4, 0.20 + emberHeat * 0.14)
-    readonly property real barVal5: Math.max(rawBar5, 0.20 + emberHeat * 0.10)
 
     signal clicked()
     signal wheelInteracted()
 
-    width: 48
+    // 🚀 宽度根据条数从 48px 平滑自适应拓展至 68px (每增加 1 条宽 +4px)
+    width: 48 + (barsCount - 5) * 4
     height: 34
     radius: 17
     clip: false
     transformOrigin: Item.Right
 
+    Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
     antialiasing: true
     smooth: true
     color: Theme.bgCapsule
 
-    // =========================================================================
-    // 🌟 建议 2 核心机制：副岛专属 6.2 秒微呼吸（带 0.8s 相位差，绝不与主岛机械同步）
-    // =========================================================================
-    property real dynamicBreathAlpha: 0.82
-
-    SequentialAnimation on dynamicBreathAlpha {
-        running: musicBubbleRoot.active
-        loops: Animation.Infinite
-
-        // 初始相位错位：启动时静默沉浸 800ms，避开主岛节拍点
-        PauseAnimation { duration: 800 }
-        // 缓慢舒展提升 (2.6 秒)
-        NumberAnimation { to: 0.94; duration: 2600; easing.type: Easing.InOutQuad }
-        // 微停顿 (0.4 秒)
-        PauseAnimation { duration: 400 }
-        // 缓和回落 (2.4 秒)
-        NumberAnimation { to: 0.76; duration: 2400; easing.type: Easing.InOutSine }
-    }
-
     border.width: 1.8
-    border.color: isWheelActive ? dominantColor :
-                  (musicBubbleRoot.isHovered ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.95) :
-                  Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, dynamicBreathAlpha))
+    border.color: musicBubbleRoot.isHovered ? 
+                  Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.95) :
+                  Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.75)
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     visible: active
@@ -108,87 +53,69 @@ Rectangle {
     Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
     Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
 
-    property bool isWheelActive: false
-    Timer {
-        id: wheelActiveTimer
-        interval: 650
-        onTriggered: musicBubbleRoot.isWheelActive = false
-    }
-
-    // 建议 3：中心微光底托带“余烬渐褪”能力（emberHeat 延长温馨光照感）
+    // 中心微光底托 (尺寸随条数自适应拓展)
     Rectangle {
         anchors.centerIn: parent
-        width: 30; height: 20; radius: 10
-        color: (musicBubbleRoot.active || isWheelActive) ?
-               Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, isWheelActive ? 0.32 : (0.16 + emberHeat * 0.12)) :
-               "transparent"
+        width: 28 + (musicBubbleRoot.barsCount - 5) * 4
+        height: 20
+        radius: 10
+        color: Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.16)
+        Behavior on width { NumberAnimation { duration: 180 } }
         Behavior on color { ColorAnimation { duration: Theme.animFast } }
     }
 
-    // 5 频段加粗音波柱（上升迅捷，回落平顺）
+    // 🚀 核心频谱插值计算函数：将 4 频段自然展开为 N 个频段 (5~10)
+    function getBarScale(index, total) {
+        if (total <= 1) return Math.max(0.20, Math.min(1.0, spec1))
+        var t = index / (total - 1)  // 0.0 ~ 1.0
+        var pos = t * 3.0
+        var i0 = Math.floor(pos)
+        var i1 = Math.min(3, i0 + 1)
+        var frac = pos - i0
+
+        var sArr = [spec1, spec2, spec3, spec4]
+        var baseVal = sArr[i0] * (1.0 - frac) + sArr[i1] * frac
+
+        // 加入自然音频拱形共振包络 (中间声学增益略高，两端沉稳)
+        var resonance = 1.0 + 0.16 * Math.sin(t * Math.PI)
+        return Math.max(0.20, Math.min(1.0, baseVal * resonance))
+    }
+
+    // =========================================================================
+    // 动态 N 频段纯音频声波柱阵列 (5 - 10 根)
+    // =========================================================================
     Row {
         id: waveRow
         anchors.centerIn: parent
-        spacing: 2.0
+        spacing: musicBubbleRoot.barsCount >= 9 ? 1.8 : 2.0
         height: 16
-        opacity: musicBubbleRoot.active ? 1.0 : 0.0
 
-        Item {
-            width: 3.0; height: 16; anchors.verticalCenter: parent.verticalCenter
-            Rectangle {
-                anchors.fill: parent; radius: 99; color: musicBubbleRoot.dominantColor
-                transform: Scale {
-                    origin.y: 8
-                    yScale: musicBubbleRoot.barVal1
-                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-                }
-            }
-        }
+        Repeater {
+            model: musicBubbleRoot.barsCount
 
-        Item {
-            width: 3.0; height: 16; anchors.verticalCenter: parent.verticalCenter
-            Rectangle {
-                anchors.fill: parent; radius: 99; color: Qt.lighter(musicBubbleRoot.dominantColor, 1.15)
-                transform: Scale {
-                    origin.y: 8
-                    yScale: musicBubbleRoot.barVal2
-                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-                }
-            }
-        }
+            Item {
+                id: barItem
+                width: 2.8
+                height: 16
+                anchors.verticalCenter: parent.verticalCenter
 
-        Item {
-            width: 3.0; height: 16; anchors.verticalCenter: parent.verticalCenter
-            Rectangle {
-                anchors.fill: parent; radius: 99; color: Qt.lighter(musicBubbleRoot.dominantColor, 1.30)
-                transform: Scale {
-                    origin.y: 8
-                    yScale: musicBubbleRoot.barVal3
-                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-                }
-            }
-        }
+                readonly property real barVal: musicBubbleRoot.getBarScale(index, musicBubbleRoot.barsCount)
+                // 距离中心的距离比率 (0: 中心, 1: 两端)，用于呈现高光渐进
+                readonly property real centerRatio: 1.0 - Math.abs((index / (musicBubbleRoot.barsCount - 1)) - 0.5) * 2.0
 
-        Item {
-            width: 3.0; height: 16; anchors.verticalCenter: parent.verticalCenter
-            Rectangle {
-                anchors.fill: parent; radius: 99; color: Qt.lighter(musicBubbleRoot.dominantColor, 1.15)
-                transform: Scale {
-                    origin.y: 8
-                    yScale: musicBubbleRoot.barVal4
-                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
-                }
-            }
-        }
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 99
+                    // 中心频段亮度更高，两端沉稳
+                    color: centerRatio > 0.6 ? 
+                           Qt.lighter(musicBubbleRoot.dominantColor, 1.25) : 
+                           musicBubbleRoot.dominantColor
 
-        Item {
-            width: 3.0; height: 16; anchors.verticalCenter: parent.verticalCenter
-            Rectangle {
-                anchors.fill: parent; radius: 99; color: musicBubbleRoot.dominantColor
-                transform: Scale {
-                    origin.y: 8
-                    yScale: musicBubbleRoot.barVal5
-                    Behavior on yScale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+                    transform: Scale {
+                        origin.y: 8
+                        yScale: barItem.barVal
+                        Behavior on yScale { NumberAnimation { duration: 85; easing.type: Easing.OutQuad } }
+                    }
                 }
             }
         }
@@ -201,10 +128,7 @@ Rectangle {
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: (event) => {
             event.accepted = true
-            musicBubbleRoot.isWheelActive = true
-            wheelActiveTimer.restart()
             musicBubbleRoot.wheelInteracted()
-
             var step = (typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5
             var delta = event.angleDelta.y > 0 ? step : -step
             if (typeof Bridge !== "undefined" && Bridge.adjustVolume) {

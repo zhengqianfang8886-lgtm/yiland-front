@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandBridgeRelay.qml
+// 📄 File: IslandBridgeRelay.qml (打字追踪打点版)
 // ==========================================
 import QtQuick
 
@@ -14,14 +14,13 @@ Item {
     property real position: 0
     property real duration: 0
 
-    // 自适应专辑主色调与真实 FFT 频谱
     property string dominantColor: "#22c55e"
     property real spec1: 0.2
     property real spec2: 0.2
     property real spec3: 0.2
     property real spec4: 0.2
 
-    // 🚀 打字心流岛状态数据
+    // 🚀 打字心流数据
     property bool typingActive: false
     property color typingColor: "#38bdf8"
     property real typingSpec1: 0.2
@@ -50,7 +49,6 @@ Item {
     property string alertSubtitle: ""
     property string alertAvatar: ""
 
-    // 网络与通知
     readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
     property int unreadCount: notifModel ? notifModel.unreadCount : 0
     property string latestNotifAvatar: notifModel ? notifModel.latestAvatar : ""
@@ -90,7 +88,7 @@ Item {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
         }
 
-        // 🚀 接收打字心流虚拟频谱
+        // 🔍【追踪打点 3】：QML Relay 是否真正收到了信号
         function onTypingSpectrumUpdated(active, color, s1, s2, s3, s4, kps) {
             relay.typingActive = active
             relay.typingColor = color

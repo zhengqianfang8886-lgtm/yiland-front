@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: bridge.py
+# 📄 File: bridge.py (已修复 QWidget 崩溃与选择器超时)
 # ==========================================
 import os
 import gc
@@ -84,6 +84,7 @@ class IslandBridge(QObject):
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
+    # 找到 _bind_service_signals 方法，修改连接方式以打点：
     def _bind_service_signals(self):
         self.hardware.volumeChanged.connect(self.volumeChanged)
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
@@ -99,7 +100,14 @@ class IslandBridge(QObject):
         self.media.dominantColorUpdated.connect(self.dominantColorUpdated)
 
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
-        self.typing_flow.typingUpdated.connect(self.typingSpectrumUpdated)
+        
+        # 🔍【追踪打点 2】：确认 Python 核心信号总线是否收到打字信号并成功转发
+        def _on_typing_data(active, color, s1, s2, s3, s4, kps):
+            # if active:
+            #     print(f"\033[36m[Bridge 转发] 转发 typingSpectrumUpdated 给 QML! (KPS: {kps}, 颜色: {color})\033[0m")
+            self.typingSpectrumUpdated.emit(active, color, s1, s2, s3, s4, kps)
+
+        self.typing_flow.typingUpdated.connect(_on_typing_data)
 
     def _on_media_state_changed(self, title, artist, status, art, pos, dur):
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
@@ -132,7 +140,6 @@ class IslandBridge(QObject):
     @Property(bool, notify=numLockChanged)
     def isNumLock(self): return self.hardware.is_num_lock
 
-    # 🚀 升格为符合 Qt 响应式绑定的 Property，同时保留 Slot 函数式调用兼容
     @Property(bool, notify=bluetoothStateChanged)
     def isBluetoothPowered(self): return self._bluetooth_powered
 
@@ -149,40 +156,71 @@ class IslandBridge(QObject):
     def stopAllProcessTasks(self): self.proc_mgr.stop_all()
 
     @Slot(str, str, str)
-    def addProcessTask(self, name: str, cwd: str, cmd: str): self.proc_mgr.add_task(name, cwd, cmd)
+    @Slot(str, str, str, str)
+    def addProcessTask(self, name: str, cwd: str, cmd: str, icon: str = ""):
+        self.proc_mgr.add_task(name, cwd, cmd, icon)
 
     @Slot(str, str, str, str)
-    def updateProcessTask(self, tid: str, name: str, cwd: str, cmd: str): self.proc_mgr.update_task(tid, name, cwd, cmd)
+    @Slot(str, str, str, str, str)
+    def updateProcessTask(self, tid: str, name: str, cwd: str, cmd: str, icon: str = ""):
+        self.proc_mgr.update_task(tid, name, cwd, cmd, icon)
 
     @Slot(str)
     def deleteProcessTask(self, tid: str): self.proc_mgr.delete_task(tid)
 
+    # 🚀 纯粹安全的目录选择（严禁使用 QWidget/QFileDialog 防止崩溃）
     @Slot(result=str)
     def selectLocalDirectory(self) -> str:
         try:
             if shutil.which("zenity"):
                 res = subprocess.run(
                     ["zenity", "--file-selection", "--directory", "--title=选择任务工作目录"],
-                    capture_output=True, text=True, timeout=30
+                    capture_output=True, text=True, timeout=60
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     return res.stdout.strip()
             elif shutil.which("kdialog"):
                 res = subprocess.run(
                     ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", "选择任务工作目录"],
-                    capture_output=True, text=True, timeout=30
+                    capture_output=True, text=True, timeout=60
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     return res.stdout.strip()
         except Exception as e:
-            app_logger.warning(f"外部选择器唤起失败: {e}")
+            app_logger.warning(f"目录选择器调用异常: {e}")
+        return ""
 
+    # 🚀 纯粹安全的图片文件选择（严禁导入 QFileDialog，绝无 Core Dump）
+    @Slot(result=str)
+    def selectLocalImageFile(self) -> str:
         try:
-            from PySide6.QtWidgets import QFileDialog, QApplication
-            if QApplication.instance() and isinstance(QApplication.instance(), QApplication):
-                return QFileDialog.getExistingDirectory(None, "选择工作目录", os.path.expanduser("~"))
-        except Exception:
-            pass
+            if shutil.which("zenity"):
+                # 使用通用的标准文件过滤器，去除易发生语法歧义的管道符
+                res = subprocess.run(
+                    [
+                        "zenity", "--file-selection",
+                        "--title=选择服务图标图片",
+                        "--file-filter=*.png *.jpg *.jpeg *.svg *.webp *.ico"
+                    ],
+                    capture_output=True, text=True, timeout=60
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+
+            elif shutil.which("kdialog"):
+                res = subprocess.run(
+                    [
+                        "kdialog", "--getopenfilename", os.path.expanduser("~"),
+                        "*.png *.jpg *.jpeg *.svg *.webp *.ico"
+                    ],
+                    capture_output=True, text=True, timeout=60
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    return res.stdout.strip()
+
+        except Exception as e:
+            app_logger.warning(f"图片选择器调用异常: {e}")
+
         return ""
 
     @Slot(int, int)

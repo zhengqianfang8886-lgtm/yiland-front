@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: process/ProcessCard.qml
+// 📄 File: process/ProcessCard.qml (支持真实图片版)
 // ==========================================
 import QtQuick
 
@@ -18,6 +18,7 @@ Rectangle {
     property string taskName: ""
     property string taskCmd: ""
     property string taskCwd: ""
+    property string taskIcon: ""
     property string taskStatus: "stopped"
     property int taskPid: 0
 
@@ -35,7 +36,7 @@ Rectangle {
         return "⚡"
     }
 
-    // 1. 右侧独立启停开关（吞噬点击事件，防止穿透冒泡触发 cardClicked）
+    // 1. 右侧启停按钮
     Rectangle {
         id: toggleBtn
         width: 48; height: 26; radius: 6
@@ -55,7 +56,8 @@ Rectangle {
             anchors.centerIn: parent
             text: cardRoot.taskStatus === "running" ? "停止" : "启动"
             color: cardRoot.taskStatus === "running" ? "#f87171" : "#34d399"
-            font.pixelSize: 11; font.weight: Font.Bold
+            font.pixelSize: 11
+            font.weight: Font.Bold
             font.family: cardRoot.effectiveFont
         }
 
@@ -71,7 +73,7 @@ Rectangle {
         }
     }
 
-    // 2. 左侧展示与跳转触发区（与右侧按钮几何解耦）
+    // 2. 左侧展示区
     Item {
         anchors.left: parent.left
         anchors.right: toggleBtn.left
@@ -86,11 +88,26 @@ Rectangle {
             anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             color: cardRoot.taskStatus === "running" ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.15) : Qt.rgba(1, 1, 1, 0.06)
+            clip: true
 
+            // 🚀 优先渲染用户选择的真实本地图片
+            Image {
+                id: realIconImg
+                anchors.fill: parent
+                anchors.margins: 3
+                fillMode: Image.PreserveAspectFit
+                source: cardRoot.taskIcon ? (cardRoot.taskIcon.indexOf("://") !== -1 ? cardRoot.taskIcon : "file://" + cardRoot.taskIcon) : ""
+                visible: status === Image.Ready && source != ""
+                asynchronous: true
+                smooth: true
+            }
+
+            // 无自定义图片时自动降级为 Emoji
             Text {
                 anchors.centerIn: parent
                 text: cardRoot.getTechIcon(cardRoot.taskCmd, cardRoot.taskName)
                 font.pixelSize: 14
+                visible: !realIconImg.visible
             }
         }
 

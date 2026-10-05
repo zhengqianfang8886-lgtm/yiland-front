@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: process/ProcessModal.qml (Bento 详情与配置套件)
+// 📄 File: process/ProcessModal.qml (已修复布尔类型安全)
 // ==========================================
 import QtQuick
 
@@ -14,8 +14,13 @@ Row {
     property string editId: ""
     property string editStatus: "stopped"
     property int editPid: 0
+    property string editIcon: ""
 
-    signal saveRequested(string id, string name, string cwd, string cmd)
+    // 🚀 安全布尔计算属性：杜绝任何 undefined 泄漏至 QML 属性系统
+    readonly property bool hasCustomIcon: Boolean(modalRoot.editIcon && modalRoot.editIcon.trim().length > 0)
+    readonly property bool isPreviewReady: Boolean(previewImg.status === Image.Ready && previewImg.source != "")
+
+    signal saveRequested(string id, string name, string cwd, string cmd, string icon)
     signal deleteRequested(string id)
     signal cancelRequested()
 
@@ -34,6 +39,7 @@ Row {
         modalRoot.editId = ""
         modalRoot.editStatus = "stopped"
         modalRoot.editPid = 0
+        modalRoot.editIcon = ""
         nameInput.text = ""
         cwdInput.text = "~"
         cmdInput.text = ""
@@ -41,12 +47,13 @@ Row {
     }
 
     function openDetail(item) {
-        modalRoot.editId = item.taskId
+        modalRoot.editId = item.taskId || ""
         modalRoot.editStatus = item.status || "stopped"
         modalRoot.editPid = item.pid || 0
-        nameInput.text = item.name
-        cwdInput.text = item.cwd
-        cmdInput.text = item.cmd
+        modalRoot.editIcon = item.icon || ""
+        nameInput.text = item.name || ""
+        cwdInput.text = item.cwd || ""
+        cmdInput.text = item.cmd || ""
         focusTimer.restart()
     }
 
@@ -55,7 +62,7 @@ Row {
         var cwdVal = cwdInput.text.trim() || "~"
         var cmdVal = cmdInput.text.trim()
         if (!nameVal || !cmdVal) return
-        modalRoot.saveRequested(modalRoot.editId, nameVal, cwdVal, cmdVal)
+        modalRoot.saveRequested(modalRoot.editId, nameVal, cwdVal, cmdVal, modalRoot.editIcon)
     }
 
     Timer {
@@ -63,7 +70,7 @@ Row {
         onTriggered: { nameInput.forceActiveFocus(); nameInput.selectAll() }
     }
 
-    // 1. 左列：服务概览看板
+    // 1. 左列：服务概览与【真实图片自选槽】
     Rectangle {
         width: 120
         height: parent.height
@@ -76,19 +83,77 @@ Row {
         Column {
             anchors.fill: parent
             anchors.margins: 10
-            spacing: 8
+            spacing: 6
 
+            // 可交互的真实图片上传卡槽
             Rectangle {
-                width: 42; height: 42; radius: 10
+                width: 44; height: 44; radius: 10
                 color: modalRoot.editStatus === "running" ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.16) : Qt.rgba(1, 1, 1, 0.06)
-                border.color: modalRoot.editStatus === "running" ? "#10b981" : Qt.rgba(1, 1, 1, 0.1)
-                border.width: 1
+                border.color: imgHover.hovered ? "#c084fc" : (modalRoot.editStatus === "running" ? "#10b981" : Qt.rgba(1, 1, 1, 0.15))
+                border.width: imgHover.hovered ? 1.5 : 1
                 anchors.horizontalCenter: parent.horizontalCenter
+                clip: true
 
+                Image {
+                    id: previewImg
+                    anchors.fill: parent
+                    anchors.margins: 4
+                    fillMode: Image.PreserveAspectFit
+                    source: modalRoot.hasCustomIcon ? (modalRoot.editIcon.indexOf("://") !== -1 ? modalRoot.editIcon : "file://" + modalRoot.editIcon) : ""
+                    visible: modalRoot.isPreviewReady
+                    asynchronous: true
+                }
+
+                // 🚀【关键修复】：严格消除 undefined 求值，杜绝类型报错
                 Text {
                     anchors.centerIn: parent
                     text: modalRoot.getTechIcon(cmdInput.text, nameInput.text)
                     font.pixelSize: 22
+                    visible: !modalRoot.isPreviewReady
+                }
+
+                // 悬停换图提示
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(0, 0, 0, 0.55)
+                    visible: Boolean(imgHover.hovered)
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "📷\n换图"
+                        color: "white"
+                        font.pixelSize: 9
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+
+                MouseArea {
+                    id: imgHover
+                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (typeof Bridge !== "undefined" && Bridge.selectLocalImageFile) {
+                            var p = Bridge.selectLocalImageFile()
+                            if (p && p.trim().length > 0) modalRoot.editIcon = p.trim()
+                        }
+                    }
+                }
+            }
+
+            // 清除自定义图标按钮
+            Rectangle {
+                width: 68; height: 16; radius: 8
+                color: Qt.rgba(1, 1, 1, 0.08)
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: modalRoot.hasCustomIcon
+
+                Text {
+                    anchors.centerIn: parent; text: "✕ 恢复默认"
+                    color: Theme.textMuted; font.pixelSize: 8; font.family: modalRoot.effectiveFont
+                }
+                MouseArea {
+                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                    onClicked: modalRoot.editIcon = ""
                 }
             }
 
@@ -99,7 +164,7 @@ Row {
                 Text {
                     text: nameInput.text.trim() ? nameInput.text.trim() : "新建服务"
                     color: "white"
-                    font.pixelSize: 13
+                    font.pixelSize: 12
                     font.weight: Font.Bold
                     font.family: modalRoot.effectiveFont
                     elide: Text.ElideRight
@@ -133,18 +198,16 @@ Row {
                 }
             }
 
-            Item { height: 4 }
-
             Rectangle {
-                width: parent.width; height: 26; radius: 6
+                width: parent.width; height: 24; radius: 6
                 color: backHover.hovered ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.05)
                 border.color: Qt.rgba(1, 1, 1, 0.1); border.width: 1
                 scale: backTap.pressed ? 0.95 : 1.0
 
                 Row {
                     anchors.centerIn: parent; spacing: 4
-                    Text { text: "‹"; color: "white"; font.pixelSize: 14; font.weight: Font.Black; font.family: modalRoot.effectiveFont }
-                    Text { text: "返回列表"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: modalRoot.effectiveFont }
+                    Text { text: "‹"; color: "white"; font.pixelSize: 13; font.weight: Font.Black; font.family: modalRoot.effectiveFont }
+                    Text { text: "返回列表"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: modalRoot.effectiveFont }
                 }
                 HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { id: backTap; onTapped: modalRoot.cancelRequested() }
@@ -179,7 +242,7 @@ Row {
                 Rectangle {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     width: delText.implicitWidth + 8; height: 18; radius: 4
-                    visible: modalRoot.editId !== ""
+                    visible: Boolean(modalRoot.editId !== "")
                     color: delHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.2) : "transparent"
 
                     Text {
@@ -222,11 +285,10 @@ Row {
                         selectByMouse: true; activeFocusOnPress: true
                         KeyNavigation.tab: cwdInput
                         Keys.onReturnPressed: modalRoot.submitForm()
-                        Keys.onEnterPressed: modalRoot.submitForm()
                         Keys.onEscapePressed: modalRoot.cancelRequested()
 
                         Text {
-                            text: "服务标识 (如 book-search)..."
+                            text: "服务标识 (如 ythought-things)..."
                             color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: modalRoot.effectiveFont
                             visible: !nameInput.text && !nameInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter
@@ -235,7 +297,7 @@ Row {
                     }
                 }
 
-                // 2. 工作目录（严格物理截断，防路径溢出）
+                // 2. 工作目录
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: cwdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -278,7 +340,6 @@ Row {
                         selectByMouse: true; activeFocusOnPress: true
                         KeyNavigation.tab: cmdInput
                         Keys.onReturnPressed: modalRoot.submitForm()
-                        Keys.onEnterPressed: modalRoot.submitForm()
                         Keys.onEscapePressed: modalRoot.cancelRequested()
 
                         Text {
@@ -323,11 +384,10 @@ Row {
                         color: "white"; font.pixelSize: 11; font.family: modalRoot.effectiveMono
                         selectByMouse: true; activeFocusOnPress: true
                         Keys.onReturnPressed: modalRoot.submitForm()
-                        Keys.onEnterPressed: modalRoot.submitForm()
                         Keys.onEscapePressed: modalRoot.cancelRequested()
 
                         Text {
-                            text: "npm start / python3 main.py..."
+                            text: "npm start / cargo run / python3 main.py..."
                             color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: modalRoot.effectiveMono
                             visible: !cmdInput.text && !cmdInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter

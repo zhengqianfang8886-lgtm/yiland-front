@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: settings/SettingsHealthCard.qml
+// 📄 File: settings/SettingsHealthCard.qml (键盘心流副岛开关)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -20,18 +20,18 @@ Rectangle {
 
         Text { text: "🌿 健康关怀与输入心流"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
 
-        // 1. 打字心流岛
+        // 1. 🚀 键盘击键心流岛总开关
         Item {
             width: parent.width; height: 30
             Row {
                 anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
                 Text { text: "⌨️"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "打字心流律动 (无音乐时按手速起伏)"; color: "white"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "键盘击键心流律动小岛 (打字时苏醒起伏，闲置隐退)"; color: "white"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
             }
             Switch {
                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                checked: (typeof Config !== "undefined" && Config.typingVisualizerEnabled !== undefined) ? Config.typingVisualizerEnabled : true
-                onToggled: if (typeof Config !== "undefined") Config.typingVisualizerEnabled = checked
+                checked: (typeof Config !== "undefined" && Config.showHardwareBubble !== undefined) ? Config.showHardwareBubble : true
+                onToggled: if (typeof Config !== "undefined") Config.showHardwareBubble = checked
             }
         }
 

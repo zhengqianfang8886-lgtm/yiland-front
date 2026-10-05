@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (架构清晰·焦点稳定版)
+// 📄 File: IslandCapsule.qml (流体自适应·纯净边缘版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -9,7 +9,7 @@ Rectangle {
     id: capsuleRoot
 
     // =========================================================================
-    // 1. 全量外部接口与状态属性（100% 兼容保留）
+    // 1. 全量外部接口与状态属性
     // =========================================================================
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
@@ -109,15 +109,8 @@ Rectangle {
     // 2. 目标几何尺寸与自适应计算
     // =========================================================================
     readonly property int currentNormalWidth: {
-        var baseW = compactCapsuleView.textRowImplicitWidth + 28
-        return Math.max(106, Math.ceil(baseW / 2) * 2)
-    }
-
-    property int stableClockWidth: 186
-    onCurrentNormalWidthChanged: {
-        if (activeTransient === "" && !isExpanded && !isCalling && currentNormalWidth >= 170) {
-            stableClockWidth = Math.round(currentNormalWidth)
-        }
+        var baseW = compactCapsuleView.textRowImplicitWidth + 20
+        return Math.max(76, Math.ceil(baseW / 2) * 2)
     }
 
     readonly property int targetWidth: {
@@ -128,9 +121,9 @@ Rectangle {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
             return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
-        if (capsuleRoot.activeTransient === "WORKSPACE") return stableClockWidth
-        if (capsuleRoot.activeTransient === "OSD") return Math.max(stableClockWidth, 184)
-        return Math.max(stableClockWidth, currentNormalWidth)
+        if (capsuleRoot.activeTransient === "WORKSPACE") return Math.max(154, currentNormalWidth)
+        if (capsuleRoot.activeTransient === "OSD") return Math.max(176, currentNormalWidth)
+        return currentNormalWidth
     }
 
     readonly property int targetHeight: {
@@ -227,13 +220,12 @@ Rectangle {
             maskCommitRequested()
             if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
         } else {
-            // 展开动画结束后校验：若鼠标还在卡片上，绝对不收起！
             if (!capsuleRoot.isMouseOver) capsuleRoot.startCollapse()
         }
     }
 
     // =========================================================================
-    // 🌟 核心修复区：根节点直属交互中枢（保证展开时 430×240 大卡片始终拥有鼠标焦点）
+    // 4. 根节点直属交互中枢
     // =========================================================================
     property bool scrollSessionLocked: false
 
@@ -352,20 +344,21 @@ Rectangle {
     }
 
     // =========================================================================
-    // 4. 子视图与光学层装配
+    // 5. 子视图装配
     // =========================================================================
 
-    // 4.1 光学层：上沿天光漂移（独立模块）
+    // 5.1 光学层：上沿天光漂移（已重构：微型胶囊自动闭光，长胶囊绝对不越界进入圆弧）
     CapsuleSpecularGlint {
-        isPureIdle: capsuleRoot.isPureIdle
+        isPureIdle: capsuleRoot.isPureIdle && (capsuleRoot.status !== "Playing")
         capsuleWidth: capsuleRoot.width
+        capsuleRadius: capsuleRoot.radius
     }
 
-    // 4.2 紧凑视图
+    // 5.2 紧凑视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
-        anchors.leftMargin: 4; anchors.rightMargin: 4
+        anchors.leftMargin: 2; anchors.rightMargin: 2
         height: capsuleRoot.isExpanded ? 34 : parent.height
         clip: false
         z: capsuleRoot.isExpanded ? 1 : 5
@@ -409,7 +402,7 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
     }
 
-    // 4.3 展开视图
+    // 5.3 展开视图
     Item {
         anchors.fill: parent
         clip: false
@@ -454,6 +447,8 @@ Rectangle {
             onRequestCollapse: capsuleRoot.requestCollapse()
             onStartCollapse: capsuleRoot.startCollapse()
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
+            onRequestSettings: capsuleRoot.requestSettings() // 🚀 连通至顶层 Island.qml 的 openSettingsWindow()
+
 
             Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad } }
             Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }

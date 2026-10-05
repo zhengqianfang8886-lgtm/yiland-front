@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/process_mgr.py
+# 📄 File: services/process_mgr.py (支持真实图片持久化)
 # ==========================================
 import os
 import json
@@ -13,17 +13,19 @@ from logger import app_logger
 
 TASKS_CONFIG_DIR = os.path.expanduser("~/.config/alcove_island")
 TASKS_CONFIG_FILE = os.path.join(TASKS_CONFIG_DIR, "tasks.json")
+TASKS_ICONS_DIR = os.path.join(TASKS_CONFIG_DIR, "icons")
 
 
 class ProcessManagerService(QObject):
     taskListChanged = Signal()
-    taskStatusChanged = Signal(str, str, int)  # task_id, status ("running"|"stopped"|"error"), pid
+    taskStatusChanged = Signal(str, str, int)  # task_id, status, pid
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tasks = []
-        self._proc_map = {}  # { task_id: (subprocess.Popen, file_handle) }
+        self._proc_map = {}
 
+        os.makedirs(TASKS_ICONS_DIR, exist_ok=True)
         self._load_tasks()
 
         self._poll_timer = QTimer(self)
@@ -34,6 +36,30 @@ class ProcessManagerService(QObject):
     def get_tasks(self) -> list:
         return self._tasks
 
+    # 🚀 将用户选取的图片克隆到软件私有 icons 目录，持久化保全
+    def import_task_icon(self, raw_path: str, task_id: str) -> str:
+        if not raw_path:
+            return ""
+        clean_path = raw_path[7:] if raw_path.startswith("file://") else raw_path
+        clean_path = os.path.abspath(os.path.expanduser(clean_path))
+        if not os.path.exists(clean_path):
+            return ""
+        
+        # 若已在私有目录中则直接返回
+        if os.path.dirname(clean_path) == TASKS_ICONS_DIR:
+            return clean_path
+
+        try:
+            ext = os.path.splitext(clean_path)[1].lower() or ".png"
+            target_filename = f"task_{task_id}_{int(time.time())}{ext}"
+            target_path = os.path.join(TASKS_ICONS_DIR, target_filename)
+            shutil.copy2(clean_path, target_path)
+            app_logger.info(f"✨ 成功导入并持久化服务图标: {target_path}")
+            return target_path
+        except Exception as e:
+            app_logger.error(f"持久化服务图标失败: {e}")
+            return clean_path
+
     def _load_tasks(self):
         os.makedirs(TASKS_CONFIG_DIR, exist_ok=True)
         if not os.path.exists(TASKS_CONFIG_FILE):
@@ -43,6 +69,7 @@ class ProcessManagerService(QObject):
                     "name": "Alcove WebSocket Daemon",
                     "cwd": os.path.expanduser("~"),
                     "cmd": "echo 'Service Ready' && sleep 3600",
+                    "icon": "",
                     "status": "stopped",
                     "pid": 0
                 }
@@ -56,6 +83,8 @@ class ProcessManagerService(QObject):
                 for item in loaded:
                     item["status"] = "stopped"
                     item["pid"] = 0
+                    if "icon" not in item:
+                        item["icon"] = ""
                 self._tasks = loaded
         except Exception as e:
             app_logger.error(f"读取任务配置失败: {e}")
@@ -70,7 +99,8 @@ class ProcessManagerService(QObject):
                     "id": t["id"],
                     "name": t.get("name", "未命名"),
                     "cwd": t.get("cwd", os.path.expanduser("~")),
-                    "cmd": t.get("cmd", "")
+                    "cmd": t.get("cmd", ""),
+                    "icon": t.get("icon", "")
                 })
             with open(TASKS_CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(to_save, f, indent=2, ensure_ascii=False)
@@ -86,10 +116,8 @@ class ProcessManagerService(QObject):
                 ret = proc.poll()
                 if ret is not None:
                     if log_file and not log_file.closed:
-                        try:
-                            log_file.close()
-                        except Exception:
-                            pass
+                        try: log_file.close()
+                        except Exception: pass
                     self._proc_map.pop(tid, None)
                     t["status"] = "error" if ret != 0 else "stopped"
                     t["pid"] = 0
@@ -97,16 +125,13 @@ class ProcessManagerService(QObject):
 
     def start_task(self, task_id: str):
         task = next((t for t in self._tasks if t["id"] == task_id), None)
-        if not task:
-            return
-
+        if not task: return
         if task_id in self._proc_map and self._proc_map[task_id][0].poll() is None:
             return
 
         raw_cwd = task.get("cwd", "~")
         cwd = os.path.abspath(os.path.expanduser(raw_cwd))
         if not os.path.isdir(cwd):
-            app_logger.error(f"任务启动被阻止：工作目录不存在或非法 -> {cwd}")
             task["status"] = "error"
             self.taskStatusChanged.emit(task_id, "error", 0)
             return
@@ -121,42 +146,22 @@ class ProcessManagerService(QObject):
         log_file = None
         try:
             log_file = open(log_path, "w", encoding="utf-8")
-
-            # 🚀 安全架构策略：区分简单命令与复合 Shell Pipeline
             has_shell_metachars = any(c in cmd_str for c in ["&", "|", ";", ">", "<", "$", "`", "\n"])
             if not has_shell_metachars:
-                # 简单指令走安全 shlex 拆分，不经过 shell 解释器
                 args = shlex.split(cmd_str)
                 executable = shutil.which(args[0])
-                if not executable:
-                    raise FileNotFoundError(f"命令未找到: {args[0]}")
-                proc = subprocess.Popen(
-                    args,
-                    cwd=cwd,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True
-                )
+                if not executable: raise FileNotFoundError(f"未找到命令: {args[0]}")
+                proc = subprocess.Popen(args, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True)
             else:
-                # 复合指令受控降级到安全固定 shell (/bin/sh)
-                proc = subprocess.Popen(
-                    ["/bin/sh", "-c", cmd_str],
-                    cwd=cwd,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True
-                )
+                proc = subprocess.Popen(["/bin/sh", "-c", cmd_str], cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True)
 
             self._proc_map[task_id] = (proc, log_file)
             task["status"] = "running"
             task["pid"] = proc.pid
             self.taskStatusChanged.emit(task_id, "running", proc.pid)
-            app_logger.info(f"启动子进程 [{task['name']}] (PID: {proc.pid}) -> {cmd_str}")
-
         except Exception as e:
-            app_logger.error(f"执行任务启动失败: {e}")
-            if log_file and not log_file.closed:
-                log_file.close()
+            app_logger.error(f"启动失败: {e}")
+            if log_file and not log_file.closed: log_file.close()
             task["status"] = "error"
             task["pid"] = 0
             self.taskStatusChanged.emit(task_id, "error", 0)
@@ -164,27 +169,18 @@ class ProcessManagerService(QObject):
     def stop_task(self, task_id: str):
         task = next((t for t in self._tasks if t["id"] == task_id), None)
         entry = self._proc_map.get(task_id)
-
         if entry:
             proc, log_file = entry
             if proc.poll() is None:
                 try:
                     pgid = os.getpgid(proc.pid)
                     os.killpg(pgid, signal.SIGTERM)
-                    app_logger.info(f"安全终止进程组 PGID: {pgid}")
-                except ProcessLookupError:
-                    pass
                 except Exception:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
-
+                    try: proc.terminate()
+                    except Exception: pass
             if log_file and not log_file.closed:
-                try:
-                    log_file.close()
-                except Exception:
-                    pass
+                try: log_file.close()
+                except Exception: pass
 
         self._proc_map.pop(task_id, None)
         if task:
@@ -193,20 +189,20 @@ class ProcessManagerService(QObject):
             self.taskStatusChanged.emit(task_id, "stopped", 0)
 
     def start_all(self):
-        for t in self._tasks:
-            self.start_task(t["id"])
+        for t in self._tasks: self.start_task(t["id"])
 
     def stop_all(self):
-        for t in list(self._proc_map.keys()):
-            self.stop_task(t)
+        for t in list(self._proc_map.keys()): self.stop_task(t)
 
-    def add_task(self, name: str, cwd: str, cmd: str):
+    def add_task(self, name: str, cwd: str, cmd: str, icon: str = ""):
         new_id = f"task_{int(time.time() * 1000)}"
+        saved_icon = self.import_task_icon(icon, new_id) if icon else ""
         new_item = {
             "id": new_id,
             "name": name.strip() or "新建任务",
             "cwd": os.path.abspath(os.path.expanduser(cwd.strip() or "~")),
             "cmd": cmd.strip(),
+            "icon": saved_icon,
             "status": "stopped",
             "pid": 0
         }
@@ -214,13 +210,16 @@ class ProcessManagerService(QObject):
         self._save_tasks()
         self.taskListChanged.emit()
 
-    def update_task(self, task_id: str, name: str, cwd: str, cmd: str):
+    def update_task(self, task_id: str, name: str, cwd: str, cmd: str, icon: str = ""):
         task = next((t for t in self._tasks if t["id"] == task_id), None)
-        if not task:
-            return
+        if not task: return
         task["name"] = name.strip()
         task["cwd"] = os.path.abspath(os.path.expanduser(cwd.strip() or "~"))
         task["cmd"] = cmd.strip()
+        if icon:
+            task["icon"] = self.import_task_icon(icon, task_id)
+        else:
+            task["icon"] = ""
         self._save_tasks()
         self.taskListChanged.emit()
 

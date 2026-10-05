@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ExpandedCardView.qml
+// 📄 File: ExpandedCardView.qml (支持硬件中控页面路由)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -8,9 +8,6 @@ import "expanded"
 Item {
     id: cardRoot
 
-    // =========================================================================
-    // 1. 外部接口与全量业务属性
-    // =========================================================================
     property string chosenFont: ""
     property string expandedTab: "workspace"
     property string previousTab: "workspace"
@@ -39,17 +36,15 @@ Item {
     property string localIp: ""
     property string activeTransient: ""
 
-    // 核心别名直通外部胶囊
     readonly property alias timerPageRef: persistentTimerPage
 
     signal cancelCollapse()
     signal requestCollapse()
     signal startCollapse()
     signal timerCompleted(string title, string message)
+    signal requestSettings() // 🚀 补齐偏好设置信号向上传递
 
-    // =========================================================================
-    // 2. 双轨刚体传送带状态机
-    // =========================================================================
+
     readonly property int viewportWidth: width
     readonly property int viewportHeight: height - 38
     readonly property int slotGap: 16
@@ -57,7 +52,7 @@ Item {
 
     property string currentKey: "time"
     property string departingKey: ""
-    property int slideDir: 1                 // +1: 顺向(新页自右入), -1: 逆向(新页自左入)
+    property int slideDir: 1
     property real transitionProgress: 1.0
     property bool isFastWheeling: false
 
@@ -146,6 +141,7 @@ Item {
         else if (expandedTab === "notification") notificationLoaded = true
         else if (expandedTab === "power") powerLoaded = true
         else if (expandedTab === "process") processLoaded = true
+        else if (expandedTab === "hardware") hardwareLoaded = true
 
         if (expandedTab !== currentKey) {
             triggerConveyorTransition(expandedTab, 0)
@@ -171,11 +167,12 @@ Item {
         return 0
     }
 
-    // 🚀【核心入口】：注册 SUPERVISOR 顶栏标题与主题色彩
+    // 🚀 页面顶栏元数据
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
         if (cardRoot.expandedTab === "power") return { title: "SESSION", sub: "系统会话", color: "#ef4444" }
         if (cardRoot.expandedTab === "time") return { title: "LOCAL TIME", sub: "时间与节律", color: Theme.calendar }
+        if (cardRoot.expandedTab === "hardware") return { title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" }
         if (cardRoot.expandedTab === "workspace") return { title: "WORKSPACE", sub: cardRoot.wsName ? cardRoot.wsName : ("桌面 " + cardRoot.wsCurrent), color: Theme.workspace }
         if (cardRoot.expandedTab === "media") return { title: "MEDIA", sub: cardRoot.status === "Playing" ? (cardRoot.title || "正在播放") : "已暂停", color: cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted }
         if (cardRoot.expandedTab === "calendar") return { title: "CALENDAR", sub: "日历日程", color: Theme.calendar }
@@ -188,9 +185,6 @@ Item {
         return { title: "ALCOVE ISLAND", sub: "", color: Theme.textSecondary }
     }
 
-    // =========================================================================
-    // 3. 滚轮连续传送带驱动
-    // =========================================================================
     property real tabWheelAccum: 0
     Timer { id: tabWheelResetTimer; interval: 240; onTriggered: cardRoot.tabWheelAccum = 0 }
     Timer { id: fastWheelResetTimer; interval: 260; onTriggered: cardRoot.isFastWheeling = false }
@@ -214,15 +208,13 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 4. 按需加载常驻保活（Keep-Alive）
-    // =========================================================================
     property bool clockLoaded: false
     property bool networkLoaded: false
     property bool bluetoothLoaded: false
     property bool notificationLoaded: false
     property bool powerLoaded: false
     property bool processLoaded: false
+    property bool hardwareLoaded: true
 
     MouseArea {
         anchors.fill: parent; z: -1
@@ -234,7 +226,6 @@ Item {
         anchors.fill: parent
         spacing: 12
 
-        // 1. 顶部微胶囊导航中控条组件
         ExpandedHeaderBar {
             chosenFont: cardRoot.chosenFont
             expandedTab: cardRoot.expandedTab
@@ -246,7 +237,6 @@ Item {
             onSwitchRoute: (targetTab, targetSubPage) => cardRoot.switchRoute(targetTab, targetSubPage)
         }
 
-        // 2. 传送带视口窗口（Viewport）
         Item {
             id: conveyorViewport
             width: cardRoot.viewportWidth
@@ -264,14 +254,11 @@ Item {
                 onCollapseRequested: cardRoot.startCollapse()
             }
 
-            // =================================================================
-            // 传送带面板集群
-            // =================================================================
             Item {
                 id: conveyorBeltCanvas
                 anchors.fill: parent
 
-                // 传送带面板 1：时间与节律
+                // 1. 时间
                 Item {
                     id: panelTime
                     x: cardRoot.getPanelX("time")
@@ -285,7 +272,22 @@ Item {
                     }
                 }
 
-                // 传送带面板 2：工作区桌面
+                // 🚀 2. 硬件控制中心面板
+                Item {
+                    id: panelHardware
+                    x: cardRoot.getPanelX("hardware")
+                    width: cardRoot.viewportWidth
+                    height: cardRoot.viewportHeight
+                    visible: cardRoot.isPanelVisible("hardware")
+
+                    HardwarePage {
+                        anchors.fill: parent
+                        chosenFont: cardRoot.chosenFont
+                        onRequestSettings: cardRoot.requestSettings()
+                    }
+                }
+
+                // 3. 桌面
                 Item {
                     id: panelWorkspace
                     x: cardRoot.getPanelX("workspace")
@@ -303,7 +305,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 3：媒体播放器
+                // 4. 媒体
                 Item {
                     id: panelMedia
                     x: cardRoot.getPanelX("media")
@@ -327,7 +329,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 4：日历日程
+                // 5. 日历
                 Item {
                     id: panelCalendar
                     x: cardRoot.getPanelX("calendar")
@@ -341,7 +343,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 5：专注计时
+                // 6. 专注计时
                 Item {
                     id: panelTimer
                     x: cardRoot.getPanelX("timer")
@@ -357,7 +359,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 6：世界时钟
+                // 7. 世界时钟
                 Item {
                     id: panelClock
                     x: cardRoot.getPanelX("clock")
@@ -377,7 +379,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 7：实时网络
+                // 8. 实时网络
                 Item {
                     id: panelNetwork
                     x: cardRoot.getPanelX("network")
@@ -399,7 +401,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 8：蓝牙外设
+                // 9. 蓝牙
                 Item {
                     id: panelBluetooth
                     x: cardRoot.getPanelX("bluetooth")
@@ -418,7 +420,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 9：消息通知
+                // 10. 消息通知
                 Item {
                     id: panelNotification
                     x: cardRoot.getPanelX("notification")
@@ -443,7 +445,7 @@ Item {
                     }
                 }
 
-                // 传送带面板 10：系统电源与会话管理
+                // 11. 会话电源
                 Item {
                     id: panelPower
                     x: cardRoot.getPanelX("power")
@@ -468,7 +470,7 @@ Item {
                     }
                 }
 
-                // 🚀 传送带面板 11：子进程服务管控中枢 (按需常驻保活)
+                // 12. 服务进程管控
                 Item {
                     id: panelProcess
                     x: cardRoot.getPanelX("process")
