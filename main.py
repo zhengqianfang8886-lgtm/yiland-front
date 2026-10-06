@@ -16,6 +16,29 @@ from PySide6.QtCore import QUrl, QTimer, Qt
 from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
 
+import shutil
+import subprocess
+
+def ensure_compiled_shaders():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    frag_src = os.path.join(base_dir, "liquid_glass.frag")
+    qsb_dst = os.path.join(base_dir, "liquid_glass.frag.qsb")
+
+    # 如果源码存在且 qsb 文件不存在或源码更新
+    if os.path.exists(frag_src):
+        should_compile = not os.path.exists(qsb_dst) or (os.path.getmtime(frag_src) > os.path.getmtime(qsb_dst))
+        if should_compile:
+            qsb_tool = shutil.which("pyside6-qsb") or shutil.which("qsb")
+            if qsb_tool:
+                try:
+                    app_logger.info(f"🎨 正在利用 GPU 编译器构建流体玻璃着色器: {qsb_dst}")
+                    subprocess.run(
+                        [qsb_tool, "--glsl", "100 es,120,150", "--hlsl", "50", "--msl", "12", "-o", qsb_dst, frag_src],
+                        check=True, stdout=subprocess.DEVNULL
+                    )
+                except Exception as e:
+                    app_logger.warning(f"编译着色器失败: {e}")
+
 
 def trim_memory():
     gc.collect()

@@ -1,11 +1,10 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (流体自适应·纯净边缘版)
+// 📄 File: IslandCapsule.qml (360° 物理水滴晶体环 + OLED 纯黑底色)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
-import "capsule"
 
-Rectangle {
+Item {
     id: capsuleRoot
 
     // =========================================================================
@@ -109,8 +108,8 @@ Rectangle {
     // 2. 目标几何尺寸与自适应计算
     // =========================================================================
     readonly property int currentNormalWidth: {
-        var baseW = compactCapsuleView.textRowImplicitWidth + 20
-        return Math.max(76, Math.ceil(baseW / 2) * 2)
+        var baseW = compactCapsuleView.textRowImplicitWidth + 24
+        return Math.max(80, Math.ceil(baseW / 2) * 2)
     }
 
     readonly property int targetWidth: {
@@ -133,14 +132,27 @@ Rectangle {
         return capsuleRoot.isCalling ? 44 : 34
     }
 
+    readonly property int radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
+
     readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
     readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE") || (activeTransient === "OSD")
     readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
     readonly property bool isPureIdle: !isExpanded && !isCalling && (status !== "Playing") && (activeTransient === "") && !isMouseOver
 
+    readonly property color currentEffectiveAccent: {
+        if (isCalling) return Theme.media
+        if (activeTransient === "SEDENTARY") return Qt.rgba(52 / 255, 211 / 255, 153 / 255, 1.0)
+        if (activeTransient === "ALERT") return compactCapsuleView.alertThemeColor
+        if (activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) return Theme.danger
+        if (status === "Playing" && !isExpanded) return dominantColor
+        return Qt.rgba(0, 0, 0, 0)
+    }
+
+    readonly property bool hasDynamicAccent: currentEffectiveAccent.a > 0.001
+
     // =========================================================================
-    // 3. 物理锚定、曲率与高对比发光边框
+    // 3. 几何锚定与动效
     // =========================================================================
     z: 2
     anchors.top: parent.top
@@ -159,31 +171,10 @@ Rectangle {
 
     width: targetWidth
     height: targetHeight
-    radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
-    clip: false
 
     opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
     visible: opacity > 0.001
     Behavior on opacity { NumberAnimation { duration: capsuleRoot.isIslandHidden ? 200 : 300; easing.type: Easing.InOutQuad } }
-
-    antialiasing: true
-    smooth: true
-    color: Theme.bgCapsule
-
-    border.width: 3
-    border.color: clipGlowOpacity > 0.01 ?
-                  Qt.rgba(1.0, 1.0, 1.0, 0.75 + clipGlowOpacity * 0.25) :
-                  (isCalling ? Qt.rgba(Theme.media.r, Theme.media.g, Theme.media.b, 0.98) :
-                  ((activeTransient === "SEDENTARY") ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.98) :
-                  ((activeTransient === "ALERT") ? Qt.rgba(compactCapsuleView.alertThemeColor.r, compactCapsuleView.alertThemeColor.g, compactCapsuleView.alertThemeColor.b, 0.95) :
-                  ((activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.98) :
-                  ((status === "Playing" && !isExpanded) ? Qt.rgba(dominantColor.r, dominantColor.g, dominantColor.b, 0.96) :
-                  (isMouseOver ? Qt.rgba(1, 1, 1, 0.55) : Qt.rgba(1, 1, 1, 0.35)))))))
-
-    Behavior on border.color {
-        enabled: clipGlowOpacity <= 0.01
-        ColorAnimation { duration: Theme.animNormal }
-    }
 
     Behavior on width {
         enabled: !capsuleRoot.isIslandHidden
@@ -212,8 +203,6 @@ Rectangle {
         }
     }
 
-    Behavior on radius { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic } }
-
     function onMorphFinished() {
         if (!isExpanded) {
             isCollapsing = false
@@ -225,7 +214,24 @@ Rectangle {
     }
 
     // =========================================================================
-    // 4. 根节点直属交互中枢
+    // 4. 🚀 GPU 级 360° 物理水滴晶体环片元着色器 (内部纯黑 + 四周冷白反光外壳)
+    // =========================================================================
+    ShaderEffect {
+        id: liquidGlassEffect
+        anchors.fill: parent
+        z: 0
+
+        property vector2d u_size: Qt.vector2d(capsuleRoot.width, capsuleRoot.height)
+        property real u_radius: capsuleRoot.radius
+        property color u_accent: capsuleRoot.currentEffectiveAccent
+        property real u_hasAccent: capsuleRoot.hasDynamicAccent ? 1.0 : 0.0
+        property real u_isHovered: capsuleRoot.isMouseOver ? 1.0 : 0.0
+
+        fragmentShader: "liquid_glass.frag.qsb"
+    }
+
+    // =========================================================================
+    // 5. 交互中枢 (Interaction Handlers)
     // =========================================================================
     property bool scrollSessionLocked: false
 
@@ -344,24 +350,17 @@ Rectangle {
     }
 
     // =========================================================================
-    // 5. 子视图装配
+    // 6. 子视图装配 (Subviews)
     // =========================================================================
 
-    // 5.1 光学层：上沿天光漂移（已重构：微型胶囊自动闭光，长胶囊绝对不越界进入圆弧）
-    CapsuleSpecularGlint {
-        isPureIdle: capsuleRoot.isPureIdle && (capsuleRoot.status !== "Playing")
-        capsuleWidth: capsuleRoot.width
-        capsuleRadius: capsuleRoot.radius
-    }
-
-    // 5.2 紧凑视图
+    // 6.1 紧凑视图 (z: 5，悬浮在深黑晶体与冷白光圈之上)
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
         anchors.leftMargin: 2; anchors.rightMargin: 2
         height: capsuleRoot.isExpanded ? 34 : parent.height
         clip: false
-        z: capsuleRoot.isExpanded ? 1 : 5
+        z: 5
 
         visible: !capsuleRoot.isExpanded && (opacity > 0.01)
         opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
@@ -402,7 +401,7 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
     }
 
-    // 5.3 展开视图
+    // 6.2 展开视图 (z: 10)
     Item {
         anchors.fill: parent
         clip: false
@@ -447,8 +446,7 @@ Rectangle {
             onRequestCollapse: capsuleRoot.requestCollapse()
             onStartCollapse: capsuleRoot.startCollapse()
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
-            onRequestSettings: capsuleRoot.requestSettings() // 🚀 连通至顶层 Island.qml 的 openSettingsWindow()
-
+            onRequestSettings: capsuleRoot.requestSettings()
 
             Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad } }
             Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }

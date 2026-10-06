@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactWorkspaceView.qml (丝滑滚轮齿轮翻牌版)
+// 📄 File: compact/CompactWorkspaceView.qml (彻底剔除顶线杂质·纯净版)
 // ==========================================
 import QtQuick
 
@@ -15,7 +15,7 @@ Item {
     property bool hasZeroWs: false
 
     // =========================================================================
-    // 🚀【核心机制】：双轨滚轴数值转换状态机
+    // 双轨滚轴数值转换状态机
     // =========================================================================
     property int prevNumber: displayWsNumber
     property int currentNumber: displayWsNumber
@@ -82,19 +82,8 @@ Item {
             opacity: 0.0
         }
 
-        // 内嵌高光顶线
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 1
-            height: 1
-            radius: 0.5
-            color: Qt.rgba(1, 1, 1, 0.35)
-        }
-
         // =====================================================================
-        // 🚀 双轨双缓冲数字槽位 (数字在此上下连贯翻滚穿梭)
+        // 双轨双缓冲数字槽位 (彻底剔除顶线上方的横线条)
         // =====================================================================
         Item {
             id: numSlot
@@ -112,7 +101,6 @@ Item {
                 font.family: (wsRoot.chosenFont !== "") ? wsRoot.chosenFont : "Monospace"
                 renderType: Text.QtRendering
 
-                // 向滑动方向滑出并淡出
                 y: ((numSlot.height - height) / 2) - (wsRoot.rollProgress * numSlot.height * wsRoot.rollDirection)
                 opacity: 1.0 - wsRoot.rollProgress
                 visible: opacity > 0.01
@@ -129,7 +117,6 @@ Item {
                 font.family: (wsRoot.chosenFont !== "") ? wsRoot.chosenFont : "Monospace"
                 renderType: Text.QtRendering
 
-                // 从来向滑入并弹跳到位
                 y: ((numSlot.height - height) / 2) + ((1.0 - wsRoot.rollProgress) * numSlot.height * wsRoot.rollDirection)
                 opacity: Math.min(1.0, wsRoot.rollProgress * 1.5)
             }
@@ -149,7 +136,7 @@ Item {
     }
 
     // =========================================================================
-    // 2. 秩序微光垂直分割线 (固定 x = 46px，绝不动)
+    // 2. 秩序微光垂直分割线
     // =========================================================================
     Rectangle {
         id: divider
@@ -163,7 +150,7 @@ Item {
     }
 
     // =========================================================================
-    // 3. 117px 开阔桌面名称区 (基线固定在 x = 55px，绝不动，长名字 100% 显示全)
+    // 3. 桌面名称区
     // =========================================================================
     Item {
         id: nameArea
@@ -190,7 +177,6 @@ Item {
             renderType: Text.QtRendering
         }
 
-        // 名称视差平滑升入动效
         ParallelAnimation {
             id: textSlideAnim
             NumberAnimation {

@@ -1,9 +1,9 @@
 // ==========================================
-// 📄 File: HardwareBubbleView.qml (触感分层·非对称冲程·渐隐流光版)
+// 📄 File: HardwareBubbleView.qml (360° 物理水滴晶体环 + OLED 纯黑心流岛)
 // ==========================================
 import QtQuick
 
-Rectangle {
+Item {
     id: typingBubbleRoot
 
     // 外部数据直接接口
@@ -38,39 +38,50 @@ Rectangle {
 
     readonly property int islandWidth: 60
     readonly property int islandHeight: 34
+    readonly property int radius: 17
     readonly property bool isExpanded: false
 
     width: islandWidth
     height: islandHeight
-    radius: 17
     clip: false
     transformOrigin: Item.Left
-
-    color: Theme.bgCapsule
-
-    // 状态反馈：边框无级柔和过渡
-    border.width: isIdle ? 1.0 : (1.2 + intensity * 0.6)
-    border.color: isIdle ? Qt.rgba(1, 1, 1, 0.15) : typingThemeColor
-
-    Behavior on border.width { NumberAnimation { duration: 120 } }
-    Behavior on border.color { ColorAnimation { duration: isIdle ? 300 : 90 } }
 
     visible: active
     opacity: active ? 1.0 : 0.0
 
     // =========================================================================
-    // 1. 状态层：Rage 单次脉冲冲击波 (单次爆发消散，不持续循环)
+    // 1. 🚀 GPU 级 360° 物理水滴晶体环 (与主胶囊 100% 材质同源)
+    // 闲置时为冷白外壁+纯黑底，打字时随速度将主题色浸润漫溢至边缘光圈
+    // =========================================================================
+    ShaderEffect {
+        id: liquidGlassEffect
+        anchors.fill: parent
+        z: 0
+
+        property vector2d u_size: Qt.vector2d(typingBubbleRoot.width, typingBubbleRoot.height)
+        property real u_radius: typingBubbleRoot.radius
+        property color u_accent: typingBubbleRoot.typingThemeColor
+        // 静息时无色(冷白水滴)，打字激活时动态色温润漫溢
+        property real u_hasAccent: typingBubbleRoot.isIdle ? 0.0 : Math.min(1.0, 0.4 + typingBubbleRoot.intensity * 0.6)
+        property real u_isHovered: typingBubbleRoot.isHovered ? 1.0 : 0.0
+
+        fragmentShader: "liquid_glass.frag.qsb"
+    }
+
+    // =========================================================================
+    // 2. 状态层：Rage 极速单次脉冲波
     // =========================================================================
     Rectangle {
         id: rageBurstRing
         anchors.fill: parent
-        radius: parent.radius
+        radius: typingBubbleRoot.radius
         color: "transparent"
         border.color: typingBubbleRoot.typingThemeColor
         border.width: 1.5
         visible: opacity > 0.001
         opacity: 0.0
         scale: 1.0
+        z: 1
 
         ParallelAnimation {
             id: rageSingleBurstAnim
@@ -80,22 +91,22 @@ Rectangle {
     }
 
     // =========================================================================
-    // 2. 状态层：机身核心氛围底光 (根据 intensity 平滑膨胀与增亮)
+    // 3. 内部氛围微光 (打字时在纯黑晶体内壁轻微蓄光)
     // =========================================================================
     Rectangle {
         anchors.centerIn: parent
         width: 38 + typingBubbleRoot.intensity * 12
         height: 16 + typingBubbleRoot.intensity * 8
         radius: 11
+        z: 1
         color: Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 
-                       typingBubbleRoot.isIdle ? 0.04 : (0.10 + typingBubbleRoot.intensity * 0.20))
+                       typingBubbleRoot.isIdle ? 0.0 : (0.08 + typingBubbleRoot.intensity * 0.18))
 
         Behavior on color { ColorAnimation { duration: 150 } }
     }
 
     // =========================================================================
-    // 3. 按键反馈层 (Key Stroke Tactile Layer)：4 颗微型机械键帽
-    // 彻底解耦：下潜/回弹完全遵循“40ms 快下沉 + 180ms 慢回弹”
+    // 4. 按键反馈层：4 颗微型物理机械键帽 (悬浮于黑晶体内)
     // =========================================================================
     Item {
         id: keyboardContainer
@@ -103,6 +114,7 @@ Rectangle {
         anchors.verticalCenterOffset: -2
         width: 40
         height: 18
+        z: 2
 
         Row {
             anchors.fill: parent
@@ -112,7 +124,6 @@ Rectangle {
             component KeyCap: Rectangle {
                 id: capRoot
                 property real strokeRatio: 0.0
-                // 慢打下潜 1.8px，高速下潜到 3.0px
                 readonly property real maxStrokePx: 1.8 + typingBubbleRoot.intensity * 1.2
                 readonly property real targetY: Math.round(strokeRatio * maxStrokePx)
 
@@ -133,14 +144,14 @@ Rectangle {
                 color: {
                     if (strokeRatio > 0.06) {
                         return Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 
-                                       0.18 + strokeRatio * (0.35 + typingBubbleRoot.intensity * 0.25))
+                                       0.20 + strokeRatio * (0.35 + typingBubbleRoot.intensity * 0.25))
                     }
                     return Qt.rgba(1, 1, 1, 0.08)
                 }
 
                 border.color: strokeRatio > 0.06 ? 
                               Qt.rgba(typingThemeColor.r, typingThemeColor.g, typingThemeColor.b, 0.45 + strokeRatio * 0.55) : 
-                              Qt.rgba(1, 1, 1, 0.16)
+                              Qt.rgba(1, 1, 1, 0.14)
                 border.width: 1
 
                 Behavior on color { ColorAnimation { duration: 90 } }
@@ -148,9 +159,9 @@ Rectangle {
 
                 // 键帽顶面局部微高光
                 Rectangle {
-                    anchors.top: parent.top; anchors.topMargin: 1.0
+                    anchors.top: parent.top; anchors.topMargin: 1
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: parent.width - 2.0; height: 1; radius: 0.5
+                    width: parent.width - 2; height: 1; radius: 0.5
                     color: Qt.rgba(1, 1, 1, capRoot.strokeRatio > 0.1 ? (0.4 + typingBubbleRoot.intensity * 0.4) : 0.22)
                 }
             }
@@ -163,15 +174,15 @@ Rectangle {
     }
 
     // =========================================================================
-    // 4. 状态层：底部 Caret 激光流 (中心聚光高亮、两端柔和渐隐)
+    // 5. 状态层：底部 Caret 激光流
     // =========================================================================
     Rectangle {
         id: typingCaret
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 4.8
         anchors.horizontalCenter: parent.horizontalCenter
+        z: 2
 
-        // 宽度根据 intensity 从 12px 连续平滑拓展至 38px
         width: typingBubbleRoot.isIdle ? 10 : (12 + typingBubbleRoot.intensity * 26)
         height: 1.6
         radius: 0.8
@@ -179,7 +190,6 @@ Rectangle {
 
         Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
-        // 柔和中心亮、两端羽化渐隐
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0.0; color: "transparent" }
@@ -188,7 +198,7 @@ Rectangle {
                 color: Qt.rgba(typingBubbleRoot.typingThemeColor.r, typingBubbleRoot.typingThemeColor.g, typingBubbleRoot.typingThemeColor.b, typingBubbleRoot.isIdle ? 0.25 : 0.65) 
             }
             GradientStop { 
-                position: 0.5; 
+                position: 0.50; 
                 color: typingBubbleRoot.inRageState ? "#ffffff" : typingBubbleRoot.typingThemeColor 
             }
             GradientStop { 
@@ -198,7 +208,7 @@ Rectangle {
             GradientStop { position: 1.0; color: "transparent" }
         }
 
-        // Idle 静息呼吸放慢至 3000ms（3 秒循环），安详沉稳
+        // Idle 静息安详微呼吸
         SequentialAnimation on opacity {
             running: typingBubbleRoot.isIdle
             loops: Animation.Infinite

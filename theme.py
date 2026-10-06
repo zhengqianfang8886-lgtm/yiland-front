@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: theme.py
+# 📄 File: theme.py (液态玻璃材质色彩核心增强版)
 # ==========================================
 from PySide6.QtCore import QObject, Property, Signal
 from PySide6.QtGui import QColor
@@ -69,15 +69,27 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def danger(self): return QColor("#ef4444")
 
-    # 2. 表面材质与半透明通道 (Surfaces)
+    # 2. 🚀 流体玻璃材质表面与半透明通道 (Liquid Glass Surfaces)
+    # 暗夜黑曜石微透底色：约 89% 不透明度，具备清透水润感同时保证 100% 极小文字对比度
     @Property(QColor, constant=True)
-    def bgCapsule(self): return QColor(20, 20, 26, int(0.96 * 255))
+    def bgCapsule(self): return QColor(13, 15, 22, int(0.89 * 255))
+
+    # 次级液态玻璃层底色（卡片/副岛透光度）
+    @Property(QColor, constant=True)
+    def bgCapsuleSecondary(self): return QColor(20, 24, 34, int(0.65 * 255))
+
+    # 玻璃外壁与内壁菲涅尔高光颜色
+    @Property(QColor, constant=True)
+    def glassOuterBorder(self): return QColor(255, 255, 255, int(0.20 * 255))
 
     @Property(QColor, constant=True)
-    def bgCardItem(self): return QColor(255, 255, 255, int(0.04 * 255))
+    def glassInnerRim(self): return QColor(255, 255, 255, int(0.12 * 255))
 
     @Property(QColor, constant=True)
-    def bgCardHover(self): return QColor(255, 255, 255, int(0.08 * 255))
+    def bgCardItem(self): return QColor(255, 255, 255, int(0.045 * 255))
+
+    @Property(QColor, constant=True)
+    def bgCardHover(self): return QColor(255, 255, 255, int(0.085 * 255))
 
     @Property(QColor, constant=True)
     def borderSubtle(self): return QColor(255, 255, 255, int(0.10 * 255))
