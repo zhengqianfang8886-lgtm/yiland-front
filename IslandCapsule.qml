@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (宽高同频·彻底消除收缩脱节与分批)
+// 📄 File: IslandCapsule.qml
+// 🌟 消除通知残留水位污染 · 丝滑微交互防抖退火版
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -100,12 +101,101 @@ Item {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
+    function printTraceLog(tag, oldVal, newVal, reason) {
+        var now = new Date()
+        var timeStr = now.toLocaleTimeString() + "." + ("00" + now.getMilliseconds()).slice(-3)
+        console.log("\x1b[36m[" + timeStr + "] [Capsule 尺寸追踪]\x1b[0m " + tag + ": " + oldVal + " -> \x1b[32m" + newVal + "\x1b[0m | 模式: " + (capsuleRoot.activeTransient || "常态") + " | 交互中: " + capsuleRoot.isUserInteracting + " | 原因: " + reason)
+    }
+
+    // =========================================================================
+    // 🚀【核心机制 1】：生命周期严格对齐的高水位引擎 (仅限工作区/OSD等微交互防抖)
+    // =========================================================================
+    property bool isUserInteracting: false
+    property int peakInteractionWidth: 0
+
+    // 计算当前工作区/OSD等微交互所允许的合理物理最大宽度上限
+    readonly property int maxMicroInteractionWidth: {
+        var wsW = (compactCapsuleView.wsContentImplicitWidth || 0) + 20
+        return Math.max(184, Math.max(wsW, currentNormalWidth))
+    }
+
+    Timer {
+        id: interactionCooldownTimer
+        interval: 850 // 略长于瞬态 800ms，确保瞬态完全交接完毕后才允许收缩
+        repeat: false
+        onTriggered: {
+            capsuleRoot.printTraceLog("交互锁解除", capsuleRoot.peakInteractionWidth, 0, "冷却期满，平稳归位")
+            capsuleRoot.isUserInteracting = false
+            capsuleRoot.peakInteractionWidth = 0
+        }
+    }
+
+    function notifyInteraction(callerReason) {
+        // 如果当前是 ALERT 或 SEDENTARY，或者正处于收拢/展开，绝不能把这些外部大宽度当成水位的基准！
+        if (capsuleRoot.activeTransient === "ALERT" || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isExpanded) {
+            capsuleRoot.peakInteractionWidth = 0
+        }
+
+        capsuleRoot.isUserInteracting = true
+
+        // 仅在微交互安全范围内采纳宽度，杜绝被通知弹窗等外部大尺寸残留所污染
+        var demand = (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD") ?
+                     capsuleRoot.rawTargetWidth : capsuleRoot.currentNormalWidth
+        var curW = Math.round(capsuleRoot.width)
+        var clampedCurW = Math.min(curW, capsuleRoot.maxMicroInteractionWidth)
+        var clampedDemand = Math.min(demand, capsuleRoot.maxMicroInteractionWidth)
+
+        var oldPeak = capsuleRoot.peakInteractionWidth
+        capsuleRoot.peakInteractionWidth = Math.max(capsuleRoot.peakInteractionWidth, clampedCurW, clampedDemand)
+
+        if (capsuleRoot.peakInteractionWidth !== oldPeak) {
+            capsuleRoot.printTraceLog("水位线爬升", oldPeak, capsuleRoot.peakInteractionWidth, callerReason)
+        }
+        interactionCooldownTimer.restart()
+    }
+
+    onRawTargetWidthChanged: {
+        // 🚀【彻底修复】：仅在工作区或音量 OSD 交互期间才允许水位上升，通知(ALERT)等绝对禁止污染水位线！
+        if ((capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD")
+            && capsuleRoot.isUserInteracting
+            && capsuleRoot.rawTargetWidth > capsuleRoot.peakInteractionWidth) {
+            var clampedDemand = Math.min(capsuleRoot.rawTargetWidth, capsuleRoot.maxMicroInteractionWidth)
+            if (clampedDemand > capsuleRoot.peakInteractionWidth) {
+                capsuleRoot.printTraceLog("内容扩大", capsuleRoot.peakInteractionWidth, clampedDemand, "工作区/OSD内容宽度超过历史水位")
+                capsuleRoot.peakInteractionWidth = clampedDemand
+            }
+        }
+    }
+
+    onActiveTransientChanged: {
+        capsuleRoot.printTraceLog("瞬态切换", "-", capsuleRoot.activeTransient || "常态", "activeTransient 属性变动")
+        if (activeTransient === "OSD" || activeTransient === "WORKSPACE") {
+            // 如果存在残留的不合理高水位，立即裁剪至安全微交互上限
+            if (capsuleRoot.peakInteractionWidth > capsuleRoot.maxMicroInteractionWidth) {
+                capsuleRoot.peakInteractionWidth = 0
+            }
+            capsuleRoot.notifyInteraction("进入 " + activeTransient + " 模式")
+        } else {
+            // 退出工作区/OSD，或进入 ALERT / SEDENTARY 时，立即重置微交互水位线，严防下一次交互读到脏数据
+            capsuleRoot.isUserInteracting = false
+            capsuleRoot.peakInteractionWidth = 0
+            interactionCooldownTimer.stop()
+        }
+    }
+
+    onWsCurrentChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("切换桌面: " + wsCurrent)
+    onWsNameChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("桌面名称变更: " + wsName)
+    onOsdValueChanged: if (activeTransient === "OSD") capsuleRoot.notifyInteraction("OSD 值变更: " + osdValue)
+
+    // =========================================================================
+    // 🚀【核心机制 2】：基准物理宽度常驻保障 (绝对杜绝 5ms 塌陷)
+    // =========================================================================
     readonly property int currentNormalWidth: {
         var baseW = compactCapsuleView.textRowImplicitWidth + 24
         return Math.max(80, Math.ceil(baseW / 2) * 2)
     }
 
-    readonly property int targetWidth: {
+    readonly property int rawTargetWidth: {
         if (capsuleRoot.isExpanded) return 430
         if (capsuleRoot.isCalling) return 320
         if (capsuleRoot.activeTransient === "SEDENTARY") return 520
@@ -113,9 +203,46 @@ Item {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
             return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
-        if (capsuleRoot.activeTransient === "WORKSPACE") return Math.max(154, currentNormalWidth)
-        if (capsuleRoot.activeTransient === "OSD") return Math.max(176, currentNormalWidth)
+
+        if (capsuleRoot.activeTransient === "WORKSPACE") {
+            var wsDynamic = (compactCapsuleView.wsContentImplicitWidth || 0) + 20
+            return Math.max(168, Math.max(wsDynamic, currentNormalWidth))
+        }
+
+        if (capsuleRoot.activeTransient === "OSD") return Math.max(184, currentNormalWidth)
+
         return currentNormalWidth
+    }
+
+    // =========================================================================
+    // 🚀【核心机制 3】：决胜裁决宽度（瞬态进行中或操作中，严格隔离安全区间）
+    // =========================================================================
+    readonly property int targetWidth: {
+        // 1. 展开大卡片
+        if (capsuleRoot.isExpanded) return 430
+
+        // 2. 🚀【紧急置顶】：来电专属宽度，绝不允许被常态时钟 186px 挤扁！
+        if (capsuleRoot.isCalling) return 320
+
+        // 3. 久坐与通知弹窗
+        if (capsuleRoot.activeTransient === "SEDENTARY") return 520
+        if (capsuleRoot.activeTransient === "ALERT") {
+            var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
+            return Math.round(Math.min(420, Math.max(160, dynamicW)))
+        }
+
+        // 4. 处于用户交互保护期中（切桌面/调音量），严格受到安全上限保护
+        if (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD" || capsuleRoot.isUserInteracting) {
+            var safePeak = Math.min(capsuleRoot.peakInteractionWidth, capsuleRoot.maxMicroInteractionWidth)
+            return Math.max(safePeak, capsuleRoot.rawTargetWidth)
+        }
+
+        // 5. 常态时钟
+        return capsuleRoot.currentNormalWidth
+    }
+
+    onTargetWidthChanged: {
+        capsuleRoot.printTraceLog("目标宽度 targetWidth", "-", targetWidth, "布局引擎重定尺寸")
     }
 
     readonly property int targetHeight: {
@@ -166,14 +293,16 @@ Item {
     visible: opacity > 0.001
     Behavior on opacity { NumberAnimation { duration: capsuleRoot.isIslandHidden ? 200 : 300; easing.type: Easing.InOutQuad } }
 
-    // 🚀【核心机制：宽高同频同速收缩，彻底切断分段顿挫】
+    // =========================================================================
+    // 🚀 唯一的物理缓动：膨胀 140ms 迅速迎合，退火 220ms 沉稳平滑，零反弹
+    // =========================================================================
     Behavior on width {
         enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 190
-            easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
+            duration: capsuleRoot.width < capsuleRoot.targetWidth ? 140 : 220
+            easing.type: Easing.OutCubic
+            easing.overshoot: 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
                 if (!running && !heightNumAnim.running) capsuleRoot.onMorphFinished()
@@ -184,7 +313,6 @@ Item {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            // 收缩时与宽度严格对齐为 190ms，严禁高度先行停止造成先扁后窄
             duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 220 : 190) : 190
             easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
@@ -205,7 +333,6 @@ Item {
         }
     }
 
-    // 360° 物理水滴晶体环片元着色器
     ShaderEffect {
         id: liquidGlassEffect
         anchors.fill: parent
@@ -279,6 +406,15 @@ Item {
         if (capsuleRoot.isCalling || capsuleRoot.activeTransient === "SEDENTARY") return
         if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") return
 
+        // 🚀【核心修复】：如果滚轮滚动切换桌面时正处于通知状态，立即重置通知与水位，杜绝污染
+        if (capsuleRoot.activeTransient === "ALERT") {
+            capsuleRoot.activeTransient = ""
+            capsuleRoot.peakInteractionWidth = 0
+            capsuleRoot.isUserInteracting = false
+        }
+
+        capsuleRoot.notifyInteraction("滚轮滚动切换桌面")
+
         if (!capsuleRoot.isExpanded) {
             hoverDwellTimer.stop()
             capsuleRoot.scrollSessionLocked = true
@@ -316,6 +452,7 @@ Item {
         }
         onWheel: (wheel) => {
             wheel.accepted = true
+            capsuleRoot.notifyInteraction("MouseArea 滚轮事件")
             if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") capsuleRoot.handleWheelAction(wheel.angleDelta.y)
         }
         onClicked: (mouse) => {
@@ -336,7 +473,6 @@ Item {
         }
     }
 
-    // 紧凑视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
@@ -384,7 +520,6 @@ Item {
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
     }
 
-    // 展开视图
     Item {
         anchors.fill: parent
         clip: false
@@ -398,7 +533,6 @@ Item {
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
 
-            // 🚀【核心优化】：彻底剔除 height > 100 阶梯门限，开始收缩瞬间决绝淡出，绝不在半空中硬切
             visible: opacity > 0.01
             opacity: capsuleRoot.isExpanded ? 1.0 : 0.0
             scale: capsuleRoot.isExpanded ? 1.0 : 0.94

@@ -308,11 +308,19 @@ class ProcessListModel(QAbstractListModel):
         self.countChanged.emit()
         self.runningCountChanged.emit()
 
-    def _sync_status(self, task_id, status, pid):
+    def _sync_status(self, task_id, status, pid, error_msg=""):
         tasks = self._service.get_tasks()
         for row, t in enumerate(tasks):
             if t["id"] == task_id:
+                t["status"] = status
+                t["pid"] = pid
                 idx = self.index(row, 0)
                 self.dataChanged.emit(idx, idx, [self.StatusRole, self.PidRole])
+                
+                # 🚀 架构级联动：若产生启动失败，直接向灵动岛推送弹窗横幅通知用户原因
+                if status == "error" and error_msg and self.parent():
+                    bridge = self.parent()
+                    if hasattr(bridge, "alertTriggered"):
+                        bridge.alertTriggered.emit("⚠️", f"{t.get('name', '服务')} 启动失败", error_msg, 4000, "")
                 break
         self.runningCountChanged.emit()

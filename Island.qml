@@ -389,7 +389,7 @@ Item {
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
-    // 🚀【击键心流副岛】：直接绑定 relay 真实输入数据，彻底打通链路！
+    // 🚀【击键心流副岛】：彻底恢复宽度监听，结合新版 Mask 引擎实现无黑框、无切角的平滑展宽
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
@@ -398,14 +398,16 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
+        activeMod: relay.typingMod
+        activeKey: relay.typingKey
+        strokeRevision: relay.strokeRevision
+
         x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
-        // 🌟 核心修复 1：由全局条件全权决定 active
         active: root.hasTypingIsland
 
-        // 🌟 核心修复 2：数据直接从 relay 注入子组件内部接口
         isTyping: relay.typingActive
         typingThemeColor: relay.typingColor
         spec1: relay.typingSpec1
@@ -416,8 +418,8 @@ Item {
 
         onActiveChanged: maskController.notifyIslandMoving()
         onXChanged: maskController.notifyIslandMoving()
+        // 🚀 恢复宽度监听：胶囊变宽时系统遮罩同步展开，右上角绝不再被截断！
         onWidthChanged: maskController.notifyIslandMoving()
-        onHeightChanged: maskController.notifyIslandMoving()
     }
 
     TimerBubbleView {

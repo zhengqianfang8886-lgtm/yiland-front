@@ -1,3 +1,7 @@
+# ==========================================
+# 📄 File: services/system_wm.py
+# 🌟 剪贴板静默监听 · 零日志完整版
+# ==========================================
 import os
 import shutil
 import hashlib
@@ -77,8 +81,9 @@ class WindowManagerService(QObject):
         if not mime:
             return
         formats = set(mime.formats())
+
+        # 🔒 静默处理，绝对不入日志
         if formats.intersection(CONCEAL_MIME_TYPES):
-            app_logger.info("捕获到受密码管理器保护的剪贴板更新，已触发隐私掩码。")
             self.clipboardTriggered.emit("🔐", "密码凭据", "已安全复制保密数据 · [已脱敏]", 1400)
             return
 
@@ -102,6 +107,7 @@ class WindowManagerService(QObject):
             if len(preview) > 16:
                 preview = preview[:14] + "..."
             detail_str = f"已复制 {count} 字符 · \"{preview}\""
+            # 仅向前端发射信号，零日志记录
             self.clipboardTriggered.emit("📋", "剪贴板", detail_str, 1300)
 
     def focus_teams_window(self):

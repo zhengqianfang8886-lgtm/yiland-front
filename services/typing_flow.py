@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: services/typing_flow.py (优化停打衰减·拒绝末端拖尾)
+# 📄 File: services/typing_flow.py
+# 🌟 零延迟物理击键脉冲 · 支持连击同一键 · 9参数瞬态防泄密管道
 # ==========================================
 import os
 import sys
@@ -19,6 +20,28 @@ IS_64BIT = struct.calcsize("P") == 8
 EVENT_FORMAT = "qqHHi" if IS_64BIT else "iiHHi"
 EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
 
+EVDEV_KEY_MAP = {
+    1: "Esc", 2: "1", 3: "2", 4: "3", 5: "4", 6: "5", 7: "6", 8: "7", 9: "8", 10: "9", 11: "0",
+    12: "-", 13: "=", 14: "Bksp", 15: "Tab",
+    16: "Q", 17: "W", 18: "E", 19: "R", 20: "T", 21: "Y", 22: "U", 23: "I", 24: "O", 25: "P",
+    26: "[", 27: "]", 28: "Enter",
+    30: "A", 31: "S", 32: "D", 33: "F", 34: "G", 35: "H", 36: "J", 37: "K", 38: "L",
+    39: ";", 40: "'", 41: "`",
+    43: "\\", 44: "Z", 45: "X", 46: "C", 47: "V", 48: "B", 49: "N", 50: "M",
+    51: ",", 52: ".", 53: "/", 57: "Space",
+    59: "F1", 60: "F2", 61: "F3", 62: "F4", 63: "F5", 64: "F6",
+    65: "F7", 66: "F8", 67: "F9", 68: "F10", 87: "F11", 88: "F12",
+    103: "Up", 105: "Left", 106: "Right", 108: "Down",
+    111: "Del"
+}
+
+MODIFIER_KEY_MAP = {
+    29: "Ctrl", 97: "Ctrl",
+    42: "Shift", 54: "Shift",
+    56: "Alt", 100: "Alt",
+    125: "Win", 126: "Win",
+}
+
 LEFT_OUTER_KEYS = {1, 41, 2, 3, 15, 16, 17, 58, 30, 31, 42, 44, 45, 29, 125}
 LEFT_INNER_KEYS = {4, 5, 6, 18, 19, 20, 32, 33, 34, 46, 47, 48, 56}
 RIGHT_INNER_KEYS = {7, 8, 21, 22, 35, 36, 49, 50, 100}
@@ -35,31 +58,20 @@ def find_system_keyboards() -> list:
     try:
         if not os.path.exists("/proc/bus/input/devices"):
             return keyboards
-
         with open("/proc/bus/input/devices", "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
         for section in content.split("\n\n"):
-            has_kbd = False
-            event_node = None
-            is_ignored = False
-
+            has_kbd, event_node, is_ignored = False, None, False
             for line in section.split("\n"):
                 line = line.strip()
                 if line.startswith("N: Name="):
                     name = line.split("=", 1)[1].strip('"').lower()
-                    excluded_words = [
-                        "mouse", "touchpad", "trackpoint", "pointer",
-                        "wacom", "stylus", "finger", "touchscreen",
-                        "power", "sleep", "lid", "video", "button",
-                        "switch", "consumer control", "system control"
-                    ]
-                    if any(bad in name for bad in excluded_words):
+                    if any(bad in name for bad in ["mouse", "touchpad", "trackpoint", "pointer", "stylus", "finger", "touchscreen", "power", "sleep"]):
                         is_ignored = True
                         break
                     if "keyboard" in name or "kbd" in name or "at translated" in name:
                         has_kbd = True
-
                 elif line.startswith("H: Handlers="):
                     parts = line.split("=", 1)[1].split()
                     if any(p.startswith("mouse") or p.startswith("js") for p in parts):
@@ -75,9 +87,8 @@ def find_system_keyboards() -> list:
                 node_path = f"/dev/input/{event_node}"
                 if os.path.exists(node_path):
                     keyboards.append(node_path)
-    except Exception as e:
-        app_logger.warning(f"[TypingFlow] 设备解析异常: {e}")
-
+    except Exception:
+        pass
     return list(set(keyboards))
 
 
@@ -105,7 +116,10 @@ def interpolate_typing_color(intensity: float) -> str:
 
 
 class TypingFlowService(QObject):
-    typingUpdated = Signal(bool, str, float, float, float, float, float)
+    # 9 参数全量频谱信号
+    typingUpdated = Signal(bool, str, float, float, float, float, float, str, str)
+    # 🚀 物理按键瞬态击键脉冲信号 (每次物理下按 0ms 瞬间发射，无论是否同键)
+    keyStrokeTriggered = Signal(str, str, int)
 
     def __init__(self, executor, config=None, parent=None):
         super().__init__(parent)
@@ -118,9 +132,13 @@ class TypingFlowService(QObject):
 
         self._strokes = [0.0, 0.0, 0.0, 0.0]
         self._fallback_rotation = 0
-
         self._smooth_intensity = 0.0
         self._in_rage_state = False
+
+        self._active_mods = set()
+        self._latest_mod = ""
+        self._latest_key = ""
+        self._stroke_counter = 0
 
         self._tick_timer = QTimer(self)
         self._tick_timer.setInterval(25)
@@ -155,11 +173,8 @@ class TypingFlowService(QObject):
                             data = os.read(fd, EVENT_SIZE)
                             if len(data) >= EVENT_SIZE:
                                 _, _, ev_type, code, val = struct.unpack(EVENT_FORMAT, data[:EVENT_SIZE])
-                                if ev_type != 1 or val != 1 or code >= 0x100:
-                                    continue
-                                if code in (113, 114, 115, 142, 143, 224, 225):
-                                    continue
-                                self._record_stroke(code)
+                                if ev_type == 1:
+                                    self._handle_raw_key_event(code, val)
                         except (OSError, Exception):
                             try: os.close(fd)
                             except Exception: pass
@@ -168,6 +183,7 @@ class TypingFlowService(QObject):
                     time.sleep(0.05)
             return
 
+        # 降级：xinput 模式
         if os.environ.get("DISPLAY") and shutil.which("xinput"):
             try:
                 proc = subprocess.Popen(
@@ -177,25 +193,42 @@ class TypingFlowService(QObject):
                 while not self._stop_event.is_set() and proc.poll() is None:
                     line = proc.stdout.readline()
                     if not line: break
-                    if "EVENT type 2 (KeyPress)" in line or "RawKeyPress" in line:
+                    if "RawKeyPress" in line or "EVENT type 2 (KeyPress)" in line:
                         detail_match = re.search(r"detail:\s*(\d+)", line)
                         if detail_match:
                             ev_code = max(0, int(detail_match.group(1)) - 8)
-                            self._record_stroke(ev_code)
-                        else:
-                            self._record_stroke(None)
+                            self._handle_raw_key_event(ev_code, 1)
+                    elif "RawKeyRelease" in line or "EVENT type 3 (KeyRelease)" in line:
+                        detail_match = re.search(r"detail:\s*(\d+)", line)
+                        if detail_match:
+                            ev_code = max(0, int(detail_match.group(1)) - 8)
+                            self._handle_raw_key_event(ev_code, 0)
                 proc.terminate()
             except Exception:
                 pass
 
-    def _record_stroke(self, code: int = None):
+    def _handle_raw_key_event(self, code: int, val: int):
         if self._config and hasattr(self._config, "typingVisualizerEnabled") and not self._config.typingVisualizerEnabled:
+            return
+
+        # 跟踪当前所有按下的修饰键集合 (val==1 按下, val==0 抬起)
+        if code in MODIFIER_KEY_MAP:
+            mod_name = MODIFIER_KEY_MAP[code]
+            if val == 1:
+                self._active_mods.add(mod_name)
+            elif val == 0:
+                self._active_mods.discard(mod_name)
+
+        if val != 1 or code >= 0x100:
+            return
+        if code in (113, 114, 115, 142, 143, 224, 225):
             return
 
         now = time.monotonic()
         self._keystrokes.append(now)
         self._last_key_time = now
 
+        # 律动频段打击动量分配
         if code == SPACE_KEY:
             self._strokes[1] = max(self._strokes[1], 0.85)
             self._strokes[2] = max(self._strokes[2], 0.85)
@@ -220,6 +253,23 @@ class TypingFlowService(QObject):
             self._strokes[idx] = 1.0
             self._fallback_rotation = (self._fallback_rotation + 1) % 4
 
+        key_str = EVDEV_KEY_MAP.get(code, MODIFIER_KEY_MAP.get(code, ""))
+        if not key_str:
+            return
+
+        ordered_mods = []
+        for m in ["Win", "Ctrl", "Alt", "Shift"]:
+            if m in self._active_mods and m != key_str:
+                ordered_mods.append(m)
+        resolved_mod = "+".join(ordered_mods)
+
+        self._latest_mod = resolved_mod
+        self._latest_key = key_str
+        self._stroke_counter = (self._stroke_counter + 1) % 1000000
+
+        # 🚀 击键瞬间 0ms 发射脉冲，连按同一键时 counter 必然改变
+        self.keyStrokeTriggered.emit(resolved_mod, key_str, self._stroke_counter)
+
     def _physics_tick(self):
         now = time.monotonic()
         while self._keystrokes and (now - self._keystrokes[0]) > 1.0:
@@ -233,17 +283,14 @@ class TypingFlowService(QObject):
             if self._strokes[i] < 0.005:
                 self._strokes[i] = 0.0
 
-        # 🚀【核心优化】：停打 0.4 秒后目标值干脆归零，收缩阶段衰减提速，绝不在微小值拖泥带水
         if idle_duration > 0.4:
             target_intensity = 0.0
-            lerp_rate = 0.16 # 均匀平滑下落
+            lerp_rate = 0.16
         else:
             target_intensity = min(1.0, max(0.05, kps / 10.0))
-            lerp_rate = 0.28 # 击键灵敏上升
+            lerp_rate = 0.28
 
         self._smooth_intensity += (target_intensity - self._smooth_intensity) * lerp_rate
-        
-        # 极低阈值直接吸附至 0，切断末端无效抖动
         if self._smooth_intensity < 0.025:
             self._smooth_intensity = 0.0
 
@@ -255,14 +302,23 @@ class TypingFlowService(QObject):
         is_active = (self._smooth_intensity > 0.005) or (idle_duration < 1.2)
         continuous_color = interpolate_typing_color(self._smooth_intensity)
 
+        if idle_duration > 2.5:
+            self._latest_mod = ""
+            self._latest_key = ""
+
+        # 9 参数全量发射
         self.typingUpdated.emit(
             is_active, continuous_color,
             round(self._strokes[0], 3),
             round(self._strokes[1], 3),
             round(self._strokes[2], 3),
             round(self._strokes[3], 3),
-            round(self._smooth_intensity * 10.0, 2)
+            round(self._smooth_intensity * 10.0, 2),
+            self._latest_mod,
+            self._latest_key
         )
 
     def cleanup(self):
         self._stop_event.set()
+        self._latest_mod = ""
+        self._latest_key = ""

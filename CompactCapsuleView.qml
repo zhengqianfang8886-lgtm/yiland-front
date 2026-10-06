@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: CompactCapsuleView.qml (防重影流体图层版)
+// 📄 File: CompactCapsuleView.qml (透传桌面宽度版)
 // ==========================================
 import QtQuick
 import "compact"
@@ -45,6 +45,8 @@ Item {
 
     readonly property int textRowImplicitWidth: clockView.implicitWidth
     readonly property int wsRowImplicitWidth: wsView.implicitWidth
+    // 🚀 透传桌面自适应宽度
+    readonly property int wsContentImplicitWidth: wsView.contentImplicitWidth
     readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
     readonly property bool isAlertActive: (activeTransient === "ALERT") && !isCalling
     readonly property bool isHardwareMuted: (osdIcon === "🔇" || osdIcon === "🚫")
@@ -64,7 +66,7 @@ Item {
         return n
     }
 
-    // 1. 久坐打断特大弹窗 (520x108)
+    // 1. 久坐打断弹窗
     CompactSedentaryView {
         id: sedentaryView
         chosenFont: compactRoot.chosenFont
@@ -76,7 +78,7 @@ Item {
         onSedentarySnooze: compactRoot.sedentarySnooze()
     }
 
-    // 2. 来电专属模式条 (320x44)
+    // 2. 来电专属模式条
     CompactCallView {
         id: callView
         chosenFont: compactRoot.chosenFont
@@ -124,7 +126,7 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // 6. 常态时钟、网络与 ⇪ 大写锁 / 123 数字锁指示行
+    // 6. 常态时钟
     CompactClockView {
         id: clockView
         anchors.centerIn: parent

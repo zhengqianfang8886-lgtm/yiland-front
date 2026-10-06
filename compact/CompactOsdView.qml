@@ -1,5 +1,6 @@
 // ==========================================
 // 📄 File: compact/CompactOsdView.qml
+// 🌟 纯正苹果美学 · 纯白精密微流体 OSD 滑轨
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -8,7 +9,7 @@ import "../control"
 Item {
     id: osdRoot
     anchors.fill: parent
-    // 🚀【核心对齐】：与常态时钟左右两端视觉起始线完全重合，消除两端元素位移突跳
+    // 左右留白严格对齐灵动岛光学安全边距
     anchors.leftMargin: 16
     anchors.rightMargin: 16
 
@@ -28,7 +29,7 @@ Item {
     readonly property bool isHardwareMuted: (osdIcon === "🔇" || osdIcon === "🚫")
 
     // =========================================================================
-    // 1. 左侧：纯矢量硬件图标
+    // 1. 左侧：纯矢量硬件图标（苹果白 / 静音红）
     // =========================================================================
     Item {
         id: iconWrapper
@@ -41,22 +42,21 @@ Item {
             anchors.fill: parent
             iconType: osdRoot.resolvedIconType
             isMuted: osdRoot.isHardwareMuted
+            // 🚀 彻底剔除刺眼杂色，常态纯白，静音优雅警示红
             iconColor: osdRoot.isHardwareMuted ?
                        Theme.danger :
-                       (osdRoot.resolvedIconType === "brightness" ?
-                        "#facc15" :
-                        Qt.rgba(1, 1, 1, 0.95))
+                       Qt.rgba(1, 1, 1, 0.90)
         }
     }
 
     // =========================================================================
-    // 2. 右侧：饱满数字指示 (提升字号，与时钟大数字视觉密度一致)
+    // 2. 右侧：定宽等宽百分比（消除跳宽，层级细腻克制）
     // =========================================================================
     Item {
         id: valueWrapper
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        width: Math.max(32, valText.implicitWidth)
+        width: 32
         height: parent.height
 
         Text {
@@ -64,57 +64,48 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: osdRoot.isHardwareMuted ? "静音" : (Math.min(100, Math.max(0, osdRoot.osdValue)) + "%")
-            color: osdRoot.isHardwareMuted ? Theme.danger : "white"
+            color: osdRoot.isHardwareMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.85)
             font.family: osdRoot.isHardwareMuted ? osdRoot.effectiveFont : osdRoot.displayFont
-            font.pixelSize: osdRoot.isHardwareMuted ? 10 : 12
-            font.weight: Font.Black
-            font.letterSpacing: 0.3
+            // 🚀 严格整型字号，中等字重，极简不笨重
+            font.pixelSize: 11
+            font.weight: Font.DemiBold
+            font.features: { "tnum": 1 }
             renderType: Text.QtRendering
         }
     }
 
     // =========================================================================
-    // 3. 🚀【核心重塑】：12px 饱满灵动岛高光流体滑槽 (彻底消除空旷塌陷感)
+    // 3. 🚀【核心重塑】：7px 苹果精密纤细微流体滑轨（Pure White Sleek Track）
     // =========================================================================
     Rectangle {
         id: sliderTrack
         anchors.left: iconWrapper.right
-        anchors.leftMargin: 10
+        anchors.leftMargin: 12
         anchors.right: valueWrapper.left
-        anchors.rightMargin: 10
+        anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
-        height: 12  // 🚀 从 7px 提升至 12px，大幅提升视觉占空比
-        radius: 6
-        color: Qt.rgba(1, 1, 1, 0.12)
+        height: 7
+        radius: 3.5
+        // 苹果标准半透明黑曜磨砂底槽
+        color: Qt.rgba(1, 1, 1, 0.16)
         clip: true
 
-        // 饱满液面填充
+        // 纯白高阶微流体填充（彻底消除怪异平顶白线）
         Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            radius: 6
+            radius: 3.5
 
             width: osdRoot.isHardwareMuted ? 0 : Math.round(parent.width * Math.min(1.0, Math.max(0.0, osdRoot.osdValue / 100.0)))
 
+            // 🚀 核心色彩重塑：苹果经典纯白（Muted 时切为优雅浅红）
             color: osdRoot.isHardwareMuted ?
-                   Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.6) :
-                   (osdRoot.resolvedIconType === "brightness" ?
-                    "#fbbf24" :
-                    "#38bdf8")
+                   Theme.danger :
+                   "#ffffff"
 
-            Behavior on width { NumberAnimation { duration: 80; easing.type: Easing.OutCubic } }
+            Behavior on width { NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: 150 } }
-
-            // 滑轨内部微光高光条 (增加立体感)
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 1.5
-                radius: 0.75
-                color: Qt.rgba(1, 1, 1, 0.35)
-            }
         }
     }
 }

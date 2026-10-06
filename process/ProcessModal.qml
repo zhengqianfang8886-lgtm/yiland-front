@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: process/ProcessModal.qml (已修复布尔类型安全)
+// 📄 File: process/ProcessModal.qml (适配异步非阻塞选择器版)
 // ==========================================
 import QtQuick
 
@@ -16,13 +16,27 @@ Row {
     property int editPid: 0
     property string editIcon: ""
 
-    // 🚀 安全布尔计算属性：杜绝任何 undefined 泄漏至 QML 属性系统
     readonly property bool hasCustomIcon: Boolean(modalRoot.editIcon && modalRoot.editIcon.trim().length > 0)
     readonly property bool isPreviewReady: Boolean(previewImg.status === Image.Ready && previewImg.source != "")
 
     signal saveRequested(string id, string name, string cwd, string cmd, string icon)
     signal deleteRequested(string id)
     signal cancelRequested()
+
+    // 🚀【核心机制】：跨线程监听 Bridge 异步选择完成信号
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+        function onLocalDirectorySelected(path) {
+            if (path && modalRoot.visible) {
+                cwdInput.text = path
+            }
+        }
+        function onLocalImageFileSelected(path) {
+            if (path && modalRoot.visible) {
+                modalRoot.editIcon = path
+            }
+        }
+    }
 
     function getTechIcon(cmd, name) {
         var c = (cmd || "").toLowerCase()
@@ -70,7 +84,7 @@ Row {
         onTriggered: { nameInput.forceActiveFocus(); nameInput.selectAll() }
     }
 
-    // 1. 左列：服务概览与【真实图片自选槽】
+    // 1. 左列：服务概览与图片槽位
     Rectangle {
         width: 120
         height: parent.height
@@ -85,7 +99,6 @@ Row {
             anchors.margins: 10
             spacing: 6
 
-            // 可交互的真实图片上传卡槽
             Rectangle {
                 width: 44; height: 44; radius: 10
                 color: modalRoot.editStatus === "running" ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.16) : Qt.rgba(1, 1, 1, 0.06)
@@ -104,7 +117,6 @@ Row {
                     asynchronous: true
                 }
 
-                // 🚀【关键修复】：严格消除 undefined 求值，杜绝类型报错
                 Text {
                     anchors.centerIn: parent
                     text: modalRoot.getTechIcon(cmdInput.text, nameInput.text)
@@ -112,7 +124,6 @@ Row {
                     visible: !modalRoot.isPreviewReady
                 }
 
-                // 悬停换图提示
                 Rectangle {
                     anchors.fill: parent
                     color: Qt.rgba(0, 0, 0, 0.55)
@@ -132,15 +143,14 @@ Row {
                     id: imgHover
                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                     onClicked: {
+                        // 🚀 触发异步图片选择，不挂起渲染主线程
                         if (typeof Bridge !== "undefined" && Bridge.selectLocalImageFile) {
-                            var p = Bridge.selectLocalImageFile()
-                            if (p && p.trim().length > 0) modalRoot.editIcon = p.trim()
+                            Bridge.selectLocalImageFile()
                         }
                     }
                 }
             }
 
-            // 清除自定义图标按钮
             Rectangle {
                 width: 68; height: 16; radius: 8
                 color: Qt.rgba(1, 1, 1, 0.08)
@@ -215,7 +225,7 @@ Row {
         }
     }
 
-    // 2. 右列：参数配置专属工作区
+    // 2. 右列：参数配置表单
     Rectangle {
         width: parent.width - 130
         height: parent.height
@@ -260,7 +270,7 @@ Row {
                 width: parent.width
                 spacing: 5
 
-                // 1. 服务名称
+                // 2.1 服务名称
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: nameInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -288,7 +298,7 @@ Row {
                         Keys.onEscapePressed: modalRoot.cancelRequested()
 
                         Text {
-                            text: "服务标识 (如 ythought-things)..."
+                            text: "服务标识 (如 vite-dev)..."
                             color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: modalRoot.effectiveFont
                             visible: !nameInput.text && !nameInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter
@@ -297,7 +307,7 @@ Row {
                     }
                 }
 
-                // 2. 工作目录
+                // 2.2 工作目录
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: cwdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -322,9 +332,9 @@ Row {
                         HoverHandler { id: browseHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler {
                             onTapped: {
+                                // 🚀 触发异步目录选择，不挂起渲染主线程
                                 if (typeof Bridge !== "undefined" && Bridge.selectLocalDirectory) {
-                                    var dir = Bridge.selectLocalDirectory()
-                                    if (dir) cwdInput.text = dir
+                                    Bridge.selectLocalDirectory()
                                 }
                             }
                         }
@@ -352,7 +362,7 @@ Row {
                     }
                 }
 
-                // 3. 执行命令
+                // 2.3 执行命令
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: cmdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -387,7 +397,7 @@ Row {
                         Keys.onEscapePressed: modalRoot.cancelRequested()
 
                         Text {
-                            text: "npm start / cargo run / python3 main.py..."
+                            text: "npm run dev / cargo run / python3 main.py..."
                             color: Qt.rgba(1, 1, 1, 0.25); font.pixelSize: 10; font.family: modalRoot.effectiveMono
                             visible: !cmdInput.text && !cmdInput.activeFocus
                             anchors.verticalCenter: parent.verticalCenter

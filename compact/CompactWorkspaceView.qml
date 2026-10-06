@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactWorkspaceView.qml (彻底剔除顶线杂质·纯净版)
+// 📄 File: compact/CompactWorkspaceView.qml (自适应内容宽·纯净版)
 // ==========================================
 import QtQuick
 
@@ -14,35 +14,35 @@ Item {
     property int activeSlotIndex: 0
     property bool hasZeroWs: false
 
+    // 🚀【核心暴露】：实时计算并暴露当前桌面内容所需的真实物理宽度
+    readonly property int contentImplicitWidth: Math.round(14 + numBox.width + 8 + divider.width + 8 + wsNameText.implicitWidth + 14)
+    implicitWidth: contentImplicitWidth
+
     // =========================================================================
     // 双轨滚轴数值转换状态机
     // =========================================================================
     property int prevNumber: displayWsNumber
     property int currentNumber: displayWsNumber
-    property int rollDirection: 1     // 1: 向上滚 (数值递增), -1: 向下滚 (数值递减)
-    property real rollProgress: 1.0   // 0.0 -> 1.0 连续驱动旧字滑出、新字弹入
+    property int rollDirection: 1     // 1: 向上滚, -1: 向下滚
+    property real rollProgress: 1.0   // 0.0 -> 1.0 连续驱动
 
     onDisplayWsNumberChanged: {
         var oldVal = wsRoot.currentNumber
         var newVal = wsRoot.displayWsNumber
         if (oldVal === newVal) return
 
-        // 智能判断滚轮方向
         wsRoot.rollDirection = (newVal > oldVal) ? 1 : -1
         wsRoot.prevNumber = oldVal
         wsRoot.currentNumber = newVal
 
-        // 重新启动丝滑翻牌物理动画
         rollAnim.stop()
         wsRoot.rollProgress = 0.0
         rollAnim.start()
 
-        // 联动方块微弹性触感与名称淡入
         boxSquashAnim.restart()
         textSlideAnim.restart()
     }
 
-    // 齿轮滚轮翻牌物理曲线动画 (OutBack 带来清脆机械咬合回弹)
     NumberAnimation {
         id: rollAnim
         target: wsRoot
@@ -54,9 +54,7 @@ Item {
         easing.overshoot: 1.3
     }
 
-    // =========================================================================
-    // 1. 最左端：物理位置 100% 死锁的数字方块 (固定 x = 14px，绝不动)
-    // =========================================================================
+    // 1. 最左端数字方块
     Rectangle {
         id: numBox
         width: 24
@@ -69,7 +67,6 @@ Item {
         border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.85)
         border.width: 1.2
 
-        // 切桌面瞬间的紫色微光外扩脉冲
         Rectangle {
             id: pulseRing
             anchors.centerIn: parent
@@ -82,15 +79,11 @@ Item {
             opacity: 0.0
         }
 
-        // =====================================================================
-        // 双轨双缓冲数字槽位 (彻底剔除顶线上方的横线条)
-        // =====================================================================
         Item {
             id: numSlot
             anchors.fill: parent
             clip: true
 
-            // 旧数字 (正在滑出)
             Text {
                 id: textOld
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -106,7 +99,6 @@ Item {
                 visible: opacity > 0.01
             }
 
-            // 新数字 (正在从反方向弹入就位)
             Text {
                 id: textNew
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -122,7 +114,6 @@ Item {
             }
         }
 
-        // 方块微物理挤压动效 (Squash & Stretch)
         SequentialAnimation {
             id: boxSquashAnim
             ParallelAnimation {
@@ -135,9 +126,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 2. 秩序微光垂直分割线
-    // =========================================================================
+    // 2. 垂直分割线
     Rectangle {
         id: divider
         width: 1
@@ -149,9 +138,7 @@ Item {
         color: Qt.rgba(1, 1, 1, 0.16)
     }
 
-    // =========================================================================
     // 3. 桌面名称区
-    // =========================================================================
     Item {
         id: nameArea
         anchors.left: divider.right

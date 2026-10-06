@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: bridge.py (已修复 QWidget 崩溃与选择器超时)
+# 📄 File: bridge.py
+# 🌟 零日志·信息提示物理阻断·纯内存安全分发版
 # ==========================================
 import os
 import gc
@@ -28,13 +29,17 @@ from services.process_mgr import ProcessManagerService
 
 
 class IslandBridge(QObject):
+    # 媒体与声学频谱
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
-    typingSpectrumUpdated = Signal(bool, str, float, float, float, float, float)
+    # 击键心流
+    typingSpectrumUpdated = Signal(bool, str, float, float, float, float, float, str, str)
+    keyStrokeTriggered = Signal(str, str, int)  # 🚀 新增物理击键脉冲信号
 
+    # 硬件与系统 OSD
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
@@ -44,6 +49,7 @@ class IslandBridge(QObject):
     memoryUpdated = Signal(int, str, str)
     clipboardTriggered = Signal(str, str, str, int)
 
+    # 工作区与通知会话
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
@@ -53,6 +59,10 @@ class IslandBridge(QObject):
     netSpeedUpdated = Signal(str, str, str, str, str)
     bluetoothStateChanged = Signal(bool)
     unreadCountChanged = Signal(int)
+
+    # 异步文件与目录选取回调信号
+    localDirectorySelected = Signal(str)
+    localImageFileSelected = Signal(str)
 
     _sig_daemon_payload = Signal(str, str)
 
@@ -84,7 +94,6 @@ class IslandBridge(QObject):
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
-    # 找到 _bind_service_signals 方法，修改连接方式以打点：
     def _bind_service_signals(self):
         self.hardware.volumeChanged.connect(self.volumeChanged)
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
@@ -100,20 +109,25 @@ class IslandBridge(QObject):
         self.media.dominantColorUpdated.connect(self.dominantColorUpdated)
 
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
-        
-        # 🔍【追踪打点 2】：确认 Python 核心信号总线是否收到打字信号并成功转发
-        def _on_typing_data(active, color, s1, s2, s3, s4, kps):
-            # if active:
-            #     print(f"\033[36m[Bridge 转发] 转发 typingSpectrumUpdated 给 QML! (KPS: {kps}, 颜色: {color})\033[0m")
-            self.typingSpectrumUpdated.emit(active, color, s1, s2, s3, s4, kps)
+
+        # 智能参数自适应适配器
+        def _on_typing_data(*args):
+            if len(args) == 7:
+                self.typingSpectrumUpdated.emit(args[0], args[1], args[2], args[3], args[4], args[5], args[6], "", "")
+            elif len(args) >= 9:
+                self.typingSpectrumUpdated.emit(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8])
 
         self.typing_flow.typingUpdated.connect(_on_typing_data)
+        self.typing_flow.keyStrokeTriggered.connect(self.keyStrokeTriggered)  # 🚀 新增连接
 
     def _on_media_state_changed(self, title, artist, status, art, pos, dur):
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
         self.typing_flow.set_media_playing(status == "Playing")
 
     def cleanup(self):
+        # 退出时彻底清空内存通知与临时队列，不留任何痕迹
+        if hasattr(self, "_notif_model"):
+            self._notif_model.clearAll()
         self.typing_flow.cleanup()
         self.media.cleanup()
         self.proc_mgr.cleanup()
@@ -168,60 +182,68 @@ class IslandBridge(QObject):
     @Slot(str)
     def deleteProcessTask(self, tid: str): self.proc_mgr.delete_task(tid)
 
-    # 🚀 纯粹安全的目录选择（严禁使用 QWidget/QFileDialog 防止崩溃）
-    @Slot(result=str)
-    def selectLocalDirectory(self) -> str:
+    # 异步非阻塞选择器
+    @Slot()
+    def selectLocalDirectory(self):
+        self._pool.submit(self._async_select_directory_worker)
+
+    @Slot()
+    def selectLocalImageFile(self):
+        self._pool.submit(self._async_select_image_worker)
+
+    def _async_select_directory_worker(self):
         try:
+            chosen = ""
             if shutil.which("zenity"):
                 res = subprocess.run(
                     ["zenity", "--file-selection", "--directory", "--title=选择任务工作目录"],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=120
                 )
                 if res.returncode == 0 and res.stdout.strip():
-                    return res.stdout.strip()
+                    chosen = res.stdout.strip()
             elif shutil.which("kdialog"):
                 res = subprocess.run(
                     ["kdialog", "--getexistingdirectory", os.path.expanduser("~"), "--title", "选择任务工作目录"],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=120
                 )
                 if res.returncode == 0 and res.stdout.strip():
-                    return res.stdout.strip()
-        except Exception as e:
-            app_logger.warning(f"目录选择器调用异常: {e}")
-        return ""
+                    chosen = res.stdout.strip()
 
-    # 🚀 纯粹安全的图片文件选择（严禁导入 QFileDialog，绝无 Core Dump）
-    @Slot(result=str)
-    def selectLocalImageFile(self) -> str:
+            if chosen:
+                self.localDirectorySelected.emit(chosen)
+        except Exception:
+            pass
+
+    def _async_select_image_worker(self):
         try:
+            chosen = ""
             if shutil.which("zenity"):
-                # 使用通用的标准文件过滤器，去除易发生语法歧义的管道符
                 res = subprocess.run(
                     [
                         "zenity", "--file-selection",
                         "--title=选择服务图标图片",
-                        "--file-filter=*.png *.jpg *.jpeg *.svg *.webp *.ico"
+                        "--file-filter=图片文件 (*.png *.jpg *.jpeg *.svg *.webp *.ico) | *.png *.jpg *.jpeg *.svg *.webp *.ico",
+                        "--file-filter=所有文件 (*) | *"
                     ],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=120
                 )
                 if res.returncode == 0 and res.stdout.strip():
-                    return res.stdout.strip()
-
+                    chosen = res.stdout.strip()
             elif shutil.which("kdialog"):
                 res = subprocess.run(
                     [
                         "kdialog", "--getopenfilename", os.path.expanduser("~"),
                         "*.png *.jpg *.jpeg *.svg *.webp *.ico"
                     ],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=120
                 )
                 if res.returncode == 0 and res.stdout.strip():
-                    return res.stdout.strip()
+                    chosen = res.stdout.strip()
 
-        except Exception as e:
-            app_logger.warning(f"图片选择器调用异常: {e}")
-
-        return ""
+            if chosen:
+                self.localImageFileSelected.emit(chosen)
+        except Exception:
+            pass
 
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int): self.hardware.adjust_hardware(mode, delta)
@@ -292,7 +314,6 @@ class IslandBridge(QObject):
 
     @Slot(str)
     def executePowerAction(self, action: str):
-        app_logger.info(f"触发系统电源/会话管理指令 -> {action}")
         self.sendIpcCmd(action)
 
     @Slot()
@@ -328,16 +349,17 @@ class IslandBridge(QObject):
     def post_daemon_message(self, msg_type: str, data_json_str: str):
         self._sig_daemon_payload.emit(msg_type, data_json_str)
 
+    # =========================================================================
+    # 消息分发主干 (🔒 零日志：信息提示绝对不入日志，一点都不记录)
+    # =========================================================================
     @Slot(str, str)
     def _handle_daemon_payload(self, m_type: str, data_str: str):
         try:
             data = json.loads(data_str) if data_str else {}
-        except Exception as e:
-            app_logger.error(f"解析报文异常: {e}")
+        except Exception:
             return
 
-        # ... (MEDIA, WORKSPACE, SYSTEM 等保持不变) ...
-
+        # 1. 媒体与进度
         if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
             m = data["media"]
             self.media.apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))
@@ -348,12 +370,14 @@ class IslandBridge(QObject):
             art = ("file://" + raw_art) if (raw_art and raw_art.startswith("/") and not raw_art.startswith("file://")) else raw_art
             self.media.apply_media_state(m.get("title", "等待播放..."), m.get("artist", "未知歌手"), m.get("status", "Paused"), art, m.get("position"), m.get("duration"))
 
+        # 2. 虚拟工作区
         if m_type in ("WORKSPACE_CHANGED", "FULL_SYNC") and "workspace" in data:
             ws_info = data["workspace"]
             self.workspaceTriggered.emit(int(ws_info.get("current_index", 1)), int(ws_info.get("total", 4)), str(ws_info.get("current_name", "")))
             if "list" in ws_info:
                 self.workspaceListUpdated.emit(ws_info.get("list", []))
 
+        # 3. 硬件音量与屏幕背光
         if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
             sys_info = data["system"]
             self.hardware.apply_daemon_volume(max(0, min(100, int(sys_info.get("volume", self.hardware.current_volume)))), bool(sys_info.get("muted", False)), m_type)
@@ -361,6 +385,7 @@ class IslandBridge(QObject):
         elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
             self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 100)))
 
+        # 4. 蓝牙设备列表与电量（静默提示，不入日志）
         if "bluetooth" in data:
             b_info = data["bluetooth"]
             devices = b_info.get("connected_devices", [])
@@ -384,10 +409,10 @@ class IslandBridge(QObject):
             self._bt_model.sync_devices(devices)
             self.bluetoothStateChanged.emit(powered)
             for alert in alerts:
-                # 勿扰模式下静默外设连接横幅
                 if not (self.config and getattr(self.config, "dndEnabled", False)):
                     self.alertTriggered.emit(*alert)
 
+        # 5. 网络流量与连接（静默提示，不入日志）
         if "network" in data:
             net_info = data["network"]
             rx_str, tx_str = net_info.get("rx_speed", "0 B/s"), net_info.get("tx_speed", "0 B/s")
@@ -398,7 +423,7 @@ class IslandBridge(QObject):
                 elif m_type == "VPN_DISCONNECTED":
                     self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
-        # 🚀【核心改进 1：来电勿扰与穿透过滤】
+        # 6. Teams 通话事件 (🔒 零日志：一点都不记录)
         if m_type == "TEAMS_CALL_INCOMING":
             noti = data.get("notification", {})
             call_title = noti.get("title", "").strip() or "Teams 来电"
@@ -409,8 +434,7 @@ class IslandBridge(QObject):
             allow_call = bool(self.config and getattr(self.config, "dndAllowCalls", True))
 
             if is_dnd and not allow_call:
-                # 勿扰且禁止通话穿透：静默存入归档，绝不发射弹窗，绝不置顶窗口
-                app_logger.info(f"🔕 [勿扰静音] 来电已静默归档: {call_title}")
+                # 仅在易失性内存中保存，绝对不打日志
                 self._notif_model.add_notification({
                     "id": int(time.time() * 1000),
                     "icon": "📞",
@@ -424,7 +448,7 @@ class IslandBridge(QObject):
                 self.callIncomingTriggered.emit(call_title, call_sub, call_avatar)
                 self.view.raise_()
 
-        # 🚀【后端源头】：捕获所有桌面通知与 Teams 消息，静默入库
+        # 7. 系统与应用通知 (🔒 零日志：一点都不记录)
         elif m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "NOTIFICATION", "SYSTEM_NOTIFICATION", "NOTIFY", "ALERT") and "notification" in data:
             noti = data["notification"]
             t_title = (noti.get("title") or noti.get("summary") or "新通知").strip()
@@ -433,7 +457,6 @@ class IslandBridge(QObject):
             icon = noti.get("icon", "💬")
 
             if t_title or t_sub:
-                # 1. 100% 正常入库，未读计数正常增加
                 self._notif_model.add_notification({
                     "id": int(time.time() * 1000),
                     "icon": icon,
@@ -444,93 +467,10 @@ class IslandBridge(QObject):
                     "read": False
                 })
 
-                # 2. 只有非勿扰模式下，才发射弹窗中断
                 is_dnd = bool(self.config and getattr(self.config, "dndEnabled", False))
                 if not is_dnd:
+                    # 仅在屏幕前呈现 UI 弹窗，绝对不打日志
                     self.alertTriggered.emit(icon, t_title, t_sub, 4500, avatar)
-                else:
-                    app_logger.info(f"🌙 [勿扰静默] 消息已静默归档: {t_title}")
-
-        elif m_type == "TEAMS_CALL_ENDED":
-            self.callEndedTriggered.emit()
-
-        self.syncDataUpdated.emit(data)
-        try:
-            data = json.loads(data_str) if data_str else {}
-        except Exception as e:
-            app_logger.error(f"解析报文异常: {e}")
-            return
-
-        if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
-            m = data["media"]
-            self.media.apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))
-
-        elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
-            m = data["media"]
-            raw_art = m.get("art_url") or m.get("artUrl") or m.get("mpris:artUrl") or m.get("cover") or m.get("thumbnail") or ""
-            art = ("file://" + raw_art) if (raw_art and raw_art.startswith("/") and not raw_art.startswith("file://")) else raw_art
-            self.media.apply_media_state(m.get("title", "等待播放..."), m.get("artist", "未知歌手"), m.get("status", "Paused"), art, m.get("position"), m.get("duration"))
-
-        if m_type in ("WORKSPACE_CHANGED", "FULL_SYNC") and "workspace" in data:
-            ws_info = data["workspace"]
-            self.workspaceTriggered.emit(int(ws_info.get("current_index", 1)), int(ws_info.get("total", 4)), str(ws_info.get("current_name", "")))
-            if "list" in ws_info:
-                self.workspaceListUpdated.emit(ws_info.get("list", []))
-
-        if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
-            sys_info = data["system"]
-            self.hardware.apply_daemon_volume(max(0, min(100, int(sys_info.get("volume", self.hardware.current_volume)))), bool(sys_info.get("muted", False)), m_type)
-
-        elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
-            self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 100)))
-
-        if "bluetooth" in data:
-            b_info = data["bluetooth"]
-            devices = b_info.get("connected_devices", [])
-            powered = b_info.get("powered", True)
-            self._bluetooth_powered = powered
-
-            alerts = []
-            if not self._first_poll and m_type in ("BLUETOOTH_CONNECT", "BLUETOOTH_DISCONNECT", "BLUETOOTH_BATTERY"):
-                for dev in devices:
-                    mac, conn, bat, name = dev.get("mac"), dev.get("connected", False), dev.get("battery"), dev.get("name", "蓝牙设备")
-                    prev_conn, _ = self._known_devices_state.get(mac, (None, None))
-                    if prev_conn is not None and prev_conn != conn:
-                        emoji = "🎧" if any(w in name.lower() for w in ["buds", "pods", "wh-", "head", "audio"]) else "蓝牙"
-                        status_str = f"已连接 · 🔋 电量 {bat}%" if (conn and bat is not None) else ("已连接" if conn else "已断开连接")
-                        alerts.append((emoji, name, status_str, 2500, ""))
-                    self._known_devices_state[mac] = (conn, bat)
-            else:
-                for dev in devices:
-                    self._known_devices_state[dev.get("mac")] = (dev.get("connected", False), dev.get("battery"))
-            self._first_poll = False
-            self._bt_model.sync_devices(devices)
-            self.bluetoothStateChanged.emit(powered)
-            for alert in alerts:
-                self.alertTriggered.emit(*alert)
-
-        if "network" in data:
-            net_info = data["network"]
-            rx_str, tx_str = net_info.get("rx_speed", "0 B/s"), net_info.get("tx_speed", "0 B/s")
-            self.netSpeedUpdated.emit(rx_str, tx_str, to_compact_speed(rx_str), to_compact_speed(tx_str), self._cached_ip)
-            if m_type == "VPN_CONNECTED":
-                self.alertTriggered.emit("🛡️", "VPN 安全网络已接入", net_info.get("vpn_name", "VPN Active"), 2000, "")
-            elif m_type == "VPN_DISCONNECTED":
-                self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
-
-        if m_type == "TEAMS_CALL_INCOMING":
-            if "notification" in data:
-                noti = data["notification"]
-                self.callIncomingTriggered.emit(noti.get("title", "").strip() or "Teams 来电", noti.get("content", "").strip() or "正在呼叫...", process_notification_avatar(noti.get("avatar", "")))
-                self.view.raise_()
-
-        elif m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION") and "notification" in data:
-            noti = data["notification"]
-            t_title, t_sub = noti.get("title", "").strip(), noti.get("content", "").strip()
-            avatar = process_notification_avatar(noti.get("avatar", ""))
-            if t_title or t_sub:
-                self._notif_model.add_notification({"id": int(time.time() * 1000), "icon": noti.get("icon", "💬"), "title": t_title or "新通知", "content": t_sub or "", "avatar": avatar, "time": time.strftime("%H:%M"), "read": False})
-                self.alertTriggered.emit(noti.get("icon", "🔔"), t_title, t_sub, 4500, avatar)
 
         elif m_type == "TEAMS_CALL_ENDED":
             self.callEndedTriggered.emit()

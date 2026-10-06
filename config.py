@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: config.py (新增通知免打扰与通话穿透配置)
+# 📄 File: config.py (已集成打字副岛模式持久化)
 # ==========================================
 import os
 import json
@@ -47,6 +47,7 @@ CONFIG_SCHEMA = {
     "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
     "typingVisualizerEnabled": {"default": True, "val": lambda v: bool(v)},
+    "typingBubbleMode": {"default": "keycaps", "val": lambda v: str(v) if v in ("bars", "keycaps") else "keycaps"}, # 🚀 永久记忆: "bars" 或 "keycaps"
     "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
 
     # [5] 健康与系统监控
@@ -77,9 +78,10 @@ CONFIG_SCHEMA = {
     "showNotificationTab": {"default": True, "val": lambda v: bool(v)},
     "showProcessTab": {"default": True, "val": lambda v: bool(v)},
 
-    # 🚀 [8] 消息通知与勿扰管理 (新增)
+    # [8] 消息通知与隐私防窥管理
     "dndEnabled": {"default": False, "val": lambda v: bool(v)},
     "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
+    "notificationPrivacyMode": {"default": False, "val": lambda v: bool(v)},
 }
 
 
@@ -109,6 +111,7 @@ class ConfigManager(QObject):
     showHardwareBubbleChanged = Signal(bool)
     musicVisualizerBarsChanged = Signal(int)
     typingVisualizerEnabledChanged = Signal(bool)
+    typingBubbleModeChanged = Signal(str) # 🚀 副岛模式信号
     tourbillonAnimationEnabledChanged = Signal(bool)
 
     # [5] 健康与系统监控
@@ -139,9 +142,10 @@ class ConfigManager(QObject):
     showNotificationTabChanged = Signal(bool)
     showProcessTabChanged = Signal(bool)
 
-    # 🚀 [8] 消息通知与勿扰管理信号 (新增)
+    # [8] 消息通知与隐私防窥管理
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
+    notificationPrivacyModeChanged = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -319,6 +323,12 @@ class ConfigManager(QObject):
     @typingVisualizerEnabled.setter
     def typingVisualizerEnabled(self, val): self._set_value("typingVisualizerEnabled", val, self.typingVisualizerEnabledChanged)
 
+    # 🚀 副岛模式持久化属性: "bars" (机械律动) | "keycaps" (实体双键帽 HUD)
+    @Property(str, notify=typingBubbleModeChanged)
+    def typingBubbleMode(self): return self._typingBubbleMode
+    @typingBubbleMode.setter
+    def typingBubbleMode(self, val): self._set_value("typingBubbleMode", val, self.typingBubbleModeChanged)
+
     @Property(bool, notify=tourbillonAnimationEnabledChanged)
     def tourbillonAnimationEnabled(self): return self._tourbillonAnimationEnabled
     @tourbillonAnimationEnabled.setter
@@ -437,7 +447,7 @@ class ConfigManager(QObject):
     @showProcessTab.setter
     def showProcessTab(self, val): self._set_value("showProcessTab", val, self.showProcessTabChanged)
 
-    # 🚀 [8] 消息通知与勿扰管理属性 (新增)
+    # [8] 消息通知与隐私防窥管理
     @Property(bool, notify=dndEnabledChanged)
     def dndEnabled(self): return self._dndEnabled
     @dndEnabled.setter
@@ -447,6 +457,11 @@ class ConfigManager(QObject):
     def dndAllowCalls(self): return self._dndAllowCalls
     @dndAllowCalls.setter
     def dndAllowCalls(self, val): self._set_value("dndAllowCalls", val, self.dndAllowCallsChanged)
+
+    @Property(bool, notify=notificationPrivacyModeChanged)
+    def notificationPrivacyMode(self): return self._notificationPrivacyMode
+    @notificationPrivacyMode.setter
+    def notificationPrivacyMode(self, val): self._set_value("notificationPrivacyMode", val, self.notificationPrivacyModeChanged)
 
     def _load_world_cities(self):
         try:

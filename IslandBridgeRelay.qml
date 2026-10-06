@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandBridgeRelay.qml (打字追踪打点版)
+// 📄 File: IslandBridgeRelay.qml (集成击键物理脉冲中继)
 // ==========================================
 import QtQuick
 
@@ -20,7 +20,7 @@ Item {
     property real spec3: 0.2
     property real spec4: 0.2
 
-    // 🚀 打字心流数据
+    // 🚀 打字心流数据与击键物理脉冲版本号
     property bool typingActive: false
     property color typingColor: "#38bdf8"
     property real typingSpec1: 0.2
@@ -28,6 +28,9 @@ Item {
     property real typingSpec3: 0.2
     property real typingSpec4: 0.2
     property real typingKps: 0.0
+    property string typingMod: ""
+    property string typingKey: ""
+    property int strokeRevision: 0 // 🚀 每次击键递增的物理版本号
 
     // 通话数据
     property bool isCalling: false
@@ -81,15 +84,12 @@ Item {
             if (dur !== undefined && !isNaN(dur) && Number(dur) > 0) relay.duration = Number(dur)
             if (pos !== undefined && !isNaN(pos) && Number(pos) >= 0) relay.position = Number(pos)
         }
-        function onDominantColorUpdated(hex) {
-            relay.dominantColor = hex
-        }
+        function onDominantColorUpdated(hex) { relay.dominantColor = hex }
         function onAudioSpectrumUpdated(s1, s2, s3, s4) {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
         }
 
-        // 🔍【追踪打点 3】：QML Relay 是否真正收到了信号
-        function onTypingSpectrumUpdated(active, color, s1, s2, s3, s4, kps) {
+        function onTypingSpectrumUpdated(active, color, s1, s2, s3, s4, kps, modLabel, keyLabel) {
             relay.typingActive = active
             relay.typingColor = color
             relay.typingSpec1 = s1
@@ -97,11 +97,18 @@ Item {
             relay.typingSpec3 = s3
             relay.typingSpec4 = s4
             relay.typingKps = kps
+            relay.typingMod = modLabel || ""
+            relay.typingKey = keyLabel || ""
         }
 
-        function onClipboardTriggered(icon, title, detail, ms) {
-            relay.triggerClipboard(icon, title, detail, ms)
+        // 🚀 响应底层击键脉冲：无论字符是否改变，strokeRevision 都会改变
+        function onKeyStrokeTriggered(modLabel, keyLabel, counter) {
+            relay.typingMod = modLabel || ""
+            relay.typingKey = keyLabel || ""
+            relay.strokeRevision = counter
         }
+
+        function onClipboardTriggered(icon, title, detail, ms) { relay.triggerClipboard(icon, title, detail, ms) }
         function onOsdTriggered(icon, label, val) {
             relay.osdIcon = icon; relay.osdValue = val
             relay.triggerOsd(icon, label, val)
@@ -111,10 +118,7 @@ Item {
             relay.triggerWorkspace(curr, tot, name)
         }
         function onWorkspaceListUpdated(list) { relay.wsList = list }
-
-        function onAlertTriggered(icon, t, sub, ms, avatar) {
-            relay.triggerAlert(icon, t, sub, ms, avatar)
-        }
+        function onAlertTriggered(icon, t, sub, ms, avatar) { relay.triggerAlert(icon, t, sub, ms, avatar) }
 
         function onCallIncomingTriggered(title, sub, avatar) {
             relay.isCalling = true
