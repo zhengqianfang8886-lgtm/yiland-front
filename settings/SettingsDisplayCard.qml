@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: settings/SettingsDisplayCard.qml (已修复 TypeError 报错)
+// 📄 File: settings/SettingsDisplayCard.qml (追加免打扰设置模块)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -103,7 +103,6 @@ Column {
             Repeater {
                 model: (typeof Config !== "undefined" && Config.tabOrder) ? Config.tabOrder : []
 
-                // 🚀【核心修复】：给 Delegate 明确的 id，彻底杜绝 parent.parent 找错层级
                 Rectangle {
                     id: tabItemDelegate
                     width: tabOrderCol.width
@@ -178,7 +177,66 @@ Column {
         }
     }
 
-    // 2. 动效物理质感
+    // =========================================================================
+    // 🚀 2. 消息通知与勿扰模式 (DND & Call Bypass)
+    // =========================================================================
+    Rectangle {
+        width: parent.width
+        height: dndCol.implicitHeight + 24
+        radius: 12
+        color: Qt.rgba(1, 1, 1, 0.05)
+        border.color: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.3)
+        border.width: 1
+
+        Column {
+            id: dndCol
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            Row {
+                spacing: 6
+                Text { text: "🌙"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "消息通知与专注勿扰"; color: "#818cf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+            }
+
+            // 2.1 勿扰总开关
+            Item {
+                width: parent.width; height: 36
+                Column {
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+                    Text { text: "开启勿扰模式 (Do Not Disturb)"; color: "white"; font.pixelSize: 12; font.bold: true }
+                    Text { text: "静默归档消息，灵动岛不再弹出横幅打扰，仅主动查看时有效"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10 }
+                }
+                Switch {
+                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    checked: (typeof Config !== "undefined" && Config.dndEnabled !== undefined) ? Config.dndEnabled : false
+                    onToggled: if (typeof Config !== "undefined") Config.dndEnabled = checked
+                }
+            }
+
+            Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+
+            // 2.2 通话穿透开关
+            Item {
+                width: parent.width; height: 36
+                Column {
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
+                    Text { text: "允许通话通知穿透勿扰 (Call Bypass)"; color: "white"; font.pixelSize: 12; font.bold: true }
+                    Text { text: "重要语音/视频来电（如 Teams）是否允许穿透勿扰并正常弹出接听卡片"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10 }
+                }
+                Switch {
+                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    checked: (typeof Config !== "undefined" && Config.dndAllowCalls !== undefined) ? Config.dndAllowCalls : true
+                    onToggled: if (typeof Config !== "undefined") Config.dndAllowCalls = checked
+                }
+            }
+        }
+    }
+
+    // 3. 动效物理质感
     Rectangle {
         width: parent.width; height: 96; radius: 12
         color: Qt.rgba(1, 1, 1, 0.05); border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.3); border.width: 1
@@ -240,7 +298,7 @@ Column {
         }
     }
 
-    // 3. 胶囊常态显示项
+    // 4. 胶囊常态显示项
     Rectangle {
         width: parent.width; height: 172; radius: 12
         color: Qt.rgba(1, 1, 1, 0.05); border.color: Qt.rgba(1, 1, 1, 0.1)

@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (360° 物理水滴晶体环 + OLED 纯黑底色)
+// 📄 File: IslandCapsule.qml (宽高同频·彻底消除收缩脱节与分批)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -7,9 +7,6 @@ import QtQuick.Controls
 Item {
     id: capsuleRoot
 
-    // =========================================================================
-    // 1. 全量外部接口与状态属性
-    // =========================================================================
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
 
@@ -70,7 +67,6 @@ Item {
     }
     function triggerClipGlow() { clipGlowAnim.restart() }
 
-    // 计时器代理属性
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
     readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
@@ -104,9 +100,6 @@ Item {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // =========================================================================
-    // 2. 目标几何尺寸与自适应计算
-    // =========================================================================
     readonly property int currentNormalWidth: {
         var baseW = compactCapsuleView.textRowImplicitWidth + 24
         return Math.max(80, Math.ceil(baseW / 2) * 2)
@@ -151,9 +144,6 @@ Item {
 
     readonly property bool hasDynamicAccent: currentEffectiveAccent.a > 0.001
 
-    // =========================================================================
-    // 3. 几何锚定与动效
-    // =========================================================================
     z: 2
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
@@ -176,11 +166,12 @@ Item {
     visible: opacity > 0.001
     Behavior on opacity { NumberAnimation { duration: capsuleRoot.isIslandHidden ? 200 : 300; easing.type: Easing.InOutQuad } }
 
+    // 🚀【核心机制：宽高同频同速收缩，彻底切断分段顿挫】
     Behavior on width {
         enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 180
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 240 : 200) : 190
             easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {
@@ -193,7 +184,8 @@ Item {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 220 : 190) : 160
+            // 收缩时与宽度严格对齐为 190ms，严禁高度先行停止造成先扁后窄
+            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 220 : 190) : 190
             easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
             easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
             onRunningChanged: {
@@ -213,9 +205,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 4. 🚀 GPU 级 360° 物理水滴晶体环片元着色器 (内部纯黑 + 四周冷白反光外壳)
-    // =========================================================================
+    // 360° 物理水滴晶体环片元着色器
     ShaderEffect {
         id: liquidGlassEffect
         anchors.fill: parent
@@ -230,9 +220,6 @@ Item {
         fragmentShader: "liquid_glass.frag.qsb"
     }
 
-    // =========================================================================
-    // 5. 交互中枢 (Interaction Handlers)
-    // =========================================================================
     property bool scrollSessionLocked: false
 
     HoverHandler {
@@ -349,11 +336,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 6. 子视图装配 (Subviews)
-    // =========================================================================
-
-    // 6.1 紧凑视图 (z: 5，悬浮在深黑晶体与冷白光圈之上)
+    // 紧凑视图
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
@@ -401,7 +384,7 @@ Item {
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
     }
 
-    // 6.2 展开视图 (z: 10)
+    // 展开视图
     Item {
         anchors.fill: parent
         clip: false
@@ -415,8 +398,9 @@ Item {
             anchors.topMargin: (typeof Config !== "undefined" && Config.expandedTopMargin !== undefined) ? Config.expandedTopMargin : 16
             anchors.horizontalCenter: parent.horizontalCenter
 
+            // 🚀【核心优化】：彻底剔除 height > 100 阶梯门限，开始收缩瞬间决绝淡出，绝不在半空中硬切
             visible: opacity > 0.01
-            opacity: (capsuleRoot.isExpanded && capsuleRoot.height > 100) ? 1.0 : 0.0
+            opacity: capsuleRoot.isExpanded ? 1.0 : 0.0
             scale: capsuleRoot.isExpanded ? 1.0 : 0.94
             chosenFont: capsuleRoot.effectiveFont
 
@@ -448,8 +432,8 @@ Item {
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
             onRequestSettings: capsuleRoot.requestSettings()
 
-            Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 40; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 60; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
+            Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 65; easing.type: Easing.OutQuad } }
+            Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 65; easing.type: Easing.OutQuad } }
         }
     }
 }

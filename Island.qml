@@ -143,23 +143,47 @@ Item {
         id: relay
         onTriggerOsd: (icon, label, val) => triggerTransient("OSD", 1500)
         onTriggerWorkspace: (c, t, n) => { triggerTransient("WORKSPACE", 800); Bridge.forceRaise() }
+
+        // 🚀【修复 2】：前端绝对防线 —— 勿扰开启时坚决不拉伸胶囊弹窗
         onTriggerAlert: (icon, t, sub, ms, avatar) => {
+            var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
+            var isCall = (icon === "📞" || relay.isCalling)
+            var allowCall = (typeof Config !== "undefined" && Config.dndAllowCalls !== false)
+
+            // 1. 勿扰模式开启时，普通消息一律静默，绝对不弹窗
+            if (isDnd && !isCall) {
+                return
+            }
+
+            // 2. 来电通知如果在勿扰下且禁止通话穿透，也坚决不弹窗
+            if (isDnd && isCall && !allowCall) {
+                return
+            }
+
             capsule.alertIcon = icon
             capsule.alertTitle = t
             capsule.alertSubtitle = sub
             capsule.alertAvatar = avatar || ""
             triggerTransient("ALERT", ms > 0 ? ms : 5000)
         }
+
         onTriggerClipboard: (icon, t, sub, ms) => {
-            capsule.triggerClipGlow()
+            // 勿扰模式下连剪贴板发光动画也保持静默
+            if (!(typeof Config !== "undefined" && Config.dndEnabled)) {
+                capsule.triggerClipGlow()
+            }
         }
+
         onCallEnded: {
             if (capsule.isExpanded) capsule.startCollapse()
-            capsule.alertIcon = "📞"
-            capsule.alertTitle = relay.callTitle || "Teams 通话"
-            capsule.alertSubtitle = "呼叫已完成"
-            capsule.alertAvatar = ""
-            triggerTransient("ALERT", 1500)
+            // 仅在允许弹窗时显示呼叫完成
+            if (!(typeof Config !== "undefined" && Config.dndEnabled && !Config.dndAllowCalls)) {
+                capsule.alertIcon = "📞"
+                capsule.alertTitle = relay.callTitle || "Teams 通话"
+                capsule.alertSubtitle = "呼叫已完成"
+                capsule.alertAvatar = ""
+                triggerTransient("ALERT", 1500)
+            }
         }
     }
 
@@ -206,7 +230,9 @@ Item {
 
     function expandToTab(tabName) {
         capsule.cancelCollapse()
-        if (tabName !== "notification" && capsule.activeTransient === "ALERT") {
+        
+        // 🚀【修复 1】：彻底清理弹窗状态，绝不允许弹窗在收拢或切页时借尸还魂
+        if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
             capsule.activeTransient = ""
         }
@@ -216,6 +242,7 @@ Item {
         capsule.isExpanded = true
         maskController.commit()
     }
+
 
     Timer {
         id: subInteractingTimer

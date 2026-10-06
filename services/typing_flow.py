@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: services/typing_flow.py (平滑 Intensity 与迟滞防抖引擎)
+# 📄 File: services/typing_flow.py (优化停打衰减·拒绝末端拖尾)
 # ==========================================
 import os
 import sys
@@ -10,6 +10,7 @@ import struct
 import shutil
 import subprocess
 import threading
+import re
 from collections import deque
 from PySide6.QtCore import QObject, QTimer, Signal
 from logger import app_logger
@@ -17,6 +18,16 @@ from logger import app_logger
 IS_64BIT = struct.calcsize("P") == 8
 EVENT_FORMAT = "qqHHi" if IS_64BIT else "iiHHi"
 EVENT_SIZE = struct.calcsize(EVENT_FORMAT)
+
+LEFT_OUTER_KEYS = {1, 41, 2, 3, 15, 16, 17, 58, 30, 31, 42, 44, 45, 29, 125}
+LEFT_INNER_KEYS = {4, 5, 6, 18, 19, 20, 32, 33, 34, 46, 47, 48, 56}
+RIGHT_INNER_KEYS = {7, 8, 21, 22, 35, 36, 49, 50, 100}
+RIGHT_OUTER_KEYS = {
+    9, 10, 11, 12, 13, 14, 23, 24, 25, 26, 27, 28,
+    37, 38, 39, 40, 43, 51, 52, 53, 54, 97,
+    103, 105, 106, 108, 102, 104, 107, 109, 110, 111
+}
+SPACE_KEY = 57
 
 
 def find_system_keyboards() -> list:
@@ -70,7 +81,6 @@ def find_system_keyboards() -> list:
     return list(set(keyboards))
 
 
-# 🚀 色彩多段连续线性插值辅助函数 (蓝 -> 紫 -> 橙 -> 绯红)
 def lerp_color(c1, c2, t):
     t = max(0.0, min(1.0, t))
     r = int(c1[0] + (c2[0] - c1[0]) * t)
@@ -79,21 +89,18 @@ def lerp_color(c1, c2, t):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-COLOR_BLUE   = (56, 189, 248)  # #38bdf8
-COLOR_PURPLE = (168, 85, 247)  # #a855f7
-COLOR_ORANGE = (249, 115, 22)  # #f97316
-COLOR_RED    = (244, 63, 94)   # #f43f5e
+COLOR_BLUE   = (56, 189, 248)
+COLOR_PURPLE = (168, 85, 247)
+COLOR_ORANGE = (249, 115, 22)
+COLOR_RED    = (244, 63, 94)
 
 
 def interpolate_typing_color(intensity: float) -> str:
     if intensity <= 0.35:
-        # 0.0 ~ 0.35: 蓝 -> 紫
         return lerp_color(COLOR_BLUE, COLOR_PURPLE, intensity / 0.35)
     elif intensity <= 0.70:
-        # 0.35 ~ 0.70: 紫 -> 橙
         return lerp_color(COLOR_PURPLE, COLOR_ORANGE, (intensity - 0.35) / 0.35)
     else:
-        # 0.70 ~ 1.0: 橙 -> 绯红
         return lerp_color(COLOR_ORANGE, COLOR_RED, (intensity - 0.70) / 0.30)
 
 
@@ -109,16 +116,14 @@ class TypingFlowService(QObject):
         self._keystrokes = deque(maxlen=64)
         self._last_key_time = 0.0
 
-        # 按键反馈层：4 颗键各自独立的物理冲程 (0.0 ~ 1.0)
         self._strokes = [0.0, 0.0, 0.0, 0.0]
-        self._key_rotation = 0
+        self._fallback_rotation = 0
 
-        # 状态反馈层：平滑 intensity (0.0 ~ 1.0) 与迟滞状态
         self._smooth_intensity = 0.0
         self._in_rage_state = False
 
         self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(25)  # 40 FPS 连续平滑模拟
+        self._tick_timer.setInterval(25)
         self._tick_timer.timeout.connect(self._physics_tick)
         self._tick_timer.start()
 
@@ -154,7 +159,7 @@ class TypingFlowService(QObject):
                                     continue
                                 if code in (113, 114, 115, 142, 143, 224, 225):
                                     continue
-                                self._record_stroke()
+                                self._record_stroke(code)
                         except (OSError, Exception):
                             try: os.close(fd)
                             except Exception: pass
@@ -173,12 +178,17 @@ class TypingFlowService(QObject):
                     line = proc.stdout.readline()
                     if not line: break
                     if "EVENT type 2 (KeyPress)" in line or "RawKeyPress" in line:
-                        self._record_stroke()
+                        detail_match = re.search(r"detail:\s*(\d+)", line)
+                        if detail_match:
+                            ev_code = max(0, int(detail_match.group(1)) - 8)
+                            self._record_stroke(ev_code)
+                        else:
+                            self._record_stroke(None)
                 proc.terminate()
             except Exception:
                 pass
 
-    def _record_stroke(self):
+    def _record_stroke(self, code: int = None):
         if self._config and hasattr(self._config, "typingVisualizerEnabled") and not self._config.typingVisualizerEnabled:
             return
 
@@ -186,12 +196,29 @@ class TypingFlowService(QObject):
         self._keystrokes.append(now)
         self._last_key_time = now
 
-        # 【按键反馈】：按下的单键瞬间获取 1.0 冲量，相邻键极其轻微带动 (0.15)
-        idx = self._key_rotation
-        self._strokes[idx] = 1.0
-        self._strokes[(idx - 1) % 4] = min(1.0, self._strokes[(idx - 1) % 4] + 0.15)
-        self._strokes[(idx + 1) % 4] = min(1.0, self._strokes[(idx + 1) % 4] + 0.15)
-        self._key_rotation = (self._key_rotation + 1) % 4
+        if code == SPACE_KEY:
+            self._strokes[1] = max(self._strokes[1], 0.85)
+            self._strokes[2] = max(self._strokes[2], 0.85)
+            self._strokes[0] = min(1.0, self._strokes[0] + 0.12)
+            self._strokes[3] = min(1.0, self._strokes[3] + 0.12)
+        elif code in LEFT_OUTER_KEYS:
+            self._strokes[0] = 1.0
+            self._strokes[1] = min(1.0, self._strokes[1] + 0.16)
+        elif code in LEFT_INNER_KEYS:
+            self._strokes[1] = 1.0
+            self._strokes[0] = min(1.0, self._strokes[0] + 0.16)
+            self._strokes[2] = min(1.0, self._strokes[2] + 0.08)
+        elif code in RIGHT_INNER_KEYS:
+            self._strokes[2] = 1.0
+            self._strokes[3] = min(1.0, self._strokes[3] + 0.16)
+            self._strokes[1] = min(1.0, self._strokes[1] + 0.08)
+        elif code in RIGHT_OUTER_KEYS:
+            self._strokes[3] = 1.0
+            self._strokes[2] = min(1.0, self._strokes[2] + 0.16)
+        else:
+            idx = self._fallback_rotation
+            self._strokes[idx] = 1.0
+            self._fallback_rotation = (self._fallback_rotation + 1) % 4
 
     def _physics_tick(self):
         now = time.monotonic()
@@ -201,45 +228,33 @@ class TypingFlowService(QObject):
         kps = float(len(self._keystrokes))
         idle_duration = (now - self._last_key_time) if self._last_key_time > 0 else 999.0
 
-        # 1. 瞬态按键阻尼衰减（慢打时回落）
         for i in range(4):
-            self._strokes[i] *= 0.80
+            self._strokes[i] *= 0.78
             if self._strokes[i] < 0.005:
                 self._strokes[i] = 0.0
 
-        # 2. 计算目标 intensity (0.0 ~ 1.0)
-        if idle_duration > 1.4:
+        # 🚀【核心优化】：停打 0.4 秒后目标值干脆归零，收缩阶段衰减提速，绝不在微小值拖泥带水
+        if idle_duration > 0.4:
             target_intensity = 0.0
+            lerp_rate = 0.16 # 均匀平滑下落
         else:
-            # 0~10 KPS 平滑映射到 0.0 ~ 1.0
             target_intensity = min(1.0, max(0.05, kps / 10.0))
+            lerp_rate = 0.28 # 击键灵敏上升
 
-        # 3. 对 intensity 做低通平滑滤波 (EMA: 上升灵敏 0.25，回落柔和 0.08)
-        lerp_rate = 0.25 if target_intensity > self._smooth_intensity else 0.08
         self._smooth_intensity += (target_intensity - self._smooth_intensity) * lerp_rate
-        if self._smooth_intensity < 0.005:
+        
+        # 极低阈值直接吸附至 0，切断末端无效抖动
+        if self._smooth_intensity < 0.025:
             self._smooth_intensity = 0.0
 
-        # 4. Hysteresis (迟滞区间判定)：防超频档位抖动
         if not self._in_rage_state and self._smooth_intensity >= 0.85:
             self._in_rage_state = True
         elif self._in_rage_state and self._smooth_intensity < 0.68:
             self._in_rage_state = False
 
-        # 5. 高速心流时的键帽交替起伏叠加
-        if self._smooth_intensity > 0.35:
-            freq = 9.0 + self._smooth_intensity * 14.0
-            phase = now * freq
-            wave_amp = (self._smooth_intensity - 0.35) * 0.9
-            self._strokes[0] = max(self._strokes[0], (math.sin(phase) * 0.5 + 0.5) * wave_amp)
-            self._strokes[1] = max(self._strokes[1], (math.sin(phase + 1.57) * 0.5 + 0.5) * wave_amp)
-            self._strokes[2] = max(self._strokes[2], (math.sin(phase + 3.14) * 0.5 + 0.5) * wave_amp)
-            self._strokes[3] = max(self._strokes[3], (math.sin(phase + 4.71) * 0.5 + 0.5) * wave_amp)
-
-        is_active = (self._smooth_intensity > 0.01) or (idle_duration < 1.4)
+        is_active = (self._smooth_intensity > 0.005) or (idle_duration < 1.2)
         continuous_color = interpolate_typing_color(self._smooth_intensity)
 
-        # 将 smooth_intensity 通过原有的 kps 接口透传（乘以 10 保持量纲与兼容）
         self.typingUpdated.emit(
             is_active, continuous_color,
             round(self._strokes[0], 3),

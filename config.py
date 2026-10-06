@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: config.py (模块化数据驱动重构版)
+# 📄 File: config.py (新增通知免打扰与通话穿透配置)
 # ==========================================
 import os
 import json
@@ -9,9 +9,6 @@ from logger import app_logger
 
 CONFIG_FILE = os.path.expanduser("~/.config/alcove_island_config.json")
 
-# =========================================================================
-# 常量规范与默认数据集
-# =========================================================================
 DEFAULT_SAVED_CLOCKS = [
     {"name": "伦敦", "en": "London", "country": "英国", "iso": "GB", "tz": "Europe/London"},
     {"name": "纽约", "en": "New York", "country": "美国", "iso": "US", "tz": "America/New_York"},
@@ -24,7 +21,6 @@ DEFAULT_TAB_ORDER = [
     "timer", "clock", "network", "bluetooth", "notification", "process"
 ]
 
-# 🚀 集中式配置 Schema：后续新增任何配置项只需在此登记即可全自动支持存储与自愈
 CONFIG_SCHEMA = {
     # [1] 几何布局
     "topMargin": {"default": 0, "val": lambda v: int(v)},
@@ -49,11 +45,11 @@ CONFIG_SCHEMA = {
     "subIslandsRight": {"default": ["hardware", "timer", "notification"], "val": lambda v: list(v)},
     "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
     "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
-    "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},  # 5-10 条声波柱
+    "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
     "typingVisualizerEnabled": {"default": True, "val": lambda v: bool(v)},
     "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
 
-    # [5] 健康与系统控制
+    # [5] 健康与系统监控
     "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
     "memoryThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
     "sedentaryReminderEnabled": {"default": True, "val": lambda v: bool(v)},
@@ -80,13 +76,14 @@ CONFIG_SCHEMA = {
     "showBluetoothTab": {"default": True, "val": lambda v: bool(v)},
     "showNotificationTab": {"default": True, "val": lambda v: bool(v)},
     "showProcessTab": {"default": True, "val": lambda v: bool(v)},
+
+    # 🚀 [8] 消息通知与勿扰管理 (新增)
+    "dndEnabled": {"default": False, "val": lambda v: bool(v)},
+    "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
 }
 
 
 class ConfigManager(QObject):
-    # =========================================================================
-    # 领域信号声明
-    # =========================================================================
     # [1] 几何布局
     topMarginChanged = Signal(int)
     offsetXChanged = Signal(int)
@@ -142,21 +139,21 @@ class ConfigManager(QObject):
     showNotificationTabChanged = Signal(bool)
     showProcessTabChanged = Signal(bool)
 
+    # 🚀 [8] 消息通知与勿扰管理信号 (新增)
+    dndEnabledChanged = Signal(bool)
+    dndAllowCallsChanged = Signal(bool)
+
     def __init__(self):
         super().__init__()
         self._system_fonts = None
         self._world_cities = self._load_world_cities()
 
-        # 根据 Schema 自动注入默认内部字段
         for key, meta in CONFIG_SCHEMA.items():
             val = meta["default"]
             setattr(self, f"_{key}", list(val) if isinstance(val, list) else val)
 
         self.load()
 
-    # =========================================================================
-    # 核心引擎：通用原子属性更新器 (消除 200+ 行重复样板代码)
-    # =========================================================================
     def _set_value(self, key: str, new_val, signal: Signal) -> bool:
         meta = CONFIG_SCHEMA.get(key)
         if meta and "val" in meta:
@@ -170,9 +167,6 @@ class ConfigManager(QObject):
             return True
         return False
 
-    # =========================================================================
-    # 磁盘存储引擎 (具备自愈能力的 Schema 自动存取)
-    # =========================================================================
     def load(self):
         if not os.path.exists(CONFIG_FILE) or os.path.getsize(CONFIG_FILE) == 0:
             return
@@ -180,23 +174,19 @@ class ConfigManager(QObject):
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # 自动遍历 Schema 进行安全读取与校验
             for key, meta in CONFIG_SCHEMA.items():
                 if key in data:
                     raw_val = data[key]
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 自愈修复补全：保证 hardware 岛屿存在
             if "hardware" not in self._subIslandsRight and "hardware" not in self._subIslandsLeft:
                 self._subIslandsRight.insert(0, "hardware")
 
-            # 自愈修复补全：保证默认 Tab 完整
             for item in DEFAULT_TAB_ORDER:
                 if item not in self._tabOrder:
                     self._tabOrder.append(item)
 
-            # 城市时区字段迁移验证
             self._savedClocks = self._migrate_clock_items(self._savedClocks)
 
         except Exception as e:
@@ -214,9 +204,7 @@ class ConfigManager(QObject):
         except Exception as e:
             app_logger.warning(f"[Config] 保存配置失败: {e}")
 
-    # =========================================================================
-    # [1] 几何布局与屏幕定位 (Geometry)
-    # =========================================================================
+    # [1] 几何布局
     @Property(int, notify=topMarginChanged)
     def topMargin(self): return self._topMargin
     @topMargin.setter
@@ -242,9 +230,7 @@ class ConfigManager(QObject):
     @expandedTopMargin.setter
     def expandedTopMargin(self, val): self._set_value("expandedTopMargin", val, self.expandedTopMarginChanged)
 
-    # =========================================================================
-    # [2] 字体排版与字库枚举 (Typography)
-    # =========================================================================
+    # [2] 字体排版
     @Property(str, notify=fontFamilyChanged)
     def fontFamily(self): return self._fontFamily
     @fontFamily.setter
@@ -268,9 +254,7 @@ class ConfigManager(QObject):
             self._system_fonts = self._load_system_fonts()
         return self._system_fonts
 
-    # =========================================================================
-    # [3] 常态时钟与网络显示 (Clock & Network)
-    # =========================================================================
+    # [3] 常态时钟与网络
     @Property(str, notify=timeFormatChanged)
     def timeFormat(self): return self._timeFormat
     @timeFormat.setter
@@ -299,9 +283,7 @@ class ConfigManager(QObject):
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
 
-    # =========================================================================
-    # [4] 灵动副岛与律动机制 (Sub-Islands & Visualizers)
-    # =========================================================================
+    # [4] 灵动副岛与律动
     @Property(int, notify=splitGapChanged)
     def splitGap(self): return self._splitGap
     @splitGap.setter
@@ -342,9 +324,7 @@ class ConfigManager(QObject):
     @tourbillonAnimationEnabled.setter
     def tourbillonAnimationEnabled(self, val): self._set_value("tourbillonAnimationEnabled", val, self.tourbillonAnimationEnabledChanged)
 
-    # =========================================================================
-    # [5] 健康关怀与系统监控 (Health & Monitor)
-    # =========================================================================
+    # [5] 健康与系统监控
     @Property(bool, notify=showMemoryBubbleChanged)
     def showMemoryBubble(self): return self._showMemoryBubble
     @showMemoryBubble.setter
@@ -380,9 +360,7 @@ class ConfigManager(QObject):
     @clipboardMonitorEnabled.setter
     def clipboardMonitorEnabled(self, val): self._set_value("clipboardMonitorEnabled", val, self.clipboardMonitorEnabledChanged)
 
-    # =========================================================================
-    # [6] 交互手势与物理动效 (Interaction & Motion)
-    # =========================================================================
+    # [6] 交互与动效
     @Property(str, notify=animStyleChanged)
     def animStyle(self): return self._animStyle
     @animStyle.setter
@@ -403,9 +381,7 @@ class ConfigManager(QObject):
     @autoHideDurationSeconds.setter
     def autoHideDurationSeconds(self, val): self._set_value("autoHideDurationSeconds", val, self.autoHideDurationSecondsChanged)
 
-    # =========================================================================
-    # [7] 展开卡片导航路由 (Expanded Tabs)
-    # =========================================================================
+    # [7] 展开卡片导航
     @Property(list, notify=tabOrderChanged)
     def tabOrder(self): return self._tabOrder
     @tabOrder.setter
@@ -461,9 +437,17 @@ class ConfigManager(QObject):
     @showProcessTab.setter
     def showProcessTab(self, val): self._set_value("showProcessTab", val, self.showProcessTabChanged)
 
-    # =========================================================================
-    # 底层资源加载辅助函数
-    # =========================================================================
+    # 🚀 [8] 消息通知与勿扰管理属性 (新增)
+    @Property(bool, notify=dndEnabledChanged)
+    def dndEnabled(self): return self._dndEnabled
+    @dndEnabled.setter
+    def dndEnabled(self, val): self._set_value("dndEnabled", val, self.dndEnabledChanged)
+
+    @Property(bool, notify=dndAllowCallsChanged)
+    def dndAllowCalls(self): return self._dndAllowCalls
+    @dndAllowCalls.setter
+    def dndAllowCalls(self, val): self._set_value("dndAllowCalls", val, self.dndAllowCallsChanged)
+
     def _load_world_cities(self):
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))

@@ -336,6 +336,131 @@ class IslandBridge(QObject):
             app_logger.error(f"解析报文异常: {e}")
             return
 
+        # ... (MEDIA, WORKSPACE, SYSTEM 等保持不变) ...
+
+        if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
+            m = data["media"]
+            self.media.apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))
+
+        elif m_type in ("MEDIA_UPDATE", "FULL_SYNC") and "media" in data:
+            m = data["media"]
+            raw_art = m.get("art_url") or m.get("artUrl") or m.get("mpris:artUrl") or m.get("cover") or m.get("thumbnail") or ""
+            art = ("file://" + raw_art) if (raw_art and raw_art.startswith("/") and not raw_art.startswith("file://")) else raw_art
+            self.media.apply_media_state(m.get("title", "等待播放..."), m.get("artist", "未知歌手"), m.get("status", "Paused"), art, m.get("position"), m.get("duration"))
+
+        if m_type in ("WORKSPACE_CHANGED", "FULL_SYNC") and "workspace" in data:
+            ws_info = data["workspace"]
+            self.workspaceTriggered.emit(int(ws_info.get("current_index", 1)), int(ws_info.get("total", 4)), str(ws_info.get("current_name", "")))
+            if "list" in ws_info:
+                self.workspaceListUpdated.emit(ws_info.get("list", []))
+
+        if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
+            sys_info = data["system"]
+            self.hardware.apply_daemon_volume(max(0, min(100, int(sys_info.get("volume", self.hardware.current_volume)))), bool(sys_info.get("muted", False)), m_type)
+
+        elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
+            self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 100)))
+
+        if "bluetooth" in data:
+            b_info = data["bluetooth"]
+            devices = b_info.get("connected_devices", [])
+            powered = b_info.get("powered", True)
+            self._bluetooth_powered = powered
+
+            alerts = []
+            if not self._first_poll and m_type in ("BLUETOOTH_CONNECT", "BLUETOOTH_DISCONNECT", "BLUETOOTH_BATTERY"):
+                for dev in devices:
+                    mac, conn, bat, name = dev.get("mac"), dev.get("connected", False), dev.get("battery"), dev.get("name", "蓝牙设备")
+                    prev_conn, _ = self._known_devices_state.get(mac, (None, None))
+                    if prev_conn is not None and prev_conn != conn:
+                        emoji = "🎧" if any(w in name.lower() for w in ["buds", "pods", "wh-", "head", "audio"]) else "蓝牙"
+                        status_str = f"已连接 · 🔋 电量 {bat}%" if (conn and bat is not None) else ("已连接" if conn else "已断开连接")
+                        alerts.append((emoji, name, status_str, 2500, ""))
+                    self._known_devices_state[mac] = (conn, bat)
+            else:
+                for dev in devices:
+                    self._known_devices_state[dev.get("mac")] = (dev.get("connected", False), dev.get("battery"))
+            self._first_poll = False
+            self._bt_model.sync_devices(devices)
+            self.bluetoothStateChanged.emit(powered)
+            for alert in alerts:
+                # 勿扰模式下静默外设连接横幅
+                if not (self.config and getattr(self.config, "dndEnabled", False)):
+                    self.alertTriggered.emit(*alert)
+
+        if "network" in data:
+            net_info = data["network"]
+            rx_str, tx_str = net_info.get("rx_speed", "0 B/s"), net_info.get("tx_speed", "0 B/s")
+            self.netSpeedUpdated.emit(rx_str, tx_str, to_compact_speed(rx_str), to_compact_speed(tx_str), self._cached_ip)
+            if not (self.config and getattr(self.config, "dndEnabled", False)):
+                if m_type == "VPN_CONNECTED":
+                    self.alertTriggered.emit("🛡️", "VPN 安全网络已接入", net_info.get("vpn_name", "VPN Active"), 2000, "")
+                elif m_type == "VPN_DISCONNECTED":
+                    self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
+
+        # 🚀【核心改进 1：来电勿扰与穿透过滤】
+        if m_type == "TEAMS_CALL_INCOMING":
+            noti = data.get("notification", {})
+            call_title = noti.get("title", "").strip() or "Teams 来电"
+            call_sub = noti.get("content", "").strip() or "正在呼叫..."
+            call_avatar = process_notification_avatar(noti.get("avatar", ""))
+
+            is_dnd = bool(self.config and getattr(self.config, "dndEnabled", False))
+            allow_call = bool(self.config and getattr(self.config, "dndAllowCalls", True))
+
+            if is_dnd and not allow_call:
+                # 勿扰且禁止通话穿透：静默存入归档，绝不发射弹窗，绝不置顶窗口
+                app_logger.info(f"🔕 [勿扰静音] 来电已静默归档: {call_title}")
+                self._notif_model.add_notification({
+                    "id": int(time.time() * 1000),
+                    "icon": "📞",
+                    "title": f"[未接/静音] {call_title}",
+                    "content": call_sub,
+                    "avatar": call_avatar,
+                    "time": time.strftime("%H:%M"),
+                    "read": False
+                })
+            else:
+                self.callIncomingTriggered.emit(call_title, call_sub, call_avatar)
+                self.view.raise_()
+
+        # 🚀【后端源头】：捕获所有桌面通知与 Teams 消息，静默入库
+        elif m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "NOTIFICATION", "SYSTEM_NOTIFICATION", "NOTIFY", "ALERT") and "notification" in data:
+            noti = data["notification"]
+            t_title = (noti.get("title") or noti.get("summary") or "新通知").strip()
+            t_sub = (noti.get("content") or noti.get("body") or "").strip()
+            avatar = process_notification_avatar(noti.get("avatar") or noti.get("icon") or "")
+            icon = noti.get("icon", "💬")
+
+            if t_title or t_sub:
+                # 1. 100% 正常入库，未读计数正常增加
+                self._notif_model.add_notification({
+                    "id": int(time.time() * 1000),
+                    "icon": icon,
+                    "title": t_title,
+                    "content": t_sub,
+                    "avatar": avatar,
+                    "time": time.strftime("%H:%M"),
+                    "read": False
+                })
+
+                # 2. 只有非勿扰模式下，才发射弹窗中断
+                is_dnd = bool(self.config and getattr(self.config, "dndEnabled", False))
+                if not is_dnd:
+                    self.alertTriggered.emit(icon, t_title, t_sub, 4500, avatar)
+                else:
+                    app_logger.info(f"🌙 [勿扰静默] 消息已静默归档: {t_title}")
+
+        elif m_type == "TEAMS_CALL_ENDED":
+            self.callEndedTriggered.emit()
+
+        self.syncDataUpdated.emit(data)
+        try:
+            data = json.loads(data_str) if data_str else {}
+        except Exception as e:
+            app_logger.error(f"解析报文异常: {e}")
+            return
+
         if m_type in ("MEDIA_PROGRESS", "MEDIA_TICK") and "media" in data:
             m = data["media"]
             self.media.apply_media_progress(m.get("position"), m.get("duration"), float(m.get("progress", -1.0)))

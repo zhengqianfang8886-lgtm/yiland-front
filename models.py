@@ -1,10 +1,6 @@
 # ==========================================
-# 📄 File: models.py
+# 📄 File: models.py (补齐 count 属性通知)
 # ==========================================
-"""
-Alcove Island - 专用高性能 QAbstractListModel 实现
-为通知列表、蓝牙设备列表及进程监控提供行级增量刷新 (Fine-grained Diffing)
-"""
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal, Property, Slot
 
 
@@ -18,6 +14,7 @@ class NotificationListModel(QAbstractListModel):
     ReadRole = Qt.ItemDataRole.UserRole + 7
 
     unreadCountChanged = Signal(int)
+    countChanged = Signal(int) # 🚀 关键：行数变更信号
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -59,6 +56,10 @@ class NotificationListModel(QAbstractListModel):
             self.ReadRole: b"read",
         }
 
+    @Property(int, notify=countChanged)
+    def count(self):
+        return len(self._items)
+
     @Property(int, notify=unreadCountChanged)
     def unreadCount(self):
         return self._unread_count
@@ -74,7 +75,6 @@ class NotificationListModel(QAbstractListModel):
         return {}
 
     def add_notification(self, item_dict: dict):
-        """向头部插入单条新通知，超出上限自动裁切尾部"""
         if self._items:
             top = self._items[0]
             if top.get("title") == item_dict.get("title") and top.get("content") == item_dict.get("content"):
@@ -89,7 +89,6 @@ class NotificationListModel(QAbstractListModel):
         if item_dict.get("avatar"):
             self._latest_avatar = item_dict["avatar"]
 
-        # 超出最大数量（15条）从末尾移除
         if len(self._items) > 15:
             last_idx = len(self._items) - 1
             self.beginRemoveRows(QModelIndex(), last_idx, last_idx)
@@ -97,6 +96,7 @@ class NotificationListModel(QAbstractListModel):
             self.endRemoveRows()
 
         self.unreadCountChanged.emit(self._unread_count)
+        self.countChanged.emit(len(self._items))
 
     @Slot()
     def markAllRead(self):
@@ -120,6 +120,7 @@ class NotificationListModel(QAbstractListModel):
         self._latest_avatar = ""
         self.endResetModel()
         self.unreadCountChanged.emit(0)
+        self.countChanged.emit(0)
 
 
 class BluetoothListModel(QAbstractListModel):
@@ -192,11 +193,9 @@ class BluetoothListModel(QAbstractListModel):
         self.devicesChanged.emit()
 
     def sync_devices(self, new_devices: list):
-        """精准差量更新（Diffing）"""
         new_mac_map = {d.get("mac"): d for d in new_devices if d.get("mac")}
         curr_mac_map = {d.get("mac"): i for i, d in enumerate(self._devices) if d.get("mac")}
 
-        # 1. 查找被删除的设备
         for i in range(len(self._devices) - 1, -1, -1):
             mac = self._devices[i].get("mac")
             if mac not in new_mac_map:
@@ -204,10 +203,8 @@ class BluetoothListModel(QAbstractListModel):
                 self._devices.pop(i)
                 self.endRemoveRows()
 
-        # 重新映射
         curr_mac_map = {d.get("mac"): i for i, d in enumerate(self._devices) if d.get("mac")}
 
-        # 2. 检查更新已有项
         for mac, new_data in new_mac_map.items():
             if mac in curr_mac_map:
                 row = curr_mac_map[mac]
@@ -226,7 +223,6 @@ class BluetoothListModel(QAbstractListModel):
                     idx = self.index(row, 0)
                     self.dataChanged.emit(idx, idx, changed_roles)
 
-        # 3. 检查新增项
         for mac, new_data in new_mac_map.items():
             if mac not in curr_mac_map:
                 insert_row = len(self._devices)
@@ -245,7 +241,7 @@ class ProcessListModel(QAbstractListModel):
     CmdRole = Qt.ItemDataRole.UserRole + 4
     StatusRole = Qt.ItemDataRole.UserRole + 5
     PidRole = Qt.ItemDataRole.UserRole + 6
-    IconRole = Qt.ItemDataRole.UserRole + 7  # 🚀 新增真实图片图标角色支持
+    IconRole = Qt.ItemDataRole.UserRole + 7
 
     countChanged = Signal()
     runningCountChanged = Signal()
@@ -277,7 +273,7 @@ class ProcessListModel(QAbstractListModel):
         elif role == self.PidRole:
             return t.get("pid", 0)
         elif role == self.IconRole:
-            return t.get("icon", "")  # 🚀 返回持久化存储的图片路径
+            return t.get("icon", "")
         return None
 
     def roleNames(self):
@@ -288,7 +284,7 @@ class ProcessListModel(QAbstractListModel):
             self.CmdRole: b"cmd",
             self.StatusRole: b"status",
             self.PidRole: b"pid",
-            self.IconRole: b"icon",  # 🚀 暴露给 QML 视图绑定 model.icon
+            self.IconRole: b"icon",
         }
 
     @Property(int, notify=countChanged)
