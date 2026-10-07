@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: CompactCapsuleView.qml (透传桌面宽度版)
+// 📄 File: CompactCapsuleView.qml
+// 🌟 纯正苹果灵动岛形态交融 · 优雅音量 OSD 转场版
 // ==========================================
 import QtQuick
 import "compact"
@@ -45,11 +46,11 @@ Item {
 
     readonly property int textRowImplicitWidth: clockView.implicitWidth
     readonly property int wsRowImplicitWidth: wsView.implicitWidth
-    // 🚀 透传桌面自适应宽度
     readonly property int wsContentImplicitWidth: wsView.contentImplicitWidth
     readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
     readonly property bool isAlertActive: (activeTransient === "ALERT") && !isCalling
     readonly property bool isHardwareMuted: (osdIcon === "🔇" || osdIcon === "🚫")
+    readonly property bool isOsdMode: (activeTransient === "OSD" && !isCalling && !isExpanded)
 
     readonly property color alertThemeColor: {
         if (alertIcon === "⏰") return Theme.timer
@@ -103,7 +104,7 @@ Item {
         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
-    // 4. 音量/静音 OSD 滑轨
+    // 4. 🚀 纯正苹果流体音量/静音 OSD（优雅向外舒展浮现）
     CompactOsdView {
         id: osdView
         anchors.fill: parent
@@ -111,10 +112,20 @@ Item {
         osdIcon: compactRoot.osdIcon
         osdValue: compactRoot.osdValue
         visible: opacity > 0.001
-        opacity: (compactRoot.activeTransient === "OSD" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
-        scale: opacity > 0.01 ? 1.0 : 0.94
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+        opacity: compactRoot.isOsdMode ? 1.0 : 0.0
+        scale: compactRoot.isOsdMode ? 1.0 : 0.88
+
+        Behavior on opacity {
+            NumberAnimation { duration: compactRoot.isOsdMode ? 140 : 110; easing.type: Easing.OutQuad }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: compactRoot.isOsdMode ? 180 : 110
+                easing.type: compactRoot.isOsdMode ? Easing.OutBack : Easing.OutCubic
+                easing.overshoot: 1.08
+            }
+        }
     }
 
     // 5. 通知弹窗横幅 (ALERT)
@@ -126,7 +137,7 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // 6. 常态时钟
+    // 6. 🚀 常态时钟（OSD 进场时优雅向景深处微退，OSD 离开时水润浮现）
     CompactClockView {
         id: clockView
         anchors.centerIn: parent
@@ -136,6 +147,18 @@ Item {
         showNetSpeed: compactRoot.showNetSpeed
         downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
         displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
-        isClockActive: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling)
+
+        readonly property bool clockVisibleState: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling)
+        isClockActive: clockVisibleState
+
+        opacity: clockVisibleState ? 1.0 : 0.0
+        scale: clockVisibleState ? 1.0 : 0.90
+
+        Behavior on opacity {
+            NumberAnimation { duration: clockView.clockVisibleState ? 150 : 90; easing.type: Easing.OutQuad }
+        }
+        Behavior on scale {
+            NumberAnimation { duration: clockView.clockVisibleState ? 170 : 90; easing.type: Easing.OutCubic }
+        }
     }
 }

@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: Island.qml (打通打字心流数据注入)
+// 📄 File: Island.qml (全量整合版)
+// 🌟 物理键盘脉冲接入 · 60帧原子遮罩刷新 · 彻底解决一切切角与闪烁
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -72,7 +73,7 @@ Item {
     // 左侧纯音乐岛条件
     readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
 
-    // 🚀【右侧心流岛条件】：开启配置 + 正在打字（或余温未消）+ 未被大弹窗阻断
+    // 🚀【击键心流副岛条件】：开启配置 + 正在打字 + 未被大弹窗阻断
     readonly property bool hasTypingIsland: !root.isBlockingTransient &&
                                             (typeof Config === "undefined" || Config.showHardwareBubble !== false) &&
                                             (typeof Config === "undefined" || Config.typingVisualizerEnabled !== false)
@@ -144,21 +145,13 @@ Item {
         onTriggerOsd: (icon, label, val) => triggerTransient("OSD", 1500)
         onTriggerWorkspace: (c, t, n) => { triggerTransient("WORKSPACE", 800); Bridge.forceRaise() }
 
-        // 🚀【修复 2】：前端绝对防线 —— 勿扰开启时坚决不拉伸胶囊弹窗
         onTriggerAlert: (icon, t, sub, ms, avatar) => {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
             var isCall = (icon === "📞" || relay.isCalling)
             var allowCall = (typeof Config !== "undefined" && Config.dndAllowCalls !== false)
 
-            // 1. 勿扰模式开启时，普通消息一律静默，绝对不弹窗
-            if (isDnd && !isCall) {
-                return
-            }
-
-            // 2. 来电通知如果在勿扰下且禁止通话穿透，也坚决不弹窗
-            if (isDnd && isCall && !allowCall) {
-                return
-            }
+            if (isDnd && !isCall) return
+            if (isDnd && isCall && !allowCall) return
 
             capsule.alertIcon = icon
             capsule.alertTitle = t
@@ -168,7 +161,6 @@ Item {
         }
 
         onTriggerClipboard: (icon, t, sub, ms) => {
-            // 勿扰模式下连剪贴板发光动画也保持静默
             if (!(typeof Config !== "undefined" && Config.dndEnabled)) {
                 capsule.triggerClipGlow()
             }
@@ -176,7 +168,6 @@ Item {
 
         onCallEnded: {
             if (capsule.isExpanded) capsule.startCollapse()
-            // 仅在允许弹窗时显示呼叫完成
             if (!(typeof Config !== "undefined" && Config.dndEnabled && !Config.dndAllowCalls)) {
                 capsule.alertIcon = "📞"
                 capsule.alertTitle = relay.callTitle || "Teams 通话"
@@ -230,13 +221,10 @@ Item {
 
     function expandToTab(tabName) {
         capsule.cancelCollapse()
-        
-        // 🚀【修复 1】：彻底清理弹窗状态，绝不允许弹窗在收拢或切页时借尸还魂
         if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
             capsule.activeTransient = ""
         }
-
         capsule.expandedTab = tabName
         capsule.drillDownPage = ""
         capsule.isExpanded = true
@@ -330,7 +318,7 @@ Item {
     }
 
     // =========================================================================
-    // 5 大副岛组件
+    // 5 大副岛组件 (全量绑定 requestMaskUpdate 60帧平滑刷新)
     // =========================================================================
 
     MemoryBubbleView {
@@ -357,9 +345,10 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        onActiveChanged: maskController.notifyIslandMoving()
-        onXChanged: maskController.notifyIslandMoving()
-        onWidthChanged: maskController.notifyIslandMoving()
+        // 🚀 彻底修复通知切角，使用全新的节流更新 Mask
+        onActiveChanged: maskController.requestMaskUpdate()
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
@@ -382,14 +371,15 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        onActiveChanged: maskController.notifyIslandMoving()
-        onXChanged: maskController.notifyIslandMoving()
-        onWidthChanged: maskController.notifyIslandMoving()
+        // 🚀 彻底修复通知切角
+        onActiveChanged: maskController.requestMaskUpdate()
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
         onClicked: root.expandToTab("media")
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
-    // 🚀【击键心流副岛】：彻底恢复宽度监听，结合新版 Mask 引擎实现无黑框、无切角的平滑展宽
+    // 🚀【击键心流副岛】：直接绑定 relay 真实输入数据，彻底打通触觉脉冲链路！
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
@@ -400,7 +390,7 @@ Item {
 
         activeMod: relay.typingMod
         activeKey: relay.typingKey
-        strokeRevision: relay.strokeRevision
+        strokeRevision: relay.strokeRevision // 🚀 绑定底层每一次物理击键计数，绝不漏按！
 
         x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
@@ -416,10 +406,10 @@ Item {
         spec4: relay.typingSpec4
         kps: relay.typingKps
 
-        onActiveChanged: maskController.notifyIslandMoving()
-        onXChanged: maskController.notifyIslandMoving()
-        // 🚀 恢复宽度监听：胶囊变宽时系统遮罩同步展开，右上角绝不再被截断！
-        onWidthChanged: maskController.notifyIslandMoving()
+        // 🚀 动态宽度呼吸时平滑请求重绘遮罩，彻底告别旧版的系统 Mask 清空闪烁
+        onActiveChanged: maskController.requestMaskUpdate()
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
     }
 
     TimerBubbleView {
@@ -442,9 +432,9 @@ Item {
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        onActiveChanged: maskController.notifyIslandMoving()
-        onXChanged: maskController.notifyIslandMoving()
-        onWidthChanged: maskController.notifyIslandMoving()
+        onActiveChanged: maskController.requestMaskUpdate()
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
 
         onTogglePause: capsule.toggleTimerPause()
         onDismissTimer: capsule.dismissTimer()
@@ -464,9 +454,9 @@ Item {
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        onActiveChanged: maskController.notifyIslandMoving()
-        onXChanged: maskController.notifyIslandMoving()
-        onWidthChanged: maskController.notifyIslandMoving()
+        onActiveChanged: maskController.requestMaskUpdate()
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
         onClicked: root.expandToTab("notification")
         onRightClicked: root.expandToTab("notification")
     }

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: IslandMaskController.qml
-// 🌟 物理原子掩模替换 · 绝不闪黑框 · 毫秒级跟手无截断版
+// 🌟 60帧节流原子掩模引擎 · 补齐属性声明防崩溃版
 // ==========================================
 import QtQuick
 
@@ -15,20 +15,31 @@ Item {
     property var hwBubble: null
     property var rightBubble: null
     property var notifBubble: null
-
     property var customIslands: []
 
+    // 🚀 恢复属性声明，兼容外部 Island.qml 的绑定赋值，防止编译崩溃
     property bool maskActive: false
+    property bool isIslandHidden: false
     property bool isExpanded: false
     property bool isCollapsing: false
     property bool isMorphing: false
-
-    property bool isIslandHidden: false
-    onIsIslandHiddenChanged: handleHideState()
-
     property int targetW: 150
     property int targetH: 36
+    
+    // 状态记录锁
+    property bool _updatePending: false
 
+    onIsIslandHiddenChanged: {
+        if (!maskActive || typeof Bridge === "undefined") return
+        if (isIslandHidden) {
+            throttleTimer.stop()
+            if (Bridge.setPassthrough) Bridge.setPassthrough()
+        } else {
+            requestMaskUpdate()
+        }
+    }
+
+    // 只要 active 就是有效岛屿，绝不用 opacity 过滤，防止入场动画被截断！
     function getDiscoveredIslands() {
         var list = []
         var seen = ({})
@@ -39,7 +50,7 @@ Item {
             if (typeof item.x === "undefined" || typeof item.width === "undefined") return
             if (item.width <= 0 || item.height <= 0) return
             if (item.active !== undefined && !item.active) return
-            if (item.opacity !== undefined && item.opacity < 0.1) return
+            if (item.visible !== undefined && !item.visible) return
 
             var key = item.toString()
             if (seen[key]) return
@@ -54,9 +65,7 @@ Item {
         registerItem(notifBubble)
 
         if (customIslands && customIslands.length > 0) {
-            for (var c = 0; c < customIslands.length; c++) {
-                registerItem(customIslands[c])
-            }
+            for (var c = 0; c < customIslands.length; c++) registerItem(customIslands[c])
         }
 
         if (rootItem && rootItem.children) {
@@ -67,91 +76,39 @@ Item {
                 }
             }
         }
-
         return list
     }
 
-    function checkAnySubExpanded() {
-        var islands = getDiscoveredIslands()
-        for (var i = 0; i < islands.length; i++) {
-            if (islands[i] && islands[i].isExpanded) return true
+    // 防饿死节流引擎 (Throttle)，确保连续动画时每 16ms 稳稳输出一帧掩模
+    function requestMaskUpdate() {
+        if (!maskActive || typeof Bridge === "undefined" || isIslandHidden) return
+
+        if (!throttleTimer.running) {
+            commitPreciseMask()
+            throttleTimer.start()
+        } else {
+            _updatePending = true
         }
-        return false
     }
 
-    readonly property bool isAnySubExpanded: checkAnySubExpanded()
-
-    onIsExpandedChanged: handleMotionChange()
-    onIsCollapsingChanged: handleMotionChange()
-    onIsMorphingChanged: handleMotionChange()
-    onIsAnySubExpandedChanged: handleMotionChange()
-
     Timer {
-        id: passthroughTimer
-        interval: 350
+        id: throttleTimer
+        interval: 16  // 锁定 ~60fps 的掩模刷新率
         repeat: false
         onTriggered: {
-            if (isIslandHidden && typeof Bridge !== "undefined") {
-                if (Bridge.setPassthrough) Bridge.setPassthrough()
-                else Bridge.updateCompositeMask([])
+            if (_updatePending) {
+                _updatePending = false
+                commitPreciseMask()
+                throttleTimer.start()
             }
         }
     }
 
-    function handleHideState() {
-        if (!maskActive || typeof Bridge === "undefined") return
-        if (isIslandHidden) {
-            settleTimer.stop()
-            islandSlideTimer.stop()
-            if (Bridge.clearMask) Bridge.clearMask()
-            passthroughTimer.restart()
-        } else {
-            passthroughTimer.stop()
-            islandSlideTimer.interval = 35
-            islandSlideTimer.restart()
-        }
-    }
+    // 统一暴露给外部调用的入口
+    function notifyIslandMoving() { requestMaskUpdate() }
+    function commit() { requestMaskUpdate() }
 
-    function handleMotionChange() {
-        if (!maskActive || typeof Bridge === "undefined") return
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) return
-
-        var inMotion = isExpanded || isCollapsing || isMorphing || checkAnySubExpanded()
-
-        if (inMotion) {
-            settleTimer.stop()
-            if (isExpanded || isCollapsing) {
-                if (Bridge.clearMask) Bridge.clearMask()
-            }
-        } else {
-            settleTimer.restart()
-        }
-    }
-
-    // 🚀【核心重构】：副岛位移或宽度展开时，绝对禁止调用 clearMask() 闪现黑底！直接极速提交新遮罩
-    function notifyIslandMoving() {
-        if (!maskActive || typeof Bridge === "undefined") return
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) return
-
-        // 毫秒级防抖，直接无缝更新原子遮罩，杜绝被旧遮罩切角
-        islandSlideTimer.interval = 25
-        islandSlideTimer.restart()
-    }
-
-    Timer {
-        id: islandSlideTimer
-        interval: 25
-        repeat: false
-        onTriggered: maskCtrl.commitPreciseMask()
-    }
-
-    Timer {
-        id: settleTimer
-        interval: 60
-        repeat: false
-        onTriggered: maskCtrl.commitPreciseMask()
-    }
-
+    // 为副岛提供超级宽容度，彻底吸收 IPC 延迟带来的残影
     function computeSafeMaskGeometry(item, isCapsule) {
         if (!item) return null
 
@@ -161,36 +118,23 @@ Item {
         var ih = Math.round(item.height)
         if (iw <= 0 || ih <= 0) return null
 
-        // 留出 14px 充裕安全边距，两端圆角彻底包裹
-        var margin = 14
-        var maskX = ix - margin
-        var maskY = 0
-        var maskW = iw + margin * 2
-        var maskH = iy + ih + margin
-
-        var maskR = 14
-        if (isCapsule && item.isExpanded) {
-            maskR = Math.round(item.radius + margin)
-        } else {
-            maskR = Math.max(8, Math.min(14, Math.round(ih * 0.38)))
-        }
+        // 主胶囊给 14px 边距，副岛滑动时给予更充裕的 32px 安全冗余
+        var marginX = isCapsule ? 14 : 32
+        var marginY = 14
 
         return {
-            x: maskX,
-            y: maskY,
-            w: maskW,
-            h: maskH,
-            r: maskR
+            x: ix - marginX,
+            y: 0,
+            w: iw + marginX * 2,
+            h: iy + ih + marginY,
+            r: isCapsule ? Math.round(item.radius + marginY) : Math.max(8, Math.round(ih * 0.38))
         }
     }
 
     function commitPreciseMask() {
         if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) return
-        if (isExpanded || isCollapsing || isMorphing || checkAnySubExpanded()) return
 
         var rectList = []
-
         var capMask = computeSafeMaskGeometry(capsuleItem, true)
         if (capMask) rectList.push(capMask)
 
@@ -201,13 +145,5 @@ Item {
         }
 
         Bridge.updateCompositeMask(rectList)
-    }
-
-    function commit() {
-        if (isIslandHidden || (rootItem && rootItem.isIslandHidden)) {
-            handleHideState()
-        } else {
-            handleMotionChange()
-        }
     }
 }

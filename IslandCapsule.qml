@@ -209,7 +209,7 @@ Item {
             return Math.max(168, Math.max(wsDynamic, currentNormalWidth))
         }
 
-        if (capsuleRoot.activeTransient === "OSD") return Math.max(184, currentNormalWidth)
+        if (capsuleRoot.activeTransient === "OSD") return Math.max(216, currentNormalWidth)
 
         return currentNormalWidth
     }
@@ -244,6 +244,10 @@ Item {
     onTargetWidthChanged: {
         capsuleRoot.printTraceLog("目标宽度 targetWidth", "-", targetWidth, "布局引擎重定尺寸")
     }
+
+    // 🚀 核心修复：动画运行过程中的每一帧，都要驱动掩模 60fps 平滑包裹
+    onWidthChanged: capsuleRoot.maskCommitRequested()
+    onHeightChanged: capsuleRoot.maskCommitRequested()
 
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
