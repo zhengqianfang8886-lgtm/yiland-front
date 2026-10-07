@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml
-// 🌟 消除通知残留水位污染 · 丝滑微交互防抖退火版
+// 📄 File: IslandCapsule.qml (音量OSD零伸缩·完全锁死原胶囊尺寸版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -101,19 +100,12 @@ Item {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    function printTraceLog(tag, oldVal, newVal, reason) {
-        var now = new Date()
-        var timeStr = now.toLocaleTimeString() + "." + ("00" + now.getMilliseconds()).slice(-3)
-        console.log("\x1b[36m[" + timeStr + "] [Capsule 尺寸追踪]\x1b[0m " + tag + ": " + oldVal + " -> \x1b[32m" + newVal + "\x1b[0m | 模式: " + (capsuleRoot.activeTransient || "常态") + " | 交互中: " + capsuleRoot.isUserInteracting + " | 原因: " + reason)
-    }
-
     // =========================================================================
-    // 🚀【核心机制 1】：生命周期严格对齐的高水位引擎 (仅限工作区/OSD等微交互防抖)
+    // 🚀 高水位引擎：彻底剔除 OSD，仅用于工作区名称防抖
     // =========================================================================
     property bool isUserInteracting: false
     property int peakInteractionWidth: 0
 
-    // 计算当前工作区/OSD等微交互所允许的合理物理最大宽度上限
     readonly property int maxMicroInteractionWidth: {
         var wsW = (compactCapsuleView.wsContentImplicitWidth || 0) + 20
         return Math.max(184, Math.max(wsW, currentNormalWidth))
@@ -121,74 +113,64 @@ Item {
 
     Timer {
         id: interactionCooldownTimer
-        interval: 850 // 略长于瞬态 800ms，确保瞬态完全交接完毕后才允许收缩
+        interval: Theme.animSlow * 3
         repeat: false
         onTriggered: {
-            capsuleRoot.printTraceLog("交互锁解除", capsuleRoot.peakInteractionWidth, 0, "冷却期满，平稳归位")
             capsuleRoot.isUserInteracting = false
             capsuleRoot.peakInteractionWidth = 0
         }
     }
 
     function notifyInteraction(callerReason) {
-        // 如果当前是 ALERT 或 SEDENTARY，或者正处于收拢/展开，绝不能把这些外部大宽度当成水位的基准！
         if (capsuleRoot.activeTransient === "ALERT" || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isExpanded) {
             capsuleRoot.peakInteractionWidth = 0
         }
 
-        capsuleRoot.isUserInteracting = true
+        // 🚀 OSD 音量调节严禁污染水位，永远保持常态宽度！
+        if (capsuleRoot.activeTransient === "OSD") {
+            return
+        }
 
-        // 仅在微交互安全范围内采纳宽度，杜绝被通知弹窗等外部大尺寸残留所污染
-        var demand = (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD") ?
+        capsuleRoot.isUserInteracting = true
+        var demand = (capsuleRoot.activeTransient === "WORKSPACE") ?
                      capsuleRoot.rawTargetWidth : capsuleRoot.currentNormalWidth
         var curW = Math.round(capsuleRoot.width)
         var clampedCurW = Math.min(curW, capsuleRoot.maxMicroInteractionWidth)
         var clampedDemand = Math.min(demand, capsuleRoot.maxMicroInteractionWidth)
 
-        var oldPeak = capsuleRoot.peakInteractionWidth
         capsuleRoot.peakInteractionWidth = Math.max(capsuleRoot.peakInteractionWidth, clampedCurW, clampedDemand)
-
-        if (capsuleRoot.peakInteractionWidth !== oldPeak) {
-            capsuleRoot.printTraceLog("水位线爬升", oldPeak, capsuleRoot.peakInteractionWidth, callerReason)
-        }
         interactionCooldownTimer.restart()
     }
 
     onRawTargetWidthChanged: {
-        // 🚀【彻底修复】：仅在工作区或音量 OSD 交互期间才允许水位上升，通知(ALERT)等绝对禁止污染水位线！
-        if ((capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD")
+        if (capsuleRoot.activeTransient === "WORKSPACE"
             && capsuleRoot.isUserInteracting
             && capsuleRoot.rawTargetWidth > capsuleRoot.peakInteractionWidth) {
             var clampedDemand = Math.min(capsuleRoot.rawTargetWidth, capsuleRoot.maxMicroInteractionWidth)
             if (clampedDemand > capsuleRoot.peakInteractionWidth) {
-                capsuleRoot.printTraceLog("内容扩大", capsuleRoot.peakInteractionWidth, clampedDemand, "工作区/OSD内容宽度超过历史水位")
                 capsuleRoot.peakInteractionWidth = clampedDemand
             }
         }
     }
 
     onActiveTransientChanged: {
-        capsuleRoot.printTraceLog("瞬态切换", "-", capsuleRoot.activeTransient || "常态", "activeTransient 属性变动")
-        if (activeTransient === "OSD" || activeTransient === "WORKSPACE") {
-            // 如果存在残留的不合理高水位，立即裁剪至安全微交互上限
+        if (activeTransient === "WORKSPACE") {
             if (capsuleRoot.peakInteractionWidth > capsuleRoot.maxMicroInteractionWidth) {
                 capsuleRoot.peakInteractionWidth = 0
             }
-            capsuleRoot.notifyInteraction("进入 " + activeTransient + " 模式")
+            capsuleRoot.notifyInteraction("进入 WORKSPACE")
         } else {
-            // 退出工作区/OSD，或进入 ALERT / SEDENTARY 时，立即重置微交互水位线，严防下一次交互读到脏数据
             capsuleRoot.isUserInteracting = false
             capsuleRoot.peakInteractionWidth = 0
             interactionCooldownTimer.stop()
         }
     }
 
-    onWsCurrentChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("切换桌面: " + wsCurrent)
-    onWsNameChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("桌面名称变更: " + wsName)
-    onOsdValueChanged: if (activeTransient === "OSD") capsuleRoot.notifyInteraction("OSD 值变更: " + osdValue)
+    onWsCurrentChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("切换桌面")
+    onWsNameChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("桌面名称变更")
 
     // =========================================================================
-    // 🚀【核心机制 2】：基准物理宽度常驻保障 (绝对杜绝 5ms 塌陷)
+    // 🚀 核心尺寸规则：常态时钟宽度即为所有微状态的基础物理宽度
     // =========================================================================
     readonly property int currentNormalWidth: {
         var baseW = compactCapsuleView.textRowImplicitWidth + 24
@@ -203,66 +185,53 @@ Item {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
             return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
-
         if (capsuleRoot.activeTransient === "WORKSPACE") {
             var wsDynamic = (compactCapsuleView.wsContentImplicitWidth || 0) + 20
             return Math.max(168, Math.max(wsDynamic, currentNormalWidth))
         }
 
-        if (capsuleRoot.activeTransient === "OSD") return Math.max(216, currentNormalWidth)
+        // 🚀【彻底修复】：OSD 模式完全等于原本灵动岛的胶囊长度，绝对不发生任何拉伸！
+        if (capsuleRoot.activeTransient === "OSD") {
+            return currentNormalWidth
+        }
 
         return currentNormalWidth
     }
 
-    // =========================================================================
-    // 🚀【核心机制 3】：决胜裁决宽度（瞬态进行中或操作中，严格隔离安全区间）
-    // =========================================================================
     readonly property int targetWidth: {
-        // 1. 展开大卡片
         if (capsuleRoot.isExpanded) return 430
-
-        // 2. 🚀【紧急置顶】：来电专属宽度，绝不允许被常态时钟 186px 挤扁！
         if (capsuleRoot.isCalling) return 320
-
-        // 3. 久坐与通知弹窗
         if (capsuleRoot.activeTransient === "SEDENTARY") return 520
         if (capsuleRoot.activeTransient === "ALERT") {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
             return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
 
-        // 4. 处于用户交互保护期中（切桌面/调音量），严格受到安全上限保护
-        if (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.activeTransient === "OSD" || capsuleRoot.isUserInteracting) {
+        // 🚀【彻底修复】：OSD 模式无条件锁定常态胶囊原本长度
+        if (capsuleRoot.activeTransient === "OSD") {
+            return capsuleRoot.currentNormalWidth
+        }
+
+        if (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.isUserInteracting) {
             var safePeak = Math.min(capsuleRoot.peakInteractionWidth, capsuleRoot.maxMicroInteractionWidth)
             return Math.max(safePeak, capsuleRoot.rawTargetWidth)
         }
 
-        // 5. 常态时钟
         return capsuleRoot.currentNormalWidth
     }
-
-    onTargetWidthChanged: {
-        capsuleRoot.printTraceLog("目标宽度 targetWidth", "-", targetWidth, "布局引擎重定尺寸")
-    }
-
-    // 🚀 核心修复：动画运行过程中的每一帧，都要驱动掩模 60fps 平滑包裹
-    onWidthChanged: capsuleRoot.maskCommitRequested()
-    onHeightChanged: capsuleRoot.maskCommitRequested()
 
     readonly property int targetHeight: {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "SEDENTARY") return 108
         if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 64 : 48
+        // 🚀【彻底修复】：OSD 模式高度也必须与原本灵动岛胶囊完全一致（34px）
         return capsuleRoot.isCalling ? 44 : 34
     }
 
     readonly property int radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
-
-    readonly property bool isJellyStyle: (typeof Config !== "undefined" && Config.animStyle === "jelly")
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
-    readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE") || (activeTransient === "OSD")
+    readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE")
     readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
-    readonly property bool isPureIdle: !isExpanded && !isCalling && (status !== "Playing") && (activeTransient === "") && !isMouseOver
 
     readonly property color currentEffectiveAccent: {
         if (isCalling) return Theme.media
@@ -279,14 +248,14 @@ Item {
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: Math.round(Config.offsetX)
-    Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
+    Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveDecel } }
 
     anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8)
     Behavior on anchors.topMargin {
         NumberAnimation {
-            duration: 350
-            easing.type: capsuleRoot.isIslandHidden ? Easing.InBack : Easing.OutBack
-            easing.overshoot: capsuleRoot.isIslandHidden ? 0.8 : 1.05
+            duration: Theme.animSlow
+            easing.type: capsuleRoot.isIslandHidden ? Easing.InBack : Theme.curveSpring
+            easing.overshoot: Theme.springOvershootNormal
         }
     }
 
@@ -295,18 +264,17 @@ Item {
 
     opacity: capsuleRoot.isIslandHidden ? 0.0 : 1.0
     visible: opacity > 0.001
-    Behavior on opacity { NumberAnimation { duration: capsuleRoot.isIslandHidden ? 200 : 300; easing.type: Easing.InOutQuad } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
 
-    // =========================================================================
-    // 🚀 唯一的物理缓动：膨胀 140ms 迅速迎合，退火 220ms 沉稳平滑，零反弹
-    // =========================================================================
+    onWidthChanged: capsuleRoot.maskCommitRequested()
+    onHeightChanged: capsuleRoot.maskCommitRequested()
+
     Behavior on width {
         enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
-            duration: capsuleRoot.width < capsuleRoot.targetWidth ? 140 : 220
-            easing.type: Easing.OutCubic
-            easing.overshoot: 1.0
+            duration: capsuleRoot.width < capsuleRoot.targetWidth ? Theme.animFast : Theme.animNormal
+            easing.type: Theme.curveDecel
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
                 if (!running && !heightNumAnim.running) capsuleRoot.onMorphFinished()
@@ -317,9 +285,9 @@ Item {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 220 : 190) : 190
-            easing.type: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? Easing.OutBack : Easing.OutCubic) : Easing.OutCubic
-            easing.overshoot: capsuleRoot.isMorphGrowing ? (capsuleRoot.isJellyStyle ? 1.15 : 1.0) : 1.0
+            duration: capsuleRoot.isMorphGrowing ? Theme.animNormal : Theme.animFast
+            easing.type: capsuleRoot.isMorphGrowing ? Theme.curveSpring : Theme.curveDecel
+            easing.overshoot: capsuleRoot.isMorphGrowing ? Theme.springOvershootNormal : 1.0
             onRunningChanged: {
                 capsuleRoot.maskCommitRequested()
                 if (!running && !widthNumAnim.running) capsuleRoot.onMorphFinished()
@@ -387,7 +355,7 @@ Item {
 
     Timer {
         id: leaveGraceTimer
-        interval: 180
+        interval: Theme.animFast
         onTriggered: {
             if (!capsuleRoot.isMouseOver && capsuleRoot.isExpanded) capsuleRoot.startCollapse()
         }
@@ -410,14 +378,13 @@ Item {
         if (capsuleRoot.isCalling || capsuleRoot.activeTransient === "SEDENTARY") return
         if (capsuleRoot.isExpanded && capsuleRoot.expandedTab !== "workspace") return
 
-        // 🚀【核心修复】：如果滚轮滚动切换桌面时正处于通知状态，立即重置通知与水位，杜绝污染
         if (capsuleRoot.activeTransient === "ALERT") {
             capsuleRoot.activeTransient = ""
             capsuleRoot.peakInteractionWidth = 0
             capsuleRoot.isUserInteracting = false
         }
 
-        capsuleRoot.notifyInteraction("滚轮滚动切换桌面")
+        capsuleRoot.notifyInteraction("滚轮切换桌面")
 
         if (!capsuleRoot.isExpanded) {
             hoverDwellTimer.stop()
@@ -456,12 +423,11 @@ Item {
         }
         onWheel: (wheel) => {
             wheel.accepted = true
-            capsuleRoot.notifyInteraction("MouseArea 滚轮事件")
+            capsuleRoot.notifyInteraction("MouseArea 滚轮")
             if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") capsuleRoot.handleWheelAction(wheel.angleDelta.y)
         }
         onClicked: (mouse) => {
             if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") return
-
             hoverDwellTimer.stop()
             leaveGraceTimer.stop()
             capsuleRoot.scrollSessionLocked = false
@@ -521,7 +487,7 @@ Item {
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
 
-        Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Theme.curveFluid } }
     }
 
     Item {
@@ -570,8 +536,8 @@ Item {
             onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
             onRequestSettings: capsuleRoot.requestSettings()
 
-            Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : 65; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : 65; easing.type: Easing.OutQuad } }
+            Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : Theme.animInstant; easing.type: Theme.curveFluid } }
+            Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : Theme.animInstant; easing.type: Theme.curveDecel } }
         }
     }
 }

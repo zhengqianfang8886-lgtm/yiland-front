@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: TimerBubbleView.qml (定宽槽位·表格等宽·零抖动稳定版)
+// 📄 File: TimerBubbleView.qml (中央动效驱动·可重入无抖动版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -56,7 +56,7 @@ Rectangle {
         return Theme.timer
     }
 
-    // 🚀【修复 1】：外壳宽度稳定死锁，移除 OutBack 弹簧，禁止橡皮筋抽动
+    // 宽度槽位死锁，彻底杜绝跳动
     width: hasHours ? 104 : 88
     height: 34
     radius: height / 2
@@ -77,10 +77,16 @@ Rectangle {
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    // 平滑线性缓动，不超冲
-    Behavior on width { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
+    // 中央动效接入：平滑可重入
+    Behavior on width { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveFluid } }
+    Behavior on scale {
+        NumberAnimation {
+            duration: Theme.animSpring
+            easing.type: Theme.curveSpring
+            easing.overshoot: Theme.springOvershootNormal
+        }
+    }
 
     onProgressChanged: progressCanvas.requestPaint()
     onStateAccentColorChanged: progressCanvas.requestPaint()
@@ -95,12 +101,10 @@ Rectangle {
         color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.14)
         visible: timerBubbleRoot.isConfirmingDismiss
         opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
     }
 
-    // =========================================================================
-    // 1. 常态时间显示（锁定槽位宽，彻底杜绝每秒抖动）
-    // =========================================================================
+    // 1. 常态时间行
     Row {
         id: contentRow
         anchors.centerIn: parent
@@ -108,19 +112,17 @@ Rectangle {
         visible: !timerBubbleRoot.isConfirmingDismiss
         opacity: visible ? 1.0 : 0.0
 
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
 
-        // 暂停时的微弱呼吸
         SequentialAnimation {
             id: pauseBreatheAnim
             running: timerBubbleRoot.currentState === "paused" && !timerBubbleRoot.isConfirmingDismiss
             loops: Animation.Infinite
-            NumberAnimation { target: contentRow; property: "opacity"; to: 0.55; duration: 750; easing.type: Easing.InOutSine }
-            NumberAnimation { target: contentRow; property: "opacity"; to: 1.0; duration: 750; easing.type: Easing.InOutSine }
+            NumberAnimation { target: contentRow; property: "opacity"; to: 0.55; duration: Theme.animSlow * 2.5; easing.type: Easing.InOutSine }
+            NumberAnimation { target: contentRow; property: "opacity"; to: 1.0; duration: Theme.animSlow * 2.5; easing.type: Easing.InOutSine }
             onRunningChanged: if (!running) contentRow.opacity = 1.0
         }
 
-        // 🚀 左侧：尺寸恒定为 18x18 的进度环（位置绝对稳固）
         Item {
             width: 18; height: 18
             anchors.verticalCenter: parent.verticalCenter
@@ -176,8 +178,6 @@ Rectangle {
             }
         }
 
-        // 🚀【修复 2 & 3】：时间文本定宽槽位 + 表格等宽数字（tnum）
-        // 46px（无小时）/ 62px（有小时）恒定不变，彻底切断字宽变化对 Row 的推拉！
         Item {
             width: timerBubbleRoot.hasHours ? 62 : 46
             height: 20
@@ -192,14 +192,12 @@ Rectangle {
                 font.pixelSize: timerBubbleRoot.hasHours ? 12 : 13
                 font.weight: Font.Black
                 font.letterSpacing: 0.2
-                // 开启 OpenType 等宽数字，0~9 宽度强制严格相等
                 font.features: { "tnum": 1 }
                 renderType: Text.QtRendering
             }
         }
     }
 
-    // 交互热区
     MouseArea {
         id: mainTouchArea
         anchors.fill: parent
@@ -217,20 +215,24 @@ Rectangle {
         }
     }
 
-    // =========================================================================
-    // 2. 右键呼出的关闭层 (左返回 ← / 右直接消失 ✕)
-    // =========================================================================
+    // 2. 右键确认层（纯可重入动态浮现）
     Row {
         id: confirmRow
         anchors.centerIn: parent
         spacing: 6
-        visible: timerBubbleRoot.isConfirmingDismiss
-        opacity: visible ? 1.0 : 0.0
-        scale: visible ? 1.0 : 0.92
+        visible: opacity > 0.01
+        opacity: timerBubbleRoot.isConfirmingDismiss ? 1.0 : 0.0
+        scale: timerBubbleRoot.isConfirmingDismiss ? 1.0 : 0.92
         z: 10
 
-        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
+        Behavior on scale {
+            NumberAnimation {
+                duration: Theme.animFast
+                easing.type: Theme.curveSpring
+                easing.overshoot: Theme.springOvershootSubtle
+            }
+        }
 
         Rectangle {
             width: (timerBubbleRoot.width - 18) / 2
@@ -241,6 +243,7 @@ Rectangle {
             border.color: backMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.35) : Theme.borderSubtle
             border.width: 1
             scale: backMouse.pressed ? 0.92 : 1.0
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
             Shape {
                 anchors.centerIn: parent
@@ -280,13 +283,13 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             color: closeMouse.pressed ? "#991b1b" : (closeMouse.containsMouse ? "#dc2626" : Theme.danger)
             scale: closeMouse.pressed ? 0.92 : 1.0
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
             Shape {
                 anchors.centerIn: parent
                 width: 10; height: 10
                 layer.enabled: true
                 layer.samples: 4
-
                 ShapePath {
                     strokeColor: "white"
                     strokeWidth: 1.8

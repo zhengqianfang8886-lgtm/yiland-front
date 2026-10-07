@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: theme.py (液态玻璃材质色彩核心增强版)
+# 📄 File: theme.py (中央动效物理引擎内核)
 # ==========================================
 from PySide6.QtCore import QObject, Property, Signal
 from PySide6.QtGui import QColor
@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor
 
 class ThemeManager(QObject):
     fontChanged = Signal()
+    motionChanged = Signal()
 
     def __init__(self, config=None):
         super().__init__()
@@ -18,15 +19,18 @@ class ThemeManager(QObject):
         self._config = config
         if self._config:
             self._config.fontFamilyChanged.connect(self.fontChanged)
+            if hasattr(self._config, "animStyleChanged"):
+                self._config.animStyleChanged.connect(self.motionChanged)
 
-    # 🚀 全局普通文本动态字体：选特定字体立即生效，选默认时返回空让系统匹配
+    # =========================================================================
+    # 1. 字体排版
+    # =========================================================================
     @Property(str, notify=fontChanged)
     def activeFont(self):
         if self._config and self._config.fontFamily and "系统默认" not in self._config.fontFamily:
             return self._config.fontFamily
         return ""
 
-    # 🚀 全局等宽/数字动态字体：指定字体后全盘跟从，未指定时安全回退 Monospace
     @Property(str, notify=fontChanged)
     def displayMonoFont(self):
         f = self.activeFont
@@ -38,7 +42,9 @@ class ThemeManager(QObject):
     @Property(str, constant=True)
     def defaultMonoFamily(self): return "Monospace"
 
-    # 1. 核心模块色彩 Tokens
+    # =========================================================================
+    # 2. 核心模块色彩 Tokens
+    # =========================================================================
     @Property(QColor, constant=True)
     def workspace(self): return QColor("#a855f7")
 
@@ -69,16 +75,15 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def danger(self): return QColor("#ef4444")
 
-    # 2. 🚀 流体玻璃材质表面与半透明通道 (Liquid Glass Surfaces)
-    # 暗夜黑曜石微透底色：约 89% 不透明度，具备清透水润感同时保证 100% 极小文字对比度
+    # =========================================================================
+    # 3. 材质表面 Tokens
+    # =========================================================================
     @Property(QColor, constant=True)
     def bgCapsule(self): return QColor(13, 15, 22, int(0.89 * 255))
 
-    # 次级液态玻璃层底色（卡片/副岛透光度）
     @Property(QColor, constant=True)
     def bgCapsuleSecondary(self): return QColor(20, 24, 34, int(0.65 * 255))
 
-    # 玻璃外壁与内壁菲涅尔高光颜色
     @Property(QColor, constant=True)
     def glassOuterBorder(self): return QColor(255, 255, 255, int(0.20 * 255))
 
@@ -97,7 +102,6 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def borderFocus(self): return QColor(255, 255, 255, int(0.24 * 255))
 
-    # 3. 文本层级
     @Property(QColor, constant=True)
     def textPrimary(self): return QColor("#ffffff")
 
@@ -107,35 +111,55 @@ class ThemeManager(QObject):
     @Property(QColor, constant=True)
     def textMuted(self): return QColor(255, 255, 255, int(0.45 * 255))
 
-    # 4. 统一动效物理常数
-    @Property(int, constant=True)
-    def animInstant(self): return 100
+    # =========================================================================
+    # 4. 中央物理动效引擎核心 (Motion Engine)
+    # =========================================================================
+    @Property(bool, notify=motionChanged)
+    def isJellyMode(self):
+        if self._config and hasattr(self._config, "animStyle"):
+            return self._config.animStyle == "jelly"
+        return False
 
-    @Property(int, constant=True)
-    def animFast(self): return 140
+    # 动态基准节奏时长 (毫秒)
+    @Property(int, notify=motionChanged)
+    def animInstant(self): return 90 if not self.isJellyMode else 110
 
-    @Property(int, constant=True)
-    def animNormal(self): return 200
+    @Property(int, notify=motionChanged)
+    def animFast(self): return 140 if not self.isJellyMode else 170
 
-    @Property(int, constant=True)
-    def animSpring(self): return 220
+    @Property(int, notify=motionChanged)
+    def animNormal(self): return 200 if not self.isJellyMode else 240
 
-    @Property(int, constant=True)
-    def animSlow(self): return 280
+    @Property(int, notify=motionChanged)
+    def animSpring(self): return 220 if not self.isJellyMode else 280
 
-    @Property(float, constant=True)
-    def springOvershootSubtle(self): return 1.08
+    @Property(int, notify=motionChanged)
+    def animSlow(self): return 280 if not self.isJellyMode else 340
 
-    @Property(float, constant=True)
-    def springOvershoot(self): return 1.15
+    # 动态物理超冲量 (Overshoot)
+    @Property(float, notify=motionChanged)
+    def springOvershootSubtle(self): return 1.04 if not self.isJellyMode else 1.08
 
-    @Property(float, constant=True)
-    def springOvershootNormal(self): return 1.15
+    @Property(float, notify=motionChanged)
+    def springOvershootNormal(self): return 1.08 if not self.isJellyMode else 1.18
 
-    @Property(float, constant=True)
-    def springOvershootFirm(self): return 1.25
+    @Property(float, notify=motionChanged)
+    def springOvershootFirm(self): return 1.14 if not self.isJellyMode else 1.28
 
+    # 曲线语义映射（通过整型常量供 QML Easing.type 直接绑定）
+    # 6: OutCubic, 7: InOutCubic, 9: OutBack, 10: InOutBack, 2: OutQuad
+    @Property(int, notify=motionChanged)
+    def curveDecel(self): return 6  # Easing.OutCubic
+
+    @Property(int, notify=motionChanged)
+    def curveFluid(self): return 2  # Easing.OutQuad
+
+    @Property(int, notify=motionChanged)
+    def curveSpring(self): return 9 if self.isJellyMode else 6
+
+    # =========================================================================
     # 5. 几何规格
+    # =========================================================================
     @Property(int, constant=True)
     def radiusCapsule(self): return 18
 

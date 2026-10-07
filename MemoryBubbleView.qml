@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: MemoryBubbleView.qml (阻尼平滑监控岛·中央动效版)
+// ==========================================
 import QtQuick
 
 Rectangle {
@@ -9,10 +12,8 @@ Rectangle {
     property string memoryTotalGb: "0G"
 
     readonly property bool isHovered: bubbleHover.hovered
-
     signal clicked()
 
-    // 🟢 <65% 健康绿 | 🟠 65%~85% 预警橙 | 🔴 >85% 危险红
     readonly property color loadColor: {
         if (memoryPercent >= 85) return Theme.danger
         if (memoryPercent >= 65) return Theme.clock
@@ -29,13 +30,18 @@ Rectangle {
     border.color: memoryBubbleRoot.isHovered ? Qt.rgba(loadColor.r, loadColor.g, loadColor.b, 0.85) : Theme.borderSubtle
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
-    visible: active
+    visible: opacity > 0.001
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    // 统一 Spring 物理曲线
-    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: Theme.animSpring; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootNormal } }
+    Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveFluid } }
+    Behavior on scale {
+        NumberAnimation {
+            duration: Theme.animSpring
+            easing.type: Theme.curveSpring
+            easing.overshoot: Theme.springOvershootNormal
+        }
+    }
 
     onMemoryPercentChanged: gaugeCanvas.requestPaint()
     onLoadColorChanged: gaugeCanvas.requestPaint()
@@ -61,7 +67,6 @@ Rectangle {
                 var radius = 7.0
                 var strokeW = 3.0
 
-                // 绘制底层微光底环
                 ctx.beginPath()
                 ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false)
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.18)"
@@ -69,7 +74,6 @@ Rectangle {
                 ctx.lineCap = "round"
                 ctx.stroke()
 
-                // 绘制当前负载进度弧
                 var p = Math.min(1.0, Math.max(0.0, memoryBubbleRoot.memoryPercent / 100.0))
                 if (p > 0.01) {
                     var startAngle = -0.5 * Math.PI

@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactWorkspaceView.qml (自适应内容宽·纯净版)
+// 📄 File: compact/CompactWorkspaceView.qml (自适应内容宽·动量滚轴版)
 // ==========================================
 import QtQuick
 
@@ -14,17 +14,16 @@ Item {
     property int activeSlotIndex: 0
     property bool hasZeroWs: false
 
-    // 🚀【核心暴露】：实时计算并暴露当前桌面内容所需的真实物理宽度
     readonly property int contentImplicitWidth: Math.round(14 + numBox.width + 8 + divider.width + 8 + wsNameText.implicitWidth + 14)
     implicitWidth: contentImplicitWidth
 
     // =========================================================================
-    // 双轨滚轴数值转换状态机
+    // 可重入双轨滚轴数值状态机
     // =========================================================================
     property int prevNumber: displayWsNumber
     property int currentNumber: displayWsNumber
-    property int rollDirection: 1     // 1: 向上滚, -1: 向下滚
-    property real rollProgress: 1.0   // 0.0 -> 1.0 连续驱动
+    property int rollDirection: 1
+    property real rollProgress: 1.0
 
     onDisplayWsNumberChanged: {
         var oldVal = wsRoot.currentNumber
@@ -39,8 +38,10 @@ Item {
         wsRoot.rollProgress = 0.0
         rollAnim.start()
 
-        boxSquashAnim.restart()
-        textSlideAnim.restart()
+        numBoxScale = 0.90
+        boxResetTimer.restart()
+        textSlideX = 8
+        textResetTimer.restart()
     }
 
     NumberAnimation {
@@ -49,10 +50,18 @@ Item {
         property: "rollProgress"
         from: 0.0
         to: 1.0
-        duration: 240
-        easing.type: Easing.OutBack
-        easing.overshoot: 1.3
+        duration: Theme.animNormal
+        easing.type: Theme.curveSpring
+        easing.overshoot: Theme.springOvershootFirm
     }
+
+    property real numBoxScale: 1.0
+    Behavior on numBoxScale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel } }
+    Timer { id: boxResetTimer; interval: 35; onTriggered: wsRoot.numBoxScale = 1.0 }
+
+    property real textSlideX: 0
+    Behavior on textSlideX { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
+    Timer { id: textResetTimer; interval: 30; onTriggered: wsRoot.textSlideX = 0 }
 
     // 1. 最左端数字方块
     Rectangle {
@@ -66,18 +75,7 @@ Item {
         color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.22)
         border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.85)
         border.width: 1.2
-
-        Rectangle {
-            id: pulseRing
-            anchors.centerIn: parent
-            width: parent.width
-            height: parent.height
-            radius: parent.radius
-            color: "transparent"
-            border.color: Theme.workspace
-            border.width: 1.5
-            opacity: 0.0
-        }
+        scale: wsRoot.numBoxScale
 
         Item {
             id: numSlot
@@ -112,17 +110,6 @@ Item {
                 y: ((numSlot.height - height) / 2) + ((1.0 - wsRoot.rollProgress) * numSlot.height * wsRoot.rollDirection)
                 opacity: Math.min(1.0, wsRoot.rollProgress * 1.5)
             }
-        }
-
-        SequentialAnimation {
-            id: boxSquashAnim
-            ParallelAnimation {
-                NumberAnimation { target: numBox; property: "scale"; from: 1.0; to: 0.88; duration: 60; easing.type: Easing.OutQuad }
-                NumberAnimation { target: pulseRing; property: "scale"; from: 1.0; to: 1.45; duration: 220; easing.type: Easing.OutQuad }
-                NumberAnimation { target: pulseRing; property: "opacity"; from: 0.8; to: 0.0; duration: 220; easing.type: Easing.OutQuad }
-            }
-            NumberAnimation { target: numBox; property: "scale"; to: 1.08; duration: 80; easing.type: Easing.OutQuad }
-            NumberAnimation { target: numBox; property: "scale"; to: 1.0; duration: 120; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
         }
     }
 
@@ -162,26 +149,8 @@ Item {
             elide: Text.ElideRight
             width: parent.width
             renderType: Text.QtRendering
-        }
-
-        ParallelAnimation {
-            id: textSlideAnim
-            NumberAnimation {
-                target: wsNameText
-                property: "x"
-                from: 8
-                to: 0
-                duration: 180
-                easing.type: Easing.OutCubic
-            }
-            NumberAnimation {
-                target: wsNameText
-                property: "opacity"
-                from: 0.25
-                to: 1.0
-                duration: 160
-                easing.type: Easing.OutQuad
-            }
+            x: wsRoot.textSlideX
+            opacity: 1.0 - (wsRoot.textSlideX / 16.0)
         }
     }
 }

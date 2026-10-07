@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: NotificationBubbleView.qml (中央动效驱动版)
+// ==========================================
 import QtQuick
 
 Rectangle {
@@ -29,41 +32,41 @@ Rectangle {
 
     readonly property bool shouldShow: active && (unreadCount > 0)
 
-    visible: shouldShow
+    visible: opacity > 0.001
     opacity: shouldShow ? 1.0 : 0.0
     scale: shouldShow ? 1.0 : 0.0
 
-    // 统一 Spring 物理曲线
-    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershootSubtle } }
+    // 中央动效接管
+    Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveDecel } }
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
     Behavior on opacity {
         NumberAnimation {
-            duration: notifBubbleRoot.shouldShow ? Theme.animNormal : 0
-            easing.type: Easing.OutQuad
+            duration: notifBubbleRoot.shouldShow ? Theme.animNormal : Theme.animFast
+            easing.type: Theme.curveFluid
         }
     }
     Behavior on scale {
         NumberAnimation {
-            duration: notifBubbleRoot.shouldShow ? Theme.animSpring : 0
-            easing.type: Easing.OutBack
+            duration: notifBubbleRoot.shouldShow ? Theme.animSpring : Theme.animFast
+            easing.type: notifBubbleRoot.shouldShow ? Theme.curveSpring : Theme.curveDecel
             easing.overshoot: Theme.springOvershootNormal
         }
     }
 
-    // 背景柔光呼吸
+    // 呼吸柔光底托
     Rectangle {
         anchors.centerIn: parent
         width: parent.width - 6
         height: parent.height - 6
-        radius: (height) / 2
+        radius: height / 2
         color: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.12)
 
         SequentialAnimation on opacity {
-            running: notifBubbleRoot.shouldShow && notifBubbleRoot.opacity > 0.05
+            running: notifBubbleRoot.shouldShow && notifBubbleRoot.opacity > 0.1
             loops: Animation.Infinite
-            NumberAnimation { to: 0.35; duration: 1200; easing.type: Easing.InOutSine }
-            NumberAnimation { to: 0.9; duration: 1200; easing.type: Easing.InOutSine }
+            NumberAnimation { to: 0.35; duration: Theme.animSlow * 4; easing.type: Easing.InOutSine }
+            NumberAnimation { to: 0.90; duration: Theme.animSlow * 4; easing.type: Easing.InOutSine }
         }
     }
 
@@ -99,10 +102,7 @@ Rectangle {
 
                 Text {
                     anchors.centerIn: parent
-                    text: {
-                        if (avatarImg.visible) return ""
-                        return "💬"
-                    }
+                    text: avatarImg.visible ? "" : "💬"
                     color: "white"
                     font.pixelSize: 12
                     font.weight: Font.Bold

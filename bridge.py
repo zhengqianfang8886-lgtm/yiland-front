@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: bridge.py
-# 🌟 零日志·信息提示物理阻断·纯内存安全分发版
+# 🌟 中央动效总线 · 电池管理与节能切换 · 零日志安全分发完整版
 # ==========================================
 import os
 import gc
@@ -29,17 +29,17 @@ from services.process_mgr import ProcessManagerService
 
 
 class IslandBridge(QObject):
-    # 媒体与声学频谱
+    # 1. 媒体与声学频谱
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
-    # 击键心流
+    # 2. 击键心流与物理脉冲
     typingSpectrumUpdated = Signal(bool, str, float, float, float, float, float, str, str)
-    keyStrokeTriggered = Signal(str, str, int)  # 🚀 新增物理击键脉冲信号
+    keyStrokeTriggered = Signal(str, str, int)
 
-    # 硬件与系统 OSD
+    # 3. 硬件中控、系统 OSD 与电池电源
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
@@ -47,9 +47,10 @@ class IslandBridge(QObject):
     capsLockChanged = Signal(bool)
     numLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
+    batteryUpdated = Signal(int, bool)  # percentage, is_charging
     clipboardTriggered = Signal(str, str, str, int)
 
-    # 工作区与通知会话
+    # 4. 工作区与通知会话
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
@@ -60,7 +61,7 @@ class IslandBridge(QObject):
     bluetoothStateChanged = Signal(bool)
     unreadCountChanged = Signal(int)
 
-    # 异步文件与目录选取回调信号
+    # 5. 异步非阻塞文件选取回调
     localDirectorySelected = Signal(str)
     localImageFileSelected = Signal(str)
 
@@ -73,6 +74,7 @@ class IslandBridge(QObject):
         self._ipc_sender = None
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="SubprocessWorker")
 
+        # 数据模型实例化
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged)
@@ -80,11 +82,13 @@ class IslandBridge(QObject):
         self.proc_mgr = ProcessManagerService(self)
         self._proc_model = ProcessListModel(self.proc_mgr, self)
 
+        # 状态缓存
         self._bluetooth_powered = True
         self._known_devices_state = {}
         self._first_poll = True
         self._cached_ip = get_local_ip()
 
+        # 底层微服务初始化
         self.hardware = HardwareService(self._pool, self.sendIpcCmd, self)
         self.media = MediaService(self._pool, self.sendIpcCmd, self)
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
@@ -95,6 +99,7 @@ class IslandBridge(QObject):
         atexit.register(self.cleanup)
 
     def _bind_service_signals(self):
+        # 硬件与系统信号连接
         self.hardware.volumeChanged.connect(self.volumeChanged)
         self.hardware.brightnessChanged.connect(self.brightnessChanged)
         self.hardware.hardwareMuteStateChanged.connect(self.hardwareMuteStateChanged)
@@ -102,15 +107,18 @@ class IslandBridge(QObject):
         self.hardware.numLockChanged.connect(self.numLockChanged)
         self.hardware.memoryUpdated.connect(self.memoryUpdated)
         self.hardware.osdTriggered.connect(self.osdTriggered)
+        self.hardware.batteryUpdated.connect(self.batteryUpdated)
 
+        # 媒体信号连接
         self.media.mediaUpdated.connect(self._on_media_state_changed)
         self.media.progressUpdated.connect(self.progressUpdated)
         self.media.audioSpectrumUpdated.connect(self.audioSpectrumUpdated)
         self.media.dominantColorUpdated.connect(self.dominantColorUpdated)
 
+        # 剪贴板监听
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
 
-        # 智能参数自适应适配器
+        # 击键心流参数自适应适配器
         def _on_typing_data(*args):
             if len(args) == 7:
                 self.typingSpectrumUpdated.emit(args[0], args[1], args[2], args[3], args[4], args[5], args[6], "", "")
@@ -118,14 +126,13 @@ class IslandBridge(QObject):
                 self.typingSpectrumUpdated.emit(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8])
 
         self.typing_flow.typingUpdated.connect(_on_typing_data)
-        self.typing_flow.keyStrokeTriggered.connect(self.keyStrokeTriggered)  # 🚀 新增连接
+        self.typing_flow.keyStrokeTriggered.connect(self.keyStrokeTriggered)
 
     def _on_media_state_changed(self, title, artist, status, art, pos, dur):
         self.mediaUpdated.emit(title, artist, status, art, pos, dur)
         self.typing_flow.set_media_playing(status == "Playing")
 
     def cleanup(self):
-        # 退出时彻底清空内存通知与临时队列，不留任何痕迹
         if hasattr(self, "_notif_model"):
             self._notif_model.clearAll()
         self.typing_flow.cleanup()
@@ -133,6 +140,9 @@ class IslandBridge(QObject):
         self.proc_mgr.cleanup()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
+    # =========================================================================
+    # QML 属性暴露 (Properties)
+    # =========================================================================
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
@@ -154,9 +164,18 @@ class IslandBridge(QObject):
     @Property(bool, notify=numLockChanged)
     def isNumLock(self): return self.hardware.is_num_lock
 
+    @Property(int, notify=batteryUpdated)
+    def systemBattery(self): return self.hardware.current_battery
+
+    @Property(bool, notify=batteryUpdated)
+    def isSystemCharging(self): return self.hardware.is_charging
+
     @Property(bool, notify=bluetoothStateChanged)
     def isBluetoothPowered(self): return self._bluetooth_powered
 
+    # =========================================================================
+    # 进程与任务管控 (Process Management)
+    # =========================================================================
     @Slot(str)
     def startProcessTask(self, tid: str): self.proc_mgr.start_task(tid)
 
@@ -182,7 +201,9 @@ class IslandBridge(QObject):
     @Slot(str)
     def deleteProcessTask(self, tid: str): self.proc_mgr.delete_task(tid)
 
-    # 异步非阻塞选择器
+    # =========================================================================
+    # 异步非阻塞选择器 (Async File Dialogs)
+    # =========================================================================
     @Slot()
     def selectLocalDirectory(self):
         self._pool.submit(self._async_select_directory_worker)
@@ -245,6 +266,9 @@ class IslandBridge(QObject):
         except Exception:
             pass
 
+    # =========================================================================
+    # 硬件调控与电池电源策略
+    # =========================================================================
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int): self.hardware.adjust_hardware(mode, delta)
 
@@ -254,6 +278,48 @@ class IslandBridge(QObject):
     @Slot(int)
     def adjustVolume(self, delta_pct: int): self.hardware.adjust_hardware(0, delta_pct)
 
+    @Slot()
+    def togglePowerSaveMode(self):
+        """一键触发 Linux 电源节能模式切换 (兼容 powerprofilesctl / tlp)"""
+        def _run_power_toggle():
+            try:
+                if shutil.which("powerprofilesctl"):
+                    res = subprocess.run(["powerprofilesctl", "get"], capture_output=True, text=True, timeout=1.0)
+                    curr = res.stdout.strip()
+                    target = "balanced" if curr == "power-saver" else "power-saver"
+                    subprocess.run(["powerprofilesctl", "set", target], timeout=1.0)
+                    tag = "省电模式" if target == "power-saver" else "平衡模式"
+                    sub = "已限制高功耗加速 · 延长续航" if target == "power-saver" else "已恢复常规性能调度"
+                    self.alertTriggered.emit("🍃" if target == "power-saver" else "⚡", tag, sub, 2000, "")
+                elif shutil.which("tlp"):
+                    subprocess.run(["tlp", "bat"], timeout=1.0)
+                    self.alertTriggered.emit("🍃", "TLP 节能模式", "已切换至电池低功耗配置文件", 2000, "")
+            except Exception:
+                pass
+        self._pool.submit(_run_power_toggle)
+
+    @Slot()
+    def openPowerSettings(self):
+        """唤起系统电源管理或系统监控器"""
+        def _open():
+            for cmd in ["gnome-control-center", "plasma-open-settings", "xfce4-power-manager-settings", "mate-power-preferences"]:
+                if shutil.which(cmd):
+                    try:
+                        if cmd == "gnome-control-center":
+                            subprocess.Popen([cmd, "power"])
+                        elif cmd == "plasma-open-settings":
+                            subprocess.Popen([cmd, "powerdevilprofilesconfig"])
+                        else:
+                            subprocess.Popen([cmd])
+                        return
+                    except Exception:
+                        pass
+            self.wm.open_system_monitor()
+        self._pool.submit(_open)
+
+    # =========================================================================
+    # 遮罩穿透与窗口行为
+    # =========================================================================
     @Slot("QVariantList")
     def updateCompositeMask(self, rects): self.wm.update_composite_mask(rects)
 
@@ -293,6 +359,9 @@ class IslandBridge(QObject):
         if hasattr(self.view, "engine") and hasattr(self.view.engine(), "trimComponentCache"):
             self.view.engine().trimComponentCache()
 
+    # =========================================================================
+    # IPC 指令交互与分发
+    # =========================================================================
     def set_ipc_sender(self, sender_func): self._ipc_sender = sender_func
 
     def sendIpcCmd(self, action: str, **kwargs):
@@ -350,7 +419,7 @@ class IslandBridge(QObject):
         self._sig_daemon_payload.emit(msg_type, data_json_str)
 
     # =========================================================================
-    # 消息分发主干 (🔒 零日志：信息提示绝对不入日志，一点都不记录)
+    # 消息分发主干 (🔒 零日志：信息提示绝对不入日志)
     # =========================================================================
     @Slot(str, str)
     def _handle_daemon_payload(self, m_type: str, data_str: str):
@@ -377,7 +446,7 @@ class IslandBridge(QObject):
             if "list" in ws_info:
                 self.workspaceListUpdated.emit(ws_info.get("list", []))
 
-        # 3. 硬件音量与屏幕背光
+        # 3. 硬件音量与背光
         if (m_type in ("VOLUME_UPDATE", "FULL_SYNC")) and "system" in data:
             sys_info = data["system"]
             self.hardware.apply_daemon_volume(max(0, min(100, int(sys_info.get("volume", self.hardware.current_volume)))), bool(sys_info.get("muted", False)), m_type)
@@ -385,7 +454,7 @@ class IslandBridge(QObject):
         elif m_type == "BRIGHTNESS_UPDATE" and "system" in data:
             self.hardware.apply_daemon_brightness(int(data["system"].get("brightness", 100)))
 
-        # 4. 蓝牙设备列表与电量（静默提示，不入日志）
+        # 4. 蓝牙设备列表与电量
         if "bluetooth" in data:
             b_info = data["bluetooth"]
             devices = b_info.get("connected_devices", [])
@@ -412,7 +481,7 @@ class IslandBridge(QObject):
                 if not (self.config and getattr(self.config, "dndEnabled", False)):
                     self.alertTriggered.emit(*alert)
 
-        # 5. 网络流量与连接（静默提示，不入日志）
+        # 5. 网络流量监控
         if "network" in data:
             net_info = data["network"]
             rx_str, tx_str = net_info.get("rx_speed", "0 B/s"), net_info.get("tx_speed", "0 B/s")
@@ -423,7 +492,7 @@ class IslandBridge(QObject):
                 elif m_type == "VPN_DISCONNECTED":
                     self.alertTriggered.emit("⚠️", "VPN 网络已断开", "恢复公网直连模式", 2000, "")
 
-        # 6. Teams 通话事件 (🔒 零日志：一点都不记录)
+        # 6. Teams 通话事件 (零日志)
         if m_type == "TEAMS_CALL_INCOMING":
             noti = data.get("notification", {})
             call_title = noti.get("title", "").strip() or "Teams 来电"
@@ -434,7 +503,6 @@ class IslandBridge(QObject):
             allow_call = bool(self.config and getattr(self.config, "dndAllowCalls", True))
 
             if is_dnd and not allow_call:
-                # 仅在易失性内存中保存，绝对不打日志
                 self._notif_model.add_notification({
                     "id": int(time.time() * 1000),
                     "icon": "📞",
@@ -448,7 +516,7 @@ class IslandBridge(QObject):
                 self.callIncomingTriggered.emit(call_title, call_sub, call_avatar)
                 self.view.raise_()
 
-        # 7. 系统与应用通知 (🔒 零日志：一点都不记录)
+        # 7. 应用与系统消息通知 (零日志)
         elif m_type in ("TEAMS_NOTIFICATION", "BROWSER_NOTIFICATION", "NOTIFICATION", "SYSTEM_NOTIFICATION", "NOTIFY", "ALERT") and "notification" in data:
             noti = data["notification"]
             t_title = (noti.get("title") or noti.get("summary") or "新通知").strip()
@@ -469,7 +537,6 @@ class IslandBridge(QObject):
 
                 is_dnd = bool(self.config and getattr(self.config, "dndEnabled", False))
                 if not is_dnd:
-                    # 仅在屏幕前呈现 UI 弹窗，绝对不打日志
                     self.alertTriggered.emit(icon, t_title, t_sub, 4500, avatar)
 
         elif m_type == "TEAMS_CALL_ENDED":

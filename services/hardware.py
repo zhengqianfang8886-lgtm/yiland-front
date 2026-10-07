@@ -18,6 +18,7 @@ class HardwareService(QObject):
     numLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     osdTriggered = Signal(str, str, int)
+    batteryUpdated = Signal(int, bool)  # percentage, is_charging
 
     def __init__(self, executor, send_ipc_func, parent=None):
         super().__init__(parent)
@@ -70,6 +71,14 @@ class HardwareService(QObject):
         self._hw_poll_timer.setInterval(3000)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
         self._hw_poll_timer.start()
+
+        self._cached_battery = 100
+        self._is_charging = False
+        self._bat_timer = QTimer(self)
+        self._bat_timer.setInterval(3000)
+        self._bat_timer.timeout.connect(self._poll_battery)
+        self._bat_timer.start()
+        self._poll_battery()
 
     @property
     def current_volume(self) -> int: return self._cached_volume
@@ -393,3 +402,32 @@ class HardwareService(QObject):
                 self.memoryUpdated.emit(pct, used_gb, total_gb)
         except Exception:
             pass
+        
+    def _poll_battery(self):
+        try:
+            bat_dirs = glob.glob("/sys/class/power_supply/BAT*")
+            if not bat_dirs:
+                return
+            b_dir = bat_dirs[0]
+            cap_file = os.path.join(b_dir, "capacity")
+            stat_file = os.path.join(b_dir, "status")
+            if os.path.exists(cap_file):
+                with open(cap_file, "r") as f:
+                    pct = int(f.read().strip())
+                charging = False
+                if os.path.exists(stat_file):
+                    with open(stat_file, "r") as f:
+                        charging = f.read().strip().lower() in ("charging", "full")
+                
+                if pct != self._cached_battery or charging != self._is_charging:
+                    self._cached_battery = pct
+                    self._is_charging = charging
+                    self.batteryUpdated.emit(pct, charging)
+        except Exception:
+            pass
+
+    @property
+    def current_battery(self) -> int: return self._cached_battery
+
+    @property
+    def is_charging(self) -> bool: return self._is_charging

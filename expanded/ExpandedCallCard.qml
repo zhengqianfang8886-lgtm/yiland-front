@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: expanded/ExpandedCallCard.qml (流体来电卡片·中央动效版)
+// ==========================================
 import QtQuick
 
 Item {
@@ -34,8 +37,8 @@ Item {
                     SequentialAnimation {
                         running: callCardRoot.isCalling; loops: Animation.Infinite
                         ParallelAnimation {
-                            NumberAnimation { target: cardPulse; property: "scale"; from: 0.9; to: 1.35; duration: 1200; easing.type: Easing.OutQuad }
-                            NumberAnimation { target: cardPulse; property: "opacity"; from: 0.8; to: 0.0; duration: 1200; easing.type: Easing.OutQuad }
+                            NumberAnimation { target: cardPulse; property: "scale"; from: 0.9; to: 1.35; duration: Theme.animSlow * 4; easing.type: Easing.OutQuad }
+                            NumberAnimation { target: cardPulse; property: "opacity"; from: 0.8; to: 0.0; duration: Theme.animSlow * 4; easing.type: Easing.OutQuad }
                         }
                     }
                 }
@@ -91,6 +94,8 @@ Item {
                 width: 110; height: 40; radius: 20
                 color: rejectArea.pressed ? Qt.rgba(239, 68, 68, 0.45) : (rejectArea.containsMouse ? Qt.rgba(239, 68, 68, 0.3) : Qt.rgba(239, 68, 68, 0.16))
                 border.color: Theme.danger; border.width: 1; scale: rejectArea.pressed ? 0.96 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
                 Row {
                     anchors.centerIn: parent; spacing: 6
@@ -111,6 +116,8 @@ Item {
                 width: 240; height: 40; radius: 20
                 color: answerArea.pressed ? "#15803d" : (answerArea.containsMouse ? "#16a34a" : Theme.media)
                 scale: answerArea.pressed ? 0.98 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
                 Row {
                     anchors.centerIn: parent; spacing: 8

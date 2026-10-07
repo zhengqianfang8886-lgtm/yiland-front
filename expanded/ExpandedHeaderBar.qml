@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: expanded/ExpandedHeaderBar.qml
+// 📄 File: expanded/ExpandedHeaderBar.qml (流体中控胶囊顶栏·动效中枢版)
 // ==========================================
 import QtQuick
 
@@ -20,35 +20,27 @@ Item {
     signal tabWheel(var wheel)
     signal switchRoute(string targetTab, string targetSubPage)
 
-    // =========================================================================
-    // 🌟 方案 A：通栏一体式中控外层胶囊底托
-    // =========================================================================
     Rectangle {
         id: outerCapsule
         anchors.fill: parent
         radius: height / 2
 
-        // 默认极淡半透明毛玻璃底，鼠标悬浮时随当前模块主题色微光呼吸
         color: capsuleHover.hovered ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.035)
         border.color: capsuleHover.hovered ?
                       Qt.rgba(barRoot.tabMeta.color.r, barRoot.tabMeta.color.g, barRoot.tabMeta.color.b, 0.35) :
                       Qt.rgba(1, 1, 1, 0.08)
         border.width: 1
 
-        Behavior on color { ColorAnimation { duration: 150 } }
-        Behavior on border.color { ColorAnimation { duration: 180 } }
+        Behavior on color { ColorAnimation { duration: Theme.animFast } }
+        Behavior on border.color { ColorAnimation { duration: Theme.animNormal } }
 
         HoverHandler { id: capsuleHover }
 
-        // 🚀 全胶囊域滚轮捕捉：顶栏任何空白或内容区域滑动皆可切页
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: (event) => barRoot.tabWheel(event)
         }
 
-        // =====================================================================
-        // 1. 左侧：一体化自然内嵌面包屑标题（无任何生硬边框）
-        // =====================================================================
         Item {
             id: leftContentArea
             anchors.left: parent.left
@@ -59,7 +51,6 @@ Item {
 
             readonly property bool isPowerPage: (barRoot.expandedTab === "power" && !barRoot.isCalling)
 
-            // 返回会话态指示
             Row {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
@@ -75,7 +66,6 @@ Item {
                 }
             }
 
-            // 常态标题行：直接自然排布在胶囊内
             Row {
                 id: titleRow
                 anchors.left: parent.left
@@ -84,16 +74,13 @@ Item {
                 visible: !leftContentArea.isPowerPage
                 width: parent.width
 
-                // 模块主色发光原点
                 Rectangle {
                     width: 6; height: 6; radius: 3
                     color: barRoot.tabMeta.color
                     anchors.verticalCenter: parent.verticalCenter
-
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
                 }
 
-                // 主分类英文标题
                 Text {
                     text: barRoot.tabMeta.title
                     color: barRoot.tabMeta.color
@@ -102,11 +89,9 @@ Item {
                     font.letterSpacing: 0.8
                     font.family: barRoot.effectiveFont
                     anchors.verticalCenter: parent.verticalCenter
-
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on color { ColorAnimation { duration: Theme.animFast } }
                 }
 
-                // 分隔圆点
                 Text {
                     text: "·"
                     color: Qt.rgba(1, 1, 1, 0.25)
@@ -116,7 +101,6 @@ Item {
                     visible: barRoot.tabMeta.sub !== ""
                 }
 
-                // 中文副标题/状态提示
                 Text {
                     text: barRoot.tabMeta.sub
                     color: "white"
@@ -131,9 +115,6 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. 右侧：直接内嵌切页点阵与一体电源键（无多余嵌套框）
-        // =====================================================================
         Row {
             id: rightControlsRow
             anchors.right: parent.right
@@ -141,7 +122,6 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
-            // 2.1 Tab 指示点一体阵列（直接落在大胶囊轨道上）
             Row {
                 id: dotsRow
                 anchors.verticalCenter: parent.verticalCenter
@@ -156,7 +136,13 @@ Item {
                         width: isCurrent ? 18 : 6; height: 18
                         anchors.verticalCenter: parent.verticalCenter
 
-                        Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: Theme.animFast
+                                easing.type: Theme.curveSpring
+                                easing.overshoot: Theme.springOvershootNormal
+                            }
+                        }
 
                         Rectangle {
                             anchors.centerIn: parent
@@ -164,8 +150,8 @@ Item {
                             color: tabSlotItem.isCurrent ? (modelData.color ? modelData.color : Theme.workspace) : (tabMouseArea.containsMouse ? "white" : Qt.rgba(1, 1, 1, 0.28))
                             scale: tabSlotItem.isCurrent ? 1.0 : (tabMouseArea.containsMouse ? 1.3 : 1.0)
 
-                            Behavior on color { ColorAnimation { duration: 120 } }
-                            Behavior on scale { NumberAnimation { duration: 100 } }
+                            Behavior on color { ColorAnimation { duration: Theme.animFast } }
+                            Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel } }
                         }
 
                         MouseArea {
@@ -179,7 +165,6 @@ Item {
                 }
             }
 
-            // 2.2 细微内嵌分割竖线
             Rectangle {
                 width: 1
                 height: 10
@@ -189,7 +174,6 @@ Item {
                 visible: !barRoot.isCalling && barRoot.enabledTabs && barRoot.enabledTabs.length > 1
             }
 
-            // 2.3 电源按键：作为胶囊内嵌右侧旋钮
             Rectangle {
                 id: powerBtn
                 width: 20
@@ -205,9 +189,9 @@ Item {
                 border.width: 1
 
                 scale: powerTap.pressed ? 0.90 : (powerHover.hovered ? 1.05 : 1.0)
-                Behavior on scale { NumberAnimation { duration: 100 } }
-                Behavior on color { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animFast } }
+                Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
                 Text {
                     anchors.centerIn: parent

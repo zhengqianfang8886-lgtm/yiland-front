@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactOsdView.qml
-// 🌟 纯正苹果美学 · 声学微震脉冲 · 流体开阔音量滑轨
+// 📄 File: compact/CompactOsdView.qml (流体物理滑轨·紧凑自适应版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -8,8 +7,9 @@ import QtQuick.Shapes
 Item {
     id: osdRoot
     anchors.fill: parent
-    anchors.leftMargin: 14
-    anchors.rightMargin: 14
+    // 紧贴胶囊内边距，完全服从胶囊现有物理宽度
+    anchors.leftMargin: 8
+    anchors.rightMargin: 8
 
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
@@ -21,99 +21,96 @@ Item {
     readonly property bool isHardwareMuted: (osdIcon === "🔇" || osdIcon === "🚫")
     readonly property int clampedValue: Math.min(100, Math.max(0, osdValue))
 
-    // 每次音量变动触发声学微脉冲震颤
     onOsdValueChanged: {
-        speakerPulseAnim.stop()
-        speakerPulseAnim.start()
+        speakerPulseScale = 1.15
+        pulseCooldownTimer.restart()
     }
 
-    // =========================================================================
-    // 1. 左侧：原生苹果声学喇叭（随音量弧线动态响应 + 触觉微震）
-    // =========================================================================
+    property real speakerPulseScale: 1.0
+    Behavior on speakerPulseScale {
+        NumberAnimation {
+            duration: Theme.animInstant
+            easing.type: Theme.curveDecel
+        }
+    }
+
+    Timer {
+        id: pulseCooldownTimer
+        interval: 35
+        repeat: false
+        onTriggered: osdRoot.speakerPulseScale = 1.0
+    }
+
+    // 1. 左侧喇叭图标（紧凑 15px）
     Item {
         id: iconArea
-        width: 18
-        height: 18
+        width: 15
+        height: 15
         anchors.left: parent.left
+        anchors.leftMargin: 2
         anchors.verticalCenter: parent.verticalCenter
         transformOrigin: Item.Center
-
-        SequentialAnimation {
-            id: speakerPulseAnim
-            NumberAnimation { target: iconArea; property: "scale"; to: 1.18; duration: 18; easing.type: Easing.OutQuad }
-            NumberAnimation { target: iconArea; property: "scale"; to: 1.0; duration: 60; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
-        }
+        scale: osdRoot.speakerPulseScale
 
         Shape {
             anchors.fill: parent
             layer.enabled: true
             layer.samples: 4
 
-            // 1.1 喇叭锥体
+            // 喇叭锥体
             ShapePath {
                 fillColor: osdRoot.isHardwareMuted ? Theme.danger : "#ffffff"
                 strokeColor: "transparent"
-                startX: 2.5; startY: 6.2
-                PathLine { x: 5.5; y: 6.2 }
-                PathLine { x: 9.0; y: 3.2 }
-                PathLine { x: 9.0; y: 14.8 }
-                PathLine { x: 5.5; y: 11.8 }
-                PathLine { x: 2.5; y: 11.8 }
-                PathLine { x: 2.5; y: 6.2 }
+                startX: 1.5; startY: 5.0
+                PathLine { x: 4.2; y: 5.0 }
+                PathLine { x: 7.5; y: 2.2 }
+                PathLine { x: 7.5; y: 12.8 }
+                PathLine { x: 4.2; y: 10.0 }
+                PathLine { x: 1.5; y: 10.0 }
+                PathLine { x: 1.5; y: 5.0 }
             }
 
-            // 1.2 低音量弧 (>= 1% 显示)
+            // 低音量弧
             ShapePath {
                 strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue > 0) ? "#ffffff" : "transparent"
-                strokeWidth: 1.3
+                strokeWidth: 1.2
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
-                startX: 11.2; startY: 6.8
-                PathArc { x: 11.2; y: 11.2; radiusX: 3.0; radiusY: 3.0; useLargeArc: false }
+                startX: 9.5; startY: 5.5
+                PathArc { x: 9.5; y: 9.5; radiusX: 2.6; radiusY: 2.6; useLargeArc: false }
             }
 
-            // 1.3 中音量弧 (>= 34% 显示)
+            // 高音量弧
             ShapePath {
-                strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue >= 34) ? "#ffffff" : "transparent"
-                strokeWidth: 1.3
+                strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue >= 50) ? "#ffffff" : "transparent"
+                strokeWidth: 1.2
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
-                startX: 13.5; startY: 5.0
-                PathArc { x: 13.5; y: 13.0; radiusX: 5.5; radiusY: 5.5; useLargeArc: false }
+                startX: 12.0; startY: 3.5
+                PathArc { x: 12.0; y: 11.5; radiusX: 5.2; radiusY: 5.2; useLargeArc: false }
             }
 
-            // 1.4 高音量弧 (>= 67% 显示)
-            ShapePath {
-                strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue >= 67) ? "#ffffff" : "transparent"
-                strokeWidth: 1.3
-                fillColor: "transparent"
-                capStyle: ShapePath.RoundCap
-                startX: 15.8; startY: 3.2
-                PathArc { x: 15.8; y: 14.8; radiusX: 8.0; radiusY: 8.0; useLargeArc: false }
-            }
-
-            // 1.5 静音斜杠
+            // 静音斜杠
             ShapePath {
                 strokeColor: osdRoot.isHardwareMuted ? Theme.danger : "transparent"
-                strokeWidth: 1.4
+                strokeWidth: 1.3
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
-                startX: 11.0; startY: 6.0
-                PathLine { x: 15.0; y: 12.0 }
-                PathMove { x: 15.0; y: 6.0 }
-                PathLine { x: 11.0; y: 12.0 }
+                startX: 9.0; startY: 4.5
+                PathLine { x: 13.5; y: 10.5 }
+                PathMove { x: 13.5; y: 4.5 }
+                PathLine { x: 9.0; y: 10.5 }
             }
         }
     }
 
-    // =========================================================================
-    // 2. 右侧：克制定宽百分比（严格整型字号，消除跳宽）
-    // =========================================================================
+    // 2. 右侧定宽百分比（紧凑 26px）
     Item {
         id: valueWrapper
         anchors.right: parent.right
+        anchors.rightMargin: 2
         anchors.verticalCenter: parent.verticalCenter
-        width: 32
+        width: 26
         height: parent.height
 
         Text {
@@ -122,43 +119,40 @@ Item {
             text: osdRoot.isHardwareMuted ? "静音" : (osdRoot.clampedValue + "%")
             color: osdRoot.isHardwareMuted ? Theme.danger : Qt.rgba(1, 1, 1, 0.85)
             font.family: osdRoot.isHardwareMuted ? osdRoot.effectiveFont : osdRoot.displayFont
-            font.pixelSize: 11
+            font.pixelSize: 10
             font.weight: Font.DemiBold
             font.features: { "tnum": 1 }
             renderType: Text.QtRendering
         }
     }
 
-    // =========================================================================
-    // 3. 中间：110px+ 极开阔苹果流体大胶囊滑轨（Fluid Capsule Track）
-    // =========================================================================
+    // 3. 中间流体滑轨（左右锚定填满剩余空间，胶囊多长它就多长，不推挤外壳）
     Rectangle {
         id: sliderTrack
         anchors.left: iconArea.right
-        anchors.leftMargin: 12
+        anchors.leftMargin: 6
         anchors.right: valueWrapper.left
-        anchors.rightMargin: 12
+        anchors.rightMargin: 6
         anchors.verticalCenter: parent.verticalCenter
-        height: 8
-        radius: 4
+        height: 6
+        radius: 3
         color: Qt.rgba(1, 1, 1, 0.16)
         clip: true
 
-        // 纯白高阶微流体填充（苹果原汁原味）
         Rectangle {
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
-            radius: 4
+            radius: 3
 
             width: osdRoot.isHardwareMuted ? 0 : Math.round(parent.width * (osdRoot.clampedValue / 100.0))
             color: osdRoot.isHardwareMuted ? Theme.danger : "#ffffff"
 
             Behavior on width {
-                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel }
             }
             Behavior on color {
-                ColorAnimation { duration: 140 }
+                ColorAnimation { duration: Theme.animFast }
             }
         }
     }

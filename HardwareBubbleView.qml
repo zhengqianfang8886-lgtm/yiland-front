@@ -1,13 +1,11 @@
 // ==========================================
-// 📄 File: HardwareBubbleView.qml
-// 🌟 纯净内敛机械阻尼 · 零溢出零伪影 · 无闪烁黑框版
+// 📄 File: HardwareBubbleView.qml (可重入动量击键心流引擎)
 // ==========================================
 import QtQuick
 
 Item {
     id: typingBubbleRoot
 
-    // 基础输入属性（完全兼容外部 Relay 注入）
     property bool isTyping: false
     property color typingThemeColor: "#38bdf8"
     property real spec1: 0.0
@@ -16,44 +14,33 @@ Item {
     property real spec4: 0.0
     property real kps: 0.0
 
-    // 接收后端按键字符串（支持单键如 "A", 组合键如 "Ctrl+Shift", "Ctrl+Alt+Del"）
     property string activeMod: ""
     property string activeKey: ""
-
-    // 接收每一次物理击键的全局脉冲计数器
     property int strokeRevision: 0
 
     property bool active: true
     readonly property bool isHovered: bubbleHover.hovered
 
-    // 模式切换属性
     readonly property string bubbleMode: (typeof Config !== "undefined" && Config.typingBubbleMode) ? Config.typingBubbleMode : "bars"
     readonly property bool isKeycapMode: bubbleMode === "keycaps"
-
-    // 联动系统 CapsLock 状态
     readonly property bool isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
 
-    // 打字流速与活跃度计算
     readonly property real intensity: Math.max(0.0, Math.min(1.0, kps / 10.0))
     readonly property bool isIdle: intensity < 0.02 && !isTyping
 
-    // 高频自适应动画基准时长：高频连击回弹更干脆，低频单敲回弹更饱满阻尼
-    readonly property int animPace: kps > 5.0 ? 55 : 75
-
-    // 内部击键脉冲计数器（双保险机制）
+    // 内部重入脉冲版本号
     property int internalPulse: 0
     onStrokeRevisionChanged: internalPulse++
     onActiveKeyChanged: if (activeKey !== "") internalPulse++
     onActiveModChanged: if (activeMod !== "") internalPulse++
 
-    // 前端动量跃迁双重感知
     onSpec1Changed: if (spec1 > 0.85) internalPulse++
     onSpec2Changed: if (spec2 > 0.85) internalPulse++
     onSpec3Changed: if (spec3 > 0.85) internalPulse++
     onSpec4Changed: if (spec4 > 0.85) internalPulse++
 
     // =========================================================================
-    // 🔤 核心模块 1：按键符号解析与多键并发切分
+    // 按键符号切分
     // =========================================================================
     QtObject {
         id: keyParser
@@ -122,15 +109,10 @@ Item {
     readonly property var slot1Data: keyCount > 1 ? currentKeys[1] : null
     readonly property var slot2Data: keyCount > 2 ? currentKeys[2] : null
 
-    // =========================================================================
-    // 📐 核心模块 2：安全稳定几何宽度（阶梯定宽，避免频繁触发系统 Mask 重建）
-    // =========================================================================
     readonly property int islandHeight: 34
     readonly property int radius: 17
-
     readonly property int modeAWidth: (isIdle || intensity < 0.12) ? 56 : Math.round(56 + intensity * 14)
 
-    // 模式 B 阶梯式稳定宽度（空闲 52 / 单键 64 / 双键 94 / 三键 120）
     readonly property int modeBTargetWidth: {
         if (keyCount === 0) return 52
         if (keyCount === 1) return (currentKeys[0].label.length > 2) ? 74 : 64
@@ -139,18 +121,11 @@ Item {
     }
 
     property int modeBWidth: modeBTargetWidth
-    onModeBTargetWidthChanged: {
-        widthAnim.stop()
-        widthAnim.duration = modeBTargetWidth > modeBWidth ? 55 : 120
-        widthAnim.to = modeBTargetWidth
-        widthAnim.start()
-    }
-
-    NumberAnimation {
-        id: widthAnim
-        target: typingBubbleRoot
-        property: "modeBWidth"
-        easing.type: Easing.OutCubic
+    Behavior on modeBWidth {
+        NumberAnimation {
+            duration: Theme.animInstant
+            easing.type: Theme.curveDecel
+        }
     }
 
     width: isKeycapMode ? modeBWidth : modeAWidth
@@ -160,15 +135,13 @@ Item {
 
     visible: active
     opacity: active ? 1.0 : 0.0
+    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
 
     function toggleMode() {
         if (typeof Config === "undefined") return
         Config.typingBubbleMode = isKeycapMode ? "bars" : "keycaps"
     }
 
-    // =========================================================================
-    // 背景液态玻璃材质 Shader (严格限定在 34px 圆角内)
-    // =========================================================================
     ShaderEffect {
         id: liquidGlassEffect
         anchors.fill: parent
@@ -183,9 +156,7 @@ Item {
         fragmentShader: "liquid_glass.frag.qsb"
     }
 
-    // =========================================================================
-    // 视图 1：模式 A · 原生机械律动波形 (Bars Mode)
-    // =========================================================================
+    // 视图 1：波形模式
     Item {
         id: viewBars
         anchors.fill: parent
@@ -193,8 +164,8 @@ Item {
         opacity: typingBubbleRoot.isKeycapMode ? 0.0 : 1.0
         scale: typingBubbleRoot.isKeycapMode ? 0.88 : 1.0
 
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
+        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
 
         Rectangle {
             anchors.centerIn: parent
@@ -251,10 +222,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 视图 2：模式 B · 🚀 客制化机械触感键舱 (Tactile Kinetic Keycap Deck)
-    // 🌟 核心保证：所有形变与微光 100% 收敛在 34px 内，绝不溢出产生黑框
-    // =========================================================================
+    // 视图 2：键帽模式（可重入动力学）
     Item {
         id: viewKeycapPod
         anchors.fill: parent
@@ -263,17 +231,16 @@ Item {
         opacity: typingBubbleRoot.isKeycapMode ? 1.0 : 0.0
         scale: typingBubbleRoot.isKeycapMode ? 1.0 : 0.90
 
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
-        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: 1.08 } }
+        Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
+        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveSpring; easing.overshoot: Theme.springOvershootNormal } }
 
-        // 1. 待机状态：极简微舱呼吸孔
         Item {
             anchors.fill: parent
             visible: opacity > 0.01
             opacity: typingBubbleRoot.keyCount === 0 ? 1.0 : 0.0
             scale: typingBubbleRoot.keyCount === 0 ? 1.0 : 0.82
-            Behavior on opacity { NumberAnimation { duration: 110 } }
-            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: Theme.animInstant } }
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel } }
 
             Rectangle {
                 anchors.centerIn: parent
@@ -290,8 +257,7 @@ Item {
         }
 
         // =====================================================================
-        // 2. 定槽机械触感单元 (Tactile Mechanical Unit)
-        // 🚀 核心：纯局部 2.0px 弹性深潜，能量漫射限定在边框内，彻底消除外圈黑框
+        // 🚀 核心：彻底重构为 Behavior 连续接管模型，消灭 Sequential 跳帧
         // =====================================================================
         component KineticKeyUnit: Item {
             id: unitRoot
@@ -309,40 +275,43 @@ Item {
             opacity: hasData ? 1.0 : 0.0
             scale: hasData ? 1.0 : 0.65
 
-            Behavior on width { NumberAnimation { duration: 50; easing.type: Easing.OutCubic } }
-            Behavior on opacity { NumberAnimation { duration: 65; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: 75; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+            Behavior on width { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel } }
+            Behavior on opacity { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveFluid } }
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveSpring; easing.overshoot: Theme.springOvershootNormal } }
+
+            // 物理动量注入槽
+            property real impulseY: 0.0
+            property real impulseScaleY: 1.0
+            property real bloomOpacity: 0.0
+
+            Behavior on impulseY { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
+            Behavior on impulseScaleY { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
+            Behavior on bloomOpacity { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveFluid } }
+
+            Timer {
+                id: bounceBackTimer
+                interval: 25
+                repeat: false
+                onTriggered: {
+                    unitRoot.impulseY = 0.0
+                    unitRoot.impulseScaleY = 1.0
+                    unitRoot.bloomOpacity = 0.0
+                }
+            }
 
             Connections {
                 target: typingBubbleRoot
                 function onInternalPulseChanged() {
                     if (unitRoot.hasData) {
-                        strokeImpulseAnim.stop()
-                        strokeImpulseAnim.start()
+                        // 瞬时施加下潜冲量，随后自动回弹（任何半路状态自然衔接）
+                        unitRoot.impulseY = 2.0
+                        unitRoot.impulseScaleY = 0.84
+                        unitRoot.bloomOpacity = 0.85
+                        bounceBackTimer.restart()
                     }
                 }
             }
 
-            // 🚀 局部动力学：纯内部 2.0px 机械下潜 + 弹性回颤（严禁超出容器）
-            SequentialAnimation {
-                id: strokeImpulseAnim
-                ParallelAnimation {
-                    NumberAnimation { target: keycapSurface; property: "y"; to: 2.0; duration: 20; easing.type: Easing.InQuad }
-                    NumberAnimation { target: keycapSurface; property: "scaleY"; to: 0.84; duration: 20; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: keycapSurface; property: "scaleX"; to: 1.04; duration: 20; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: keyText; property: "scale"; to: 0.85; duration: 20; easing.type: Easing.OutQuad }
-                    NumberAnimation { target: tactileBloom; property: "opacity"; to: 0.85; duration: 20; easing.type: Easing.OutQuad }
-                }
-                ParallelAnimation {
-                    NumberAnimation { target: keycapSurface; property: "y"; to: 0.0; duration: typingBubbleRoot.animPace; easing.type: Easing.OutBack; easing.overshoot: 1.30 }
-                    NumberAnimation { target: keycapSurface; property: "scaleY"; to: 1.0; duration: typingBubbleRoot.animPace; easing.type: Easing.OutBack; easing.overshoot: 1.20 }
-                    NumberAnimation { target: keycapSurface; property: "scaleX"; to: 1.0; duration: typingBubbleRoot.animPace; easing.type: Easing.OutBack; easing.overshoot: 1.10 }
-                    NumberAnimation { target: keyText; property: "scale"; to: 1.0; duration: typingBubbleRoot.animPace; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
-                    NumberAnimation { target: tactileBloom; property: "opacity"; to: 0.0; duration: typingBubbleRoot.animPace + 35; easing.type: Easing.OutQuad }
-                }
-            }
-
-            // 1. 能量微光漫射层（严格贴合在键帽周围 1.5px 范围内，绝不溢出黑边）
             Rectangle {
                 id: tactileBloom
                 anchors.centerIn: parent
@@ -350,10 +319,9 @@ Item {
                 height: parent.height + 3
                 radius: 8
                 color: Qt.rgba(typingBubbleRoot.typingThemeColor.r, typingBubbleRoot.typingThemeColor.g, typingBubbleRoot.typingThemeColor.b, 0.45)
-                opacity: 0.0
+                opacity: unitRoot.bloomOpacity
             }
 
-            // 2. PBT 内凹深暗基槽 (Cavity Well)
             Rectangle {
                 anchors.fill: parent
                 radius: 7
@@ -362,20 +330,17 @@ Item {
                 border.width: 0.8
             }
 
-            // 3. 悬浮键帽实体（超椭圆连续曲率，局部 X/Y 阻尼挤压）
             Rectangle {
                 id: keycapSurface
                 anchors.fill: parent
                 radius: 7
                 transformOrigin: Item.Center
+                y: unitRoot.impulseY
 
-                property real scaleX: 1.0
-                property real scaleY: 1.0
                 transform: Scale {
                     origin.x: keycapSurface.width / 2
                     origin.y: keycapSurface.height / 2
-                    xScale: keycapSurface.scaleX
-                    yScale: keycapSurface.scaleY
+                    yScale: unitRoot.impulseScaleY
                 }
 
                 gradient: Gradient {
@@ -402,7 +367,6 @@ Item {
                     id: keyText
                     anchors.centerIn: parent
                     anchors.verticalCenterOffset: unitRoot.isCapsLedOn ? -1.5 : 0
-                    transformOrigin: Item.Center
                     text: unitRoot.labelText
                     color: typingBubbleRoot.isTyping ? "#ffffff" : (unitRoot.isModifier ? Qt.rgba(1, 1, 1, 0.78) : "#ffffff")
                     font.family: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
@@ -432,9 +396,6 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 3. 常驻三槽并排流动排布区
-        // =========================================================================
         Row {
             anchors.centerIn: parent
             spacing: 4
@@ -442,26 +403,15 @@ Item {
             opacity: typingBubbleRoot.keyCount > 0 ? 1.0 : 0.0
             scale: typingBubbleRoot.keyCount > 0 ? 1.0 : 0.85
 
-            Behavior on opacity { NumberAnimation { duration: 75; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: 85; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+            Behavior on opacity { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveFluid } }
+            Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveSpring; easing.overshoot: Theme.springOvershootNormal } }
 
-            KineticKeyUnit {
-                slotData: typingBubbleRoot.slot0Data
-            }
-
-            KineticKeyUnit {
-                slotData: typingBubbleRoot.slot1Data
-            }
-
-            KineticKeyUnit {
-                slotData: typingBubbleRoot.slot2Data
-            }
+            KineticKeyUnit { slotData: typingBubbleRoot.slot0Data }
+            KineticKeyUnit { slotData: typingBubbleRoot.slot1Data }
+            KineticKeyUnit { slotData: typingBubbleRoot.slot2Data }
         }
     }
 
-    // =========================================================================
-    // 鼠标交互体系
-    // =========================================================================
     HoverHandler {
         id: bubbleHover
         cursorShape: Qt.PointingHandCursor

@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: power/PowerConfirmModal.qml (流体阻尼模态弹窗)
+// ==========================================
 import QtQuick
 import QtQuick.Shapes
 
@@ -8,9 +11,9 @@ Rectangle {
     color: Qt.rgba(18 / 255, 18 / 255, 22 / 255, 0.96)
     border.color: isConfirming ? Qt.rgba(pendingColor.r, pendingColor.g, pendingColor.b, 0.5) : "transparent"
     border.width: 1.5
-    visible: isConfirming
-    opacity: visible ? 1.0 : 0.0
-    scale: visible ? 1.0 : 0.94
+    visible: opacity > 0.001
+    opacity: isConfirming ? 1.0 : 0.0
+    scale: isConfirming ? 1.0 : 0.94
     z: 200
 
     property bool isConfirming: false
@@ -29,8 +32,15 @@ Rectangle {
     signal confirmed()
     signal cancelled()
 
-    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: 1.05 } }
+    // 中央动效接管
+    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
+    Behavior on scale {
+        NumberAnimation {
+            duration: Theme.animNormal
+            easing.type: Theme.curveSpring
+            easing.overshoot: Theme.springOvershootSubtle
+        }
+    }
 
     Column {
         anchors.centerIn: parent
@@ -51,7 +61,6 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 16; height: 16
 
-                    // 1. 关机图标
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "poweroff"
@@ -75,7 +84,6 @@ Rectangle {
                         }
                     }
 
-                    // 2. 重启图标
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "reboot"
@@ -101,7 +109,6 @@ Rectangle {
                         }
                     }
 
-                    // 3. 睡眠图标：贝塞尔内凹纯正月牙
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "suspend"
@@ -116,7 +123,6 @@ Rectangle {
                         }
                     }
 
-                    // 4. 锁定屏幕图标
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "lock"
@@ -143,7 +149,6 @@ Rectangle {
                         }
                     }
 
-                    // 5. 注销会话图标
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "logout"
@@ -174,7 +179,6 @@ Rectangle {
                         }
                     }
 
-                    // 6. 切换用户图标
                     Shape {
                         anchors.fill: parent
                         visible: modalRoot.pendingIconType === "switch"
@@ -240,6 +244,7 @@ Rectangle {
                 color: cancelMouse.pressed ? Qt.rgba(1, 1, 1, 0.22) : (cancelMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.08))
                 border.color: Theme.borderSubtle; border.width: 1
                 scale: cancelMouse.pressed ? 0.94 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
                 Row {
                     anchors.centerIn: parent; spacing: 4
@@ -253,7 +258,8 @@ Rectangle {
                 width: 140; height: 32; radius: 16
                 color: confirmMouse.pressed ? Qt.darker(modalRoot.pendingColor, 1.25) : (confirmMouse.containsMouse ? Qt.lighter(modalRoot.pendingColor, 1.1) : modalRoot.pendingColor)
                 scale: confirmMouse.pressed ? 0.94 : (confirmMouse.containsMouse ? 1.02 : 1.0)
-                Behavior on scale { NumberAnimation { duration: 100 } }
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
                 Row {
                     anchors.centerIn: parent; spacing: 6

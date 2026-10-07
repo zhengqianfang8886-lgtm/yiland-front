@@ -82,6 +82,8 @@ CONFIG_SCHEMA = {
     "dndEnabled": {"default": False, "val": lambda v: bool(v)},
     "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
     "notificationPrivacyMode": {"default": False, "val": lambda v: bool(v)},
+
+    "showBattery": {"default": True, "val": lambda v: bool(v)},
 }
 
 
@@ -146,6 +148,8 @@ class ConfigManager(QObject):
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
     notificationPrivacyModeChanged = Signal(bool)
+
+    showBatteryChanged = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -462,6 +466,11 @@ class ConfigManager(QObject):
     def notificationPrivacyMode(self): return self._notificationPrivacyMode
     @notificationPrivacyMode.setter
     def notificationPrivacyMode(self, val): self._set_value("notificationPrivacyMode", val, self.notificationPrivacyModeChanged)
+
+    @Property(bool, notify=showBatteryChanged)
+    def showBattery(self): return self._showBattery
+    @showBattery.setter
+    def showBattery(self, val): self._set_value("showBattery", val, self.showBatteryChanged)
 
     def _load_world_cities(self):
         try:

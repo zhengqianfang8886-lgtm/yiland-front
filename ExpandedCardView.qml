@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ExpandedCardView.qml (支持硬件中控页面路由)
+// 📄 File: ExpandedCardView.qml (可重入动量传送带引擎)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -42,14 +42,16 @@ Item {
     signal requestCollapse()
     signal startCollapse()
     signal timerCompleted(string title, string message)
-    signal requestSettings() // 🚀 补齐偏好设置信号向上传递
-
+    signal requestSettings()
 
     readonly property int viewportWidth: width
     readonly property int viewportHeight: height - 38
     readonly property int slotGap: 16
     readonly property int slotPitch: viewportWidth + slotGap
 
+    // =========================================================================
+    // 可重入多视图传送带状态机
+    // =========================================================================
     property string currentKey: "time"
     property string departingKey: ""
     property int slideDir: 1
@@ -59,9 +61,7 @@ Item {
     function getRingSlotIndex(key) {
         if (!cardRoot.enabledTabs) return -1
         for (var i = 0; i < cardRoot.enabledTabs.length; i++) {
-            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === key) {
-                return i
-            }
+            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === key) return i
         }
         return -1
     }
@@ -69,16 +69,13 @@ Item {
     function getPanelX(key) {
         var S = cardRoot.slotPitch
         if (key === cardRoot.currentKey) {
-            if (cardRoot.departingKey === "" || !conveyorAnim.running) {
-                return 0
-            }
+            if (cardRoot.departingKey === "" || !conveyorAnim.running) return 0
             return cardRoot.slideDir > 0 ? (S * (1.0 - cardRoot.transitionProgress)) : (-S * (1.0 - cardRoot.transitionProgress))
         }
 
         if (key === cardRoot.departingKey && conveyorAnim.running) {
             return cardRoot.slideDir > 0 ? (-S * cardRoot.transitionProgress) : (S * cardRoot.transitionProgress)
         }
-
         return S
     }
 
@@ -91,6 +88,7 @@ Item {
     function triggerConveyorTransition(newKey, forcedDir) {
         if (newKey === cardRoot.currentKey && cardRoot.departingKey === "") return
 
+        // 计算运动方向
         if (forcedDir !== undefined && forcedDir !== 0) {
             cardRoot.slideDir = forcedDir
         } else if (newKey === "power") {
@@ -112,14 +110,20 @@ Item {
             }
         }
 
+        // 动量接管：捕获当前正在半路中的进度，消除硬打断瞬移
+        var startProgress = 0.0
+        if (conveyorAnim.running) {
+            conveyorAnim.stop()
+            startProgress = 0.0
+        }
+
         cardRoot.departingKey = cardRoot.currentKey
         cardRoot.currentKey = newKey
 
-        conveyorAnim.stop()
-        cardRoot.transitionProgress = 0.0
-        conveyorAnim.duration = cardRoot.isFastWheeling ? 160 : 280
-        conveyorAnim.easing.type = cardRoot.isFastWheeling ? Easing.OutCubic : Easing.OutBack
-        conveyorAnim.easing.overshoot = cardRoot.isFastWheeling ? 1.0 : 1.05
+        conveyorAnim.duration = cardRoot.isFastWheeling ? Theme.animFast : Theme.animSlow
+        conveyorAnim.easing.type = cardRoot.isFastWheeling ? Theme.curveDecel : Theme.curveSpring
+        conveyorAnim.easing.overshoot = cardRoot.isFastWheeling ? 1.0 : Theme.springOvershootSubtle
+        cardRoot.transitionProgress = startProgress
         conveyorAnim.start()
     }
 
@@ -154,7 +158,6 @@ Item {
             cardRoot.previousTab = cardRoot.expandedTab
         }
         cardRoot.drillDownPage = targetSubPage || ""
-
         triggerConveyorTransition(targetTab, explicitDir)
         cardRoot.expandedTab = targetTab
     }
@@ -167,7 +170,6 @@ Item {
         return 0
     }
 
-    // 🚀 页面顶栏元数据
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
         if (cardRoot.expandedTab === "power") return { title: "SESSION", sub: "系统会话", color: "#ef4444" }
@@ -186,8 +188,8 @@ Item {
     }
 
     property real tabWheelAccum: 0
-    Timer { id: tabWheelResetTimer; interval: 240; onTriggered: cardRoot.tabWheelAccum = 0 }
-    Timer { id: fastWheelResetTimer; interval: 260; onTriggered: cardRoot.isFastWheeling = false }
+    Timer { id: tabWheelResetTimer; interval: Theme.animSlow; onTriggered: cardRoot.tabWheelAccum = 0 }
+    Timer { id: fastWheelResetTimer; interval: Theme.animSlow; onTriggered: cardRoot.isFastWheeling = false }
 
     function handleTabWheel(wheel) {
         wheel.accepted = true
@@ -195,14 +197,13 @@ Item {
         var delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y
         cardRoot.tabWheelAccum += delta
 
-        if (Math.abs(cardRoot.tabWheelAccum) >= 50) {
+        if (Math.abs(cardRoot.tabWheelAccum) >= 48) {
             if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length <= 1) return
             var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1
             var nextIndex = (cardRoot.activeTabIndex + dir + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
 
             cardRoot.isFastWheeling = true
             fastWheelResetTimer.restart()
-
             cardRoot.switchRoute(cardRoot.enabledTabs[nextIndex].key, "", dir)
             cardRoot.tabWheelAccum = 0
         }
@@ -258,70 +259,48 @@ Item {
                 id: conveyorBeltCanvas
                 anchors.fill: parent
 
-                // 1. 时间
                 Item {
                     id: panelTime
                     x: cardRoot.getPanelX("time")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("time")
-
-                    TimeDetailPage {
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
-                    }
+                    TimeDetailPage { anchors.fill: parent; chosenFont: cardRoot.chosenFont }
                 }
 
-                // 🚀 2. 硬件控制中心面板
                 Item {
                     id: panelHardware
                     x: cardRoot.getPanelX("hardware")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("hardware")
-
-                    HardwarePage {
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
-                        onRequestSettings: cardRoot.requestSettings()
-                    }
+                    HardwarePage { anchors.fill: parent; chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() }
                 }
 
-                // 3. 桌面
                 Item {
                     id: panelWorkspace
                     x: cardRoot.getPanelX("workspace")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("workspace")
-
                     WorkspacePage {
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
-                        currentWs: cardRoot.wsCurrent
-                        totalWs: cardRoot.wsTotal
-                        currentWsName: cardRoot.wsName
-                        wsList: cardRoot.wsList
+                        anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                        currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal
+                        currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
                     }
                 }
 
-                // 4. 媒体
                 Item {
                     id: panelMedia
                     x: cardRoot.getPanelX("media")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("media")
-
                     MediaPage {
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
-                        title: cardRoot.title
-                        artist: cardRoot.artist
-                        status: cardRoot.status
-                        artUrl: cardRoot.artUrl
-                        position: cardRoot.position
-                        duration: cardRoot.duration
+                        anchors.fill: parent; chosenFont: cardRoot.chosenFont
+                        title: cardRoot.title; artist: cardRoot.artist
+                        status: cardRoot.status; artUrl: cardRoot.artUrl
+                        position: cardRoot.position; duration: cardRoot.duration
                         dominantColor: cardRoot.dominantColor
                         onCancelCollapse: cardRoot.cancelCollapse()
                         onRequestCollapse: cardRoot.requestCollapse()
@@ -329,44 +308,34 @@ Item {
                     }
                 }
 
-                // 5. 日历
                 Item {
                     id: panelCalendar
                     x: cardRoot.getPanelX("calendar")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("calendar")
-
-                    CalendarPage {
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
-                    }
+                    CalendarPage { anchors.fill: parent; chosenFont: cardRoot.chosenFont }
                 }
 
-                // 6. 专注计时
                 Item {
                     id: panelTimer
                     x: cardRoot.getPanelX("timer")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("timer")
-
                     TimerPage {
                         id: persistentTimerPage
-                        anchors.fill: parent
-                        chosenFont: cardRoot.chosenFont
+                        anchors.fill: parent; chosenFont: cardRoot.chosenFont
                         onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
                     }
                 }
 
-                // 7. 世界时钟
                 Item {
                     id: panelClock
                     x: cardRoot.getPanelX("clock")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("clock")
-
                     Loader {
                         anchors.fill: parent
                         active: cardRoot.clockLoaded || (cardRoot.expandedTab === "clock")
@@ -379,64 +348,49 @@ Item {
                     }
                 }
 
-                // 8. 实时网络
                 Item {
                     id: panelNetwork
                     x: cardRoot.getPanelX("network")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("network")
-
                     Loader {
                         anchors.fill: parent
                         active: cardRoot.networkLoaded || (cardRoot.expandedTab === "network")
                         sourceComponent: Component {
                             NetworkPage {
                                 chosenFont: cardRoot.chosenFont
-                                downSpeed: cardRoot.downSpeedStr
-                                upSpeed: cardRoot.upSpeedStr
+                                downSpeed: cardRoot.downSpeedStr; upSpeed: cardRoot.upSpeedStr
                                 localIp: cardRoot.localIp
                             }
                         }
                     }
                 }
 
-                // 9. 蓝牙
                 Item {
                     id: panelBluetooth
                     x: cardRoot.getPanelX("bluetooth")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("bluetooth")
-
                     Loader {
                         anchors.fill: parent
                         active: cardRoot.bluetoothLoaded || (cardRoot.expandedTab === "bluetooth")
-                        sourceComponent: Component {
-                            BluetoothPage {
-                                chosenFont: cardRoot.chosenFont
-                            }
-                        }
+                        sourceComponent: Component { BluetoothPage { chosenFont: cardRoot.chosenFont } }
                     }
                 }
 
-                // 10. 消息通知
                 Item {
                     id: panelNotification
                     x: cardRoot.getPanelX("notification")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("notification")
-
                     Loader {
                         id: notifLoader
                         anchors.fill: parent
                         active: cardRoot.notificationLoaded || (cardRoot.expandedTab === "notification")
-                        sourceComponent: Component {
-                            NotificationPage {
-                                chosenFont: cardRoot.chosenFont
-                            }
-                        }
+                        sourceComponent: Component { NotificationPage { chosenFont: cardRoot.chosenFont } }
                         Connections {
                             target: notifLoader.item
                             ignoreUnknownSignals: true
@@ -445,23 +399,17 @@ Item {
                     }
                 }
 
-                // 11. 会话电源
                 Item {
                     id: panelPower
                     x: cardRoot.getPanelX("power")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("power")
-
                     Loader {
                         id: powerLoader
                         anchors.fill: parent
                         active: cardRoot.powerLoaded || (cardRoot.expandedTab === "power")
-                        sourceComponent: Component {
-                            PowerPage {
-                                chosenFont: cardRoot.chosenFont
-                            }
-                        }
+                        sourceComponent: Component { PowerPage { chosenFont: cardRoot.chosenFont } }
                         Connections {
                             target: powerLoader.item
                             ignoreUnknownSignals: true
@@ -470,23 +418,17 @@ Item {
                     }
                 }
 
-                // 12. 服务进程管控
                 Item {
                     id: panelProcess
                     x: cardRoot.getPanelX("process")
                     width: cardRoot.viewportWidth
                     height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("process")
-
                     Loader {
                         id: processLoader
                         anchors.fill: parent
                         active: cardRoot.processLoaded || (cardRoot.expandedTab === "process")
-                        sourceComponent: Component {
-                            ProcessPage {
-                                chosenFont: cardRoot.chosenFont
-                            }
-                        }
+                        sourceComponent: Component { ProcessPage { chosenFont: cardRoot.chosenFont } }
                     }
                 }
             }
