@@ -391,13 +391,16 @@ class IslandBridge(QObject):
 
     @Slot(int)
     @Slot(str)
-    def switchWorkspace(self, target): self.sendIpcCmd("WORKSPACE_SWITCH", target=target)
+    def switchWorkspace(self, target):
+        app_logger.info(f"🖥️ [Bridge] 触发桌面切换指令 -> target: {target} (类型: {type(target).__name__})")
+        self.sendIpcCmd("WORKSPACE_SWITCH", target=target)
 
     @Slot()
     def switchWorkspacePrev(self): self.sendIpcCmd("WORKSPACE_PREV")
 
     @Slot()
     def switchWorkspaceNext(self): self.sendIpcCmd("WORKSPACE_NEXT")
+    
 
     @Slot(str)
     def executePowerAction(self, action: str):

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: CompactCapsuleView.qml
-// 🌟 纯正苹果灵动岛形态交融 · 优雅音量 OSD 转场版
+// 🌟 彻底消灭 [undefined] 赋值报错 · 0 索引支持
 // ==========================================
 import QtQuick
 import "compact"
@@ -20,8 +20,28 @@ Item {
     property bool isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
 
     property string wsName: ""
-    property int wsCurrent: 1
+    property int wsCurrent: 0 // 🚀 默认从 0 开始
     property int wsTotal: 4
+    property var wsList: []
+
+    property bool isScrubbing: false
+    property bool isScrubCanceling: false
+
+    // 🚀【核心修复】：三元表达式保护，在初始化阶段安全返回 0，绝不给 int 赋 undefined！
+    readonly property int scrubHoverIndex: (wsView && wsView.peakIndex !== undefined) ? wsView.peakIndex : 0
+    readonly property var workspaceItems: (wsView && wsView.workspaceItems !== undefined) ? wsView.workspaceItems : []
+
+    function updateCursorByMouseX(mx) {
+        if (wsView && wsView.updateCursorByMouseX) {
+            wsView.updateCursorByMouseX(mx)
+        }
+    }
+
+    function snapToNearest() {
+        if (wsView && wsView.snapToNearest) {
+            wsView.snapToNearest()
+        }
+    }
 
     property string osdIcon: "🔊"
     property int osdValue: 50
@@ -60,6 +80,7 @@ Item {
         return Theme.notification
     }
 
+    // 🚀 0 索引解析
     readonly property int displayWsNumber: {
         var n = Number(wsCurrent)
         if (isNaN(n)) return 0
@@ -90,21 +111,26 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // 3. 桌面切换动画展示条
+    // 3. 高斯绝对网格鱼眼工作区标尺
     CompactWorkspaceView {
         id: wsView
         anchors.centerIn: parent
         chosenFont: compactRoot.chosenFont
-        wsName: compactRoot.wsName; wsTotal: compactRoot.wsTotal; displayWsNumber: compactRoot.displayWsNumber
-        activeSlotIndex: Math.max(0, Math.min(compactRoot.displayWsNumber, compactRoot.wsTotal - 1))
+        wsName: compactRoot.wsName
+        wsTotal: compactRoot.wsTotal
+        wsList: compactRoot.wsList
+        displayWsNumber: compactRoot.displayWsNumber
+        isScrubbing: compactRoot.isScrubbing
+        isScrubCanceling: compactRoot.isScrubCanceling
+
         visible: opacity > 0.001
-        opacity: (compactRoot.activeTransient === "WORKSPACE" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
+        opacity: ((compactRoot.activeTransient === "WORKSPACE" || compactRoot.isScrubbing) && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
         scale: opacity > 0.01 ? 1.0 : 0.94
         Behavior on opacity { NumberAnimation { duration: 120 } }
         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
-    // 4. 🚀 纯正苹果流体音量/静音 OSD（优雅向外舒展浮现）
+    // 4. 音量/静音 OSD
     CompactOsdView {
         id: osdView
         anchors.fill: parent
@@ -112,13 +138,10 @@ Item {
         osdIcon: compactRoot.osdIcon
         osdValue: compactRoot.osdValue
         visible: opacity > 0.001
-
         opacity: compactRoot.isOsdMode ? 1.0 : 0.0
         scale: compactRoot.isOsdMode ? 1.0 : 0.88
 
-        Behavior on opacity {
-            NumberAnimation { duration: compactRoot.isOsdMode ? 140 : 110; easing.type: Easing.OutQuad }
-        }
+        Behavior on opacity { NumberAnimation { duration: compactRoot.isOsdMode ? 140 : 110; easing.type: Easing.OutQuad } }
         Behavior on scale {
             NumberAnimation {
                 duration: compactRoot.isOsdMode ? 180 : 110
@@ -128,7 +151,7 @@ Item {
         }
     }
 
-    // 5. 通知弹窗横幅 (ALERT)
+    // 5. 通知弹窗横幅
     CompactAlertView {
         id: alertView
         chosenFont: compactRoot.chosenFont
@@ -137,7 +160,7 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // 6. 🚀 常态时钟（OSD 进场时优雅向景深处微退，OSD 离开时水润浮现）
+    // 6. 常态时钟
     CompactClockView {
         id: clockView
         anchors.centerIn: parent
@@ -148,17 +171,13 @@ Item {
         downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
         displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
 
-        readonly property bool clockVisibleState: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling)
+        readonly property bool clockVisibleState: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling && !compactRoot.isScrubbing)
         isClockActive: clockVisibleState
 
         opacity: clockVisibleState ? 1.0 : 0.0
         scale: clockVisibleState ? 1.0 : 0.90
 
-        Behavior on opacity {
-            NumberAnimation { duration: clockView.clockVisibleState ? 150 : 90; easing.type: Easing.OutQuad }
-        }
-        Behavior on scale {
-            NumberAnimation { duration: clockView.clockVisibleState ? 170 : 90; easing.type: Easing.OutCubic }
-        }
+        Behavior on opacity { NumberAnimation { duration: clockView.clockVisibleState ? 150 : 90; easing.type: Easing.OutQuad } }
+        Behavior on scale { NumberAnimation { duration: clockView.clockVisibleState ? 170 : 90; easing.type: Easing.OutCubic } }
     }
 }
