@@ -12,6 +12,7 @@ from config import ConfigManager
 from bridge import IslandBridge
 from ws_client import WebSocketDaemonClient
 from theme import theme
+from PySide6 import QtSql
 from PySide6.QtCore import QUrl, QTimer, Qt
 from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
@@ -70,8 +71,8 @@ def main():
     view.setFlags(
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 
-        Qt.WindowType.Tool 
-        # Qt.WindowType.BypassWindowManagerHint
+        Qt.WindowType.Tool |
+        Qt.WindowType.BypassWindowManagerHint
     )
 
     bridge = IslandBridge(view, config)

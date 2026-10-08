@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: HardwarePage.qml (macOS 原生极简·功能置顶·大胶囊滑条)
+// 📄 File: HardwarePage.qml (统一 Token 瘦身版)
 // ==========================================
 import QtQuick
 
@@ -8,13 +8,8 @@ Item {
     anchors.fill: parent
 
     property string chosenFont: ""
-    readonly property string effectiveFont: {
-        if (typeof Theme !== "undefined" && Theme.activeFont) return Theme.activeFont
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) return Config.fontFamily
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) return chosenFont
-        return ""
-    }
-    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string displayFont: Theme.displayMonoFont
 
     property int currentVolume: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property int currentBrightness: (typeof Bridge !== "undefined" && Bridge.currentBrightness !== undefined) ? Bridge.currentBrightness : 100
@@ -43,14 +38,11 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 10
 
-        // =====================================================================
-        // 1. 🚀 顶部置顶快捷工具条 (麦克风开关 + 偏好设置直达)
-        // =====================================================================
+        // 1. 顶部置顶快捷工具条
         Item {
             width: parent.width
             height: 24
 
-            // 左侧：麦克风输入控制微胶囊
             Rectangle {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
@@ -81,13 +73,10 @@ Item {
                 HoverHandler { id: micHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
                     id: micTap
-                    onTapped: {
-                        if (typeof Bridge !== "undefined") Bridge.toggleHardwareMute(2)
-                    }
+                    onTapped: if (typeof Bridge !== "undefined") Bridge.toggleHardwareMute(2)
                 }
             }
 
-            // 右侧：偏好设置直达微胶囊
             Rectangle {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
@@ -121,9 +110,7 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. Display (原生 macOS 风格大胶囊滑条)
-        // =====================================================================
+        // 2. Display
         Column {
             width: parent.width
             spacing: 5
@@ -198,9 +185,7 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 3. Sound (原生 macOS 风格大胶囊滑条)
-        // =====================================================================
+        // 3. Sound
         Column {
             width: parent.width
             spacing: 5

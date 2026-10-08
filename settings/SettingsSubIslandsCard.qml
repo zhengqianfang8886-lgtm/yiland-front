@@ -1,5 +1,6 @@
 // ==========================================
 // 📄 File: settings/SettingsSubIslandsCard.qml
+// 🌟 副岛排序、换向与 Lofi 场景开关
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -13,6 +14,7 @@ Rectangle {
     border.width: 1
 
     function getIslandName(key) {
+        if (key === "lofi") return "☕ Lofi 画面"
         if (key === "memory") return "💾 内存监控"
         if (key === "music") return "🎵 媒体/打字"
         if (key === "hardware") return "🔊 硬件控制"
@@ -65,6 +67,21 @@ Rectangle {
             spacing: 6
             Text { text: "🧩"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
             Text { text: "副岛排列与间距控制"; color: "#818cf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+        }
+
+        // 🚀 Lofi 动态副岛独立开关行
+        Item {
+            width: parent.width; height: 28
+            Row {
+                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                Text { text: "☕"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "启用 Lofi 动态微小岛 (左侧伴生动画)"; color: "white"; font.pixelSize: 11; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
+            }
+            Switch {
+                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                checked: (typeof Config !== "undefined" && Config.showLofiBubble !== undefined) ? Config.showLofiBubble : true
+                onToggled: if (typeof Config !== "undefined") Config.showLofiBubble = checked
+            }
         }
 
         // 左侧副岛列表
@@ -159,7 +176,7 @@ Rectangle {
             }
         }
 
-        // 🎵 音乐岛声波条数控制 (5-10条)
+        // 🎵 音乐岛声波条数控制
         Column {
             width: parent.width
             spacing: 6
@@ -182,7 +199,6 @@ Rectangle {
                 }
             }
 
-            // 5 ~ 10 快捷点选胶囊行
             Row {
                 spacing: 5
                 anchors.horizontalCenter: parent.horizontalCenter

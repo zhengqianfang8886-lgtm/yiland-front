@@ -3,3 +3,6 @@ all_in_one.py
 use.py
 project_bundle.txt
 services/__pycache__/*
+build/*
+.venv/*
+dist/*

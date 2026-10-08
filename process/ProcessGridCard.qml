@@ -1,7 +1,8 @@
 // ==========================================
-// 📄 File: process/ProcessGridCard.qml (图标视图双列卡片)
+// 📄 File: process/ProcessGridCard.qml (引用通用工具库版)
 // ==========================================
 import QtQuick
+import "ProcessUtils.js" as ProcessUtils
 
 Rectangle {
     id: gridCardRoot
@@ -13,8 +14,8 @@ Rectangle {
                   (cardHover.containsMouse ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(1, 1, 1, 0.07))
     border.width: 1
 
-    property string effectiveFont: ""
-    property string effectiveMono: ""
+    property string effectiveFont: Theme.activeFont
+    property string effectiveMono: Theme.displayMonoFont
     property string taskId: ""
     property string taskName: ""
     property string taskCmd: ""
@@ -26,23 +27,11 @@ Rectangle {
     signal cardClicked()
     signal toggleRunning()
 
-    function getTechIcon(cmd, name) {
-        var c = (cmd || "").toLowerCase()
-        var n = (name || "").toLowerCase()
-        if (c.indexOf("python") !== -1 || n.indexOf("py") !== -1) return "🐍"
-        if (c.indexOf("cargo") !== -1 || c.indexOf("rust") !== -1 || c.indexOf("tauri") !== -1) return "🦀"
-        if (c.indexOf("npm") !== -1 || c.indexOf("node") !== -1 || c.indexOf("vite") !== -1 || c.indexOf("yarn") !== -1) return "⬢"
-        if (c.indexOf("docker") !== -1) return "🐳"
-        if (c.indexOf("go ") !== -1) return "🐹"
-        return "⚡"
-    }
-
     Row {
         anchors.fill: parent
         anchors.margins: 8
         spacing: 8
 
-        // 🚀 大尺寸高质感真实图片显示槽
         Rectangle {
             width: 38; height: 38; radius: 8
             color: gridCardRoot.taskStatus === "running" ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.15) : Qt.rgba(1, 1, 1, 0.06)
@@ -62,15 +51,15 @@ Rectangle {
                 smooth: true
             }
 
+            // 🚀 核心优化：调用 ProcessUtils.getTechIcon
             Text {
                 anchors.centerIn: parent
-                text: gridCardRoot.getTechIcon(gridCardRoot.taskCmd, gridCardRoot.taskName)
+                text: ProcessUtils.getTechIcon(gridCardRoot.taskCmd, gridCardRoot.taskName)
                 font.pixelSize: 18
                 visible: !gridIconImg.visible
             }
         }
 
-        // 文字信息与迷你启停
         Column {
             width: parent.width - 38 - 8
             anchors.verticalCenter: parent.verticalCenter
@@ -90,15 +79,14 @@ Rectangle {
                     elide: Text.ElideRight
                 }
 
-                // 迷你极简启停胶囊
                 Rectangle {
                     id: toggleMiniBtn
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     width: 38; height: 18; radius: 4
                     color: gridCardRoot.taskStatus === "running" ?
-                           (miniMouse.pressed ? "#7f1d1d" : Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.22)) :
+                           (miniMouse.pressed ? "#7f1d1d" : Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.22)) :
                            (miniMouse.pressed ? "#065f46" : Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.22))
-                    border.color: gridCardRoot.taskStatus === "running" ? "#ef4444" : "#10b981"
+                    border.color: gridCardRoot.taskStatus === "running" ? Theme.danger : "#10b981"
                     border.width: 1
 
                     Text {

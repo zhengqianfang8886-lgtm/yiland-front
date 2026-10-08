@@ -1,25 +1,15 @@
 // ==========================================
-// 📄 File: TimeDetailPage.qml (黄金比例·彻底根绝截断·自洽逻辑版)
+// 📄 File: TimeDetailPage.qml (统一 Token 瘦身版)
 // ==========================================
 import QtQuick
-import QtQuick.Shapes
 
 Item {
     id: timeDetailRoot
     anchors.fill: parent
 
     property string chosenFont: ""
-
-    readonly property string textFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
-        return ""
-    }
-    readonly property string displayFont: (textFont !== "") ? textFont : "Monospace"
+    readonly property string textFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string displayFont: Theme.displayMonoFont
 
     property var currentTime: new Date()
 
@@ -36,7 +26,6 @@ Item {
         return h >= 6 && h < 18
     }
 
-    // 1. 今日流逝与倒数 (逻辑自洽：分清已过与剩余)
     readonly property var dayInfo: {
         var d = timeDetailRoot.currentTime
         var h = d.getHours(), m = d.getMinutes(), s = d.getSeconds()
@@ -57,7 +46,6 @@ Item {
         }
     }
 
-    // 2. 本周信息
     readonly property var weekInfo: {
         var d = timeDetailRoot.currentTime
         var dayOfWeek = d.getDay()
@@ -75,7 +63,6 @@ Item {
         }
     }
 
-    // 3. 年度信息 (逻辑自洽：倒计与剩余自洽)
     readonly property var yearInfo: {
         var now = timeDetailRoot.currentTime
         var year = now.getFullYear()
@@ -100,7 +87,6 @@ Item {
         }
     }
 
-    // 4. 作息节律
     readonly property var rhythmInfo: {
         var h = timeDetailRoot.currentTime.getHours()
         if (h >= 6 && h < 9) {
@@ -122,9 +108,6 @@ Item {
         anchors.fill: parent
         spacing: 10
 
-        // =====================================================================
-        // 1. 左侧大看板 (微调至 130px，紧凑聚拢，释放右侧宝贵空间)
-        // =====================================================================
         Rectangle {
             width: 130
             height: parent.height
@@ -139,7 +122,6 @@ Item {
                 spacing: 5
                 width: parent.width - 12
 
-                // 标头
                 Row {
                     spacing: 4
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -158,7 +140,6 @@ Item {
                     }
                 }
 
-                // 时间大字
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 2
@@ -206,7 +187,6 @@ Item {
                     }
                 }
 
-                // 秒数胶囊
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: 56; height: 18; radius: 9
@@ -244,7 +224,6 @@ Item {
 
                 Item { height: 1 }
 
-                // 日期
                 Text {
                     text: {
                         var d = timeDetailRoot.currentTime
@@ -258,7 +237,6 @@ Item {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                // 时区
                 Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     height: 16
@@ -293,18 +271,12 @@ Item {
             }
         }
 
-        // =====================================================================
-        // 2. 右侧 4 卡 Bento 网格 (拓宽至 258px，单卡 125px，彻底容纳文字)
-        // =====================================================================
         Grid {
             width: parent.width - 140
             height: parent.height
             columns: 2
             spacing: 8
 
-            // -----------------------------------------------------------------
-            // 卡片 1：今日剩余 (逻辑自洽：右上角标“剩 31%”)
-            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -327,7 +299,6 @@ Item {
                             Rectangle { width: 3; height: 10; radius: 1.5; color: Theme.calendar; anchors.verticalCenter: parent.verticalCenter }
                             Text { text: "今日剩余"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; font.family: timeDetailRoot.textFont }
                         }
-                        // 🚀【自洽】：明确显示“余 xx%”
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             text: "余 " + timeDetailRoot.dayInfo.remPercentStr
@@ -397,9 +368,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 卡片 2：本周状态 (彻底根除截断，上下层次分明)
-            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -429,7 +397,6 @@ Item {
                         }
                     }
 
-                    // 🚀【彻底重塑】：主视觉大字独占清晰位置，不再强行塞在一行导致切字
                     Row {
                         spacing: 6
                         anchors.left: parent.left
@@ -443,7 +410,6 @@ Item {
                             font.family: timeDetailRoot.textFont
                         }
 
-                        // 极精致小徽标，替代挤扁的长文字
                         Rectangle {
                             height: 16
                             width: tagNoticeText.implicitWidth + 8
@@ -476,9 +442,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 卡片 3：年度倒计 (逻辑自洽：右上角标“余 24%”)
-            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2
@@ -501,7 +464,6 @@ Item {
                             Rectangle { width: 3; height: 10; radius: 1.5; color: "#10b981"; anchors.verticalCenter: parent.verticalCenter }
                             Text { text: "年度倒计"; color: Theme.textSecondary; font.pixelSize: 11; font.weight: Font.Bold; font.family: timeDetailRoot.textFont }
                         }
-                        // 🚀【自洽】：清晰指明“余 xx%”
                         Text {
                             anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                             text: "余 " + timeDetailRoot.yearInfo.remPercentStr
@@ -554,9 +516,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 卡片 4：作息节律
-            // -----------------------------------------------------------------
             Rectangle {
                 width: (parent.width - 8) / 2
                 height: (parent.height - 8) / 2

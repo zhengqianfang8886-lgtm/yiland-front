@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: theme.py (中央动效物理引擎内核)
+# 📄 File: theme.py (中央动效物理引擎与统一定义)
 # ==========================================
 from PySide6.QtCore import QObject, Property, Signal
 from PySide6.QtGui import QColor
@@ -23,7 +23,7 @@ class ThemeManager(QObject):
                 self._config.animStyleChanged.connect(self.motionChanged)
 
     # =========================================================================
-    # 1. 字体排版
+    # 1. 字体排版系统 Token
     # =========================================================================
     @Property(str, notify=fontChanged)
     def activeFont(self):
@@ -120,7 +120,6 @@ class ThemeManager(QObject):
             return self._config.animStyle == "jelly"
         return False
 
-    # 动态基准节奏时长 (毫秒)
     @Property(int, notify=motionChanged)
     def animInstant(self): return 90 if not self.isJellyMode else 110
 
@@ -136,7 +135,6 @@ class ThemeManager(QObject):
     @Property(int, notify=motionChanged)
     def animSlow(self): return 280 if not self.isJellyMode else 340
 
-    # 动态物理超冲量 (Overshoot)
     @Property(float, notify=motionChanged)
     def springOvershootSubtle(self): return 1.04 if not self.isJellyMode else 1.08
 
@@ -146,8 +144,6 @@ class ThemeManager(QObject):
     @Property(float, notify=motionChanged)
     def springOvershootFirm(self): return 1.14 if not self.isJellyMode else 1.28
 
-    # 曲线语义映射（通过整型常量供 QML Easing.type 直接绑定）
-    # 6: OutCubic, 7: InOutCubic, 9: OutBack, 10: InOutBack, 2: OutQuad
     @Property(int, notify=motionChanged)
     def curveDecel(self): return 6  # Easing.OutCubic
 

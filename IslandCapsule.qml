@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (音量OSD零伸缩·完全锁死原胶囊尺寸版)
+// 📄 File: IslandCapsule.qml
+// 🌟 解决正常离开不消失 · 160ms 极速敏捷收缩 · 260ms 瞬时变形防抖完整版
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -8,7 +9,7 @@ Item {
     id: capsuleRoot
 
     property string chosenFont: ""
-    readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
 
     property bool isExpanded: false
     property bool isCollapsing: false
@@ -85,8 +86,8 @@ Item {
     property bool anySubBubbleHovered: false
     property bool subBubbleInteracting: false
 
-    readonly property bool isCapsuleDirectHovered: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse)
-    readonly property bool isMouseOver: isCapsuleDirectHovered || (isExpanded && anySubBubbleHovered)
+    // 🚀【双通道敏捷指针感知】：无论是底层还是顶层 Hover，只要有一个在即为在，离开即触发收缩
+    readonly property bool isMouseOver: capsuleRootHover.hovered || (typeof hitSensorArea !== "undefined" && hitSensorArea.containsMouse)
 
     signal requestExpand(string tabName)
     signal requestSettings()
@@ -100,9 +101,6 @@ Item {
         return totalLen > 24 || (capsuleRoot.alertSubtitle || "").indexOf("\n") !== -1
     }
 
-    // =========================================================================
-    // 🚀 高水位引擎：彻底剔除 OSD，仅用于工作区名称防抖
-    // =========================================================================
     property bool isUserInteracting: false
     property int peakInteractionWidth: 0
 
@@ -125,8 +123,6 @@ Item {
         if (capsuleRoot.activeTransient === "ALERT" || capsuleRoot.activeTransient === "SEDENTARY" || capsuleRoot.isExpanded) {
             capsuleRoot.peakInteractionWidth = 0
         }
-
-        // 🚀 OSD 音量调节严禁污染水位，永远保持常态宽度！
         if (capsuleRoot.activeTransient === "OSD") {
             return
         }
@@ -169,9 +165,6 @@ Item {
     onWsCurrentChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("切换桌面")
     onWsNameChanged: if (activeTransient === "WORKSPACE") capsuleRoot.notifyInteraction("桌面名称变更")
 
-    // =========================================================================
-    // 🚀 核心尺寸规则：常态时钟宽度即为所有微状态的基础物理宽度
-    // =========================================================================
     readonly property int currentNormalWidth: {
         var baseW = compactCapsuleView.textRowImplicitWidth + 24
         return Math.max(80, Math.ceil(baseW / 2) * 2)
@@ -189,12 +182,9 @@ Item {
             var wsDynamic = (compactCapsuleView.wsContentImplicitWidth || 0) + 20
             return Math.max(168, Math.max(wsDynamic, currentNormalWidth))
         }
-
-        // 🚀【彻底修复】：OSD 模式完全等于原本灵动岛的胶囊长度，绝对不发生任何拉伸！
         if (capsuleRoot.activeTransient === "OSD") {
             return currentNormalWidth
         }
-
         return currentNormalWidth
     }
 
@@ -206,17 +196,13 @@ Item {
             var dynamicW = compactCapsuleView.alertContentImplicitWidth + 28
             return Math.round(Math.min(420, Math.max(160, dynamicW)))
         }
-
-        // 🚀【彻底修复】：OSD 模式无条件锁定常态胶囊原本长度
         if (capsuleRoot.activeTransient === "OSD") {
             return capsuleRoot.currentNormalWidth
         }
-
         if (capsuleRoot.activeTransient === "WORKSPACE" || capsuleRoot.isUserInteracting) {
             var safePeak = Math.min(capsuleRoot.peakInteractionWidth, capsuleRoot.maxMicroInteractionWidth)
             return Math.max(safePeak, capsuleRoot.rawTargetWidth)
         }
-
         return capsuleRoot.currentNormalWidth
     }
 
@@ -224,7 +210,6 @@ Item {
         if (capsuleRoot.isExpanded) return 240
         if (capsuleRoot.activeTransient === "SEDENTARY") return 108
         if (capsuleRoot.activeTransient === "ALERT") return capsuleRoot.isLongAlert ? 64 : 48
-        // 🚀【彻底修复】：OSD 模式高度也必须与原本灵动岛胶囊完全一致（34px）
         return capsuleRoot.isCalling ? 44 : 34
     }
 
@@ -253,8 +238,8 @@ Item {
     anchors.topMargin: capsuleRoot.isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8)
     Behavior on anchors.topMargin {
         NumberAnimation {
-            duration: Theme.animSlow
-            easing.type: capsuleRoot.isIslandHidden ? Easing.InBack : Theme.curveSpring
+            duration: capsuleRoot.isIslandHidden ? 100 : Theme.animSlow
+            easing.type: capsuleRoot.isIslandHidden ? Easing.InQuad : Theme.curveSpring
             easing.overshoot: Theme.springOvershootNormal
         }
     }
@@ -300,8 +285,6 @@ Item {
             isCollapsing = false
             maskCommitRequested()
             if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        } else {
-            if (!capsuleRoot.isMouseOver) capsuleRoot.startCollapse()
         }
     }
 
@@ -321,10 +304,33 @@ Item {
 
     property bool scrollSessionLocked: false
 
+    // 🚀【核心优化 1】：瞬态变形防抖锁 (仅在动画舒展的 260ms 内保护，动画结束立刻回归灵敏状态)
+    property bool morphBriefLocked: false
+    Timer {
+        id: morphBriefTimer
+        interval: 260
+        repeat: false
+        onTriggered: {
+            capsuleRoot.morphBriefLocked = false
+            // 查岗：展开动画完成后若鼠标不在卡片上，立刻开始收缩
+            if (capsuleRoot.isExpanded && !capsuleRoot.isMouseOver) {
+                capsuleRoot.requestCollapse()
+            }
+        }
+    }
+
+    function lockBriefMorph() {
+        capsuleRoot.cancelCollapse()
+        capsuleRoot.morphBriefLocked = true
+        morphBriefTimer.restart()
+    }
+
     HoverHandler {
         id: capsuleRootHover
         onHoveredChanged: {
             if (hovered) {
+                capsuleRoot.morphBriefLocked = false
+                morphBriefTimer.stop()
                 capsuleRoot.cancelCollapse()
                 if (!capsuleRoot.isExpanded && !capsuleRoot.isCollapsing && !capsuleRoot.subBubbleInteracting) {
                     if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
@@ -334,7 +340,9 @@ Item {
             } else {
                 hoverDwellTimer.stop()
                 capsuleRoot.scrollSessionLocked = false
-                capsuleRoot.requestCollapse()
+                if (capsuleRoot.isExpanded) {
+                    capsuleRoot.requestCollapse()
+                }
             }
         }
     }
@@ -344,7 +352,7 @@ Item {
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
         onTriggered: {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
-            if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isCapsuleDirectHovered && !capsuleRoot.isExpanded) {
+            if (!capsuleRoot.scrollSessionLocked && !capsuleRoot.subBubbleInteracting && !capsuleRoot.isCollapsing && capsuleRoot.isMouseOver && !capsuleRoot.isExpanded) {
                 if (capsuleRoot.isCalling) capsuleRoot.requestExpand("media")
                 else if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.requestExpand("notification")
                 else if (capsuleRoot.activeTransient === "SEDENTARY") return
@@ -353,19 +361,29 @@ Item {
         }
     }
 
+    // 🚀【核心优化 2】：极速敏捷离开收缩 (160ms 黄金跟手收拢)
     Timer {
         id: leaveGraceTimer
-        interval: Theme.animFast
+        interval: 160
+        repeat: false
         onTriggered: {
-            if (!capsuleRoot.isMouseOver && capsuleRoot.isExpanded) capsuleRoot.startCollapse()
+            if (capsuleRoot.isExpanded && !capsuleRoot.morphBriefLocked && !capsuleRoot.isMouseOver) {
+                capsuleRoot.startCollapse()
+            }
         }
     }
 
     function cancelCollapse() { leaveGraceTimer.stop() }
-    function requestCollapse() { if (isExpanded) leaveGraceTimer.restart() }
+    function requestCollapse() {
+        if (isExpanded && !morphBriefLocked) {
+            leaveGraceTimer.restart()
+        }
+    }
 
     function startCollapse() {
         if (!isExpanded) return
+        morphBriefLocked = false
+        morphBriefTimer.stop()
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
         isCollapsing = true
@@ -416,6 +434,7 @@ Item {
                 }
             }
         }
+        // 🚀【核心优化 3】：解除错误拦截，无论何种状态只要光标滑出立刻请求收拢！
         onExited: {
             hoverDwellTimer.stop()
             capsuleRoot.scrollSessionLocked = false
@@ -427,15 +446,20 @@ Item {
             if (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace") capsuleRoot.handleWheelAction(wheel.angleDelta.y)
         }
         onClicked: (mouse) => {
-            if (capsuleRoot.isExpanded || capsuleRoot.activeTransient === "SEDENTARY") return
-            hoverDwellTimer.stop()
-            leaveGraceTimer.stop()
-            capsuleRoot.scrollSessionLocked = false
+            if (capsuleRoot.activeTransient === "SEDENTARY") return
 
             if (mouse.button === Qt.RightButton) {
+                hoverDwellTimer.stop()
+                leaveGraceTimer.stop()
                 capsuleRoot.requestHideIsland()
                 return
             }
+
+            if (capsuleRoot.isExpanded) return
+
+            hoverDwellTimer.stop()
+            leaveGraceTimer.stop()
+            capsuleRoot.scrollSessionLocked = false
 
             if (capsuleRoot.isCalling) { capsuleRoot.requestExpand("media"); return }
             if (capsuleRoot.activeTransient === "ALERT") { capsuleRoot.requestExpand("notification"); return }

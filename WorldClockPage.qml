@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: WorldClockPage.qml (统一 Token 瘦身版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 
@@ -6,20 +9,8 @@ Item {
     anchors.fill: parent
 
     property string chosenFont: ""
-
-    // 🚀 直连全局 Config，打破 Loader 传参断链，设置修改立即全量刷新
-    readonly property string effectiveFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
-        return ""
-    }
-
-    // 🚀 数字与时间无条件听从用户字体
-    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string displayFont: Theme.displayMonoFont
 
     property bool is24h: true
     property bool timeTick: false
@@ -84,13 +75,11 @@ Item {
 
     function getTimeInfo(item, tick) {
         if (!item) return { time: "--:--", diff: "", isDay: true, isWorking: false }
-
         var tz = item.tz || ""
         if (typeof Bridge !== "undefined" && Bridge.getWorldTime) {
             var info = Bridge.getWorldTime(tz, worldClockRoot.is24h)
             if (info && info.time) return info
         }
-
         return { time: "--:--", diff: "", isDay: true, isWorking: false }
     }
 
@@ -108,7 +97,6 @@ Item {
         anchors.fill: parent
         spacing: 8
 
-        // 1. 顶栏
         Item {
             id: topHeader
             width: parent.width
@@ -186,7 +174,6 @@ Item {
             }
         }
 
-        // 2. 2×2 Bento 仪表网格
         Item {
             width: parent.width
             height: parent.height - 32
@@ -281,7 +268,6 @@ Item {
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 4
 
-                                        // 🚀 时差胶囊彻底听从用户字体
                                         Rectangle {
                                             height: 18
                                             width: diffText.implicitWidth + 10
@@ -354,7 +340,6 @@ Item {
                                         }
                                     }
 
-                                    // 🚀 核心修复：时间大字彻底绑定 displayFont，用户选什么字体就显示什么字体！
                                     Text {
                                         anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
@@ -373,7 +358,6 @@ Item {
         }
     }
 
-    // 3. 悬浮城市搜索下拉浮层
     Rectangle {
         id: dropdownMenu
         anchors.top: parent.top

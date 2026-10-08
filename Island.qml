@@ -1,6 +1,6 @@
 // ==========================================
-// 📄 File: Island.qml (全量整合版)
-// 🌟 物理键盘脉冲接入 · 60帧原子遮罩刷新 · 彻底解决一切切角与闪烁
+// 📄 File: Island.qml
+// 🌟 配合 4px 遮罩隔离 · 状态变更自动清屏消除残影完整版
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -9,28 +9,41 @@ Item {
     id: root
     width: 860; height: 270
 
-    readonly property string chosenFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : ((typeof Config !== "undefined") ? Config.activeFont : "")
+    readonly property string chosenFont: Theme.activeFont
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
     property bool isIslandHidden: false
 
+    readonly property int effectiveHideDurationMs: {
+        var sec = 5
+        if (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) {
+            sec = Number(Config.autoHideDurationSeconds)
+        }
+        return Math.max(1000, sec * 1000)
+    }
+
     Timer {
         id: autoRestoreTimer
-        interval: (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds * 1000 : 5000
+        interval: root.effectiveHideDurationMs
         repeat: false
         onTriggered: {
-            root.isIslandHidden = false
-            maskController.commit()
+            root.wakeIsland()
         }
     }
 
     function triggerHideIsland() {
         if (capsule.isExpanded) {
-            capsule.startCollapse()
+            capsule.isExpanded = false
+            capsule.isCollapsing = false
         }
+        autoRestoreTimer.stop()
         root.isIslandHidden = true
-        var sec = (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) ? Config.autoHideDurationSeconds : 5
-        autoRestoreTimer.interval = Math.max(1000, sec * 1000)
+
+        if (typeof Bridge !== "undefined" && Bridge.setPassthrough) {
+            Bridge.setPassthrough()
+        }
+
+        autoRestoreTimer.interval = root.effectiveHideDurationMs
         autoRestoreTimer.restart()
         maskController.commit()
     }
@@ -70,10 +83,7 @@ Item {
         }
     }
 
-    // 左侧纯音乐岛条件
     readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
-
-    // 🚀【击键心流副岛条件】：开启配置 + 正在打字 + 未被大弹窗阻断
     readonly property bool hasTypingIsland: !root.isBlockingTransient &&
                                             (typeof Config === "undefined" || Config.showHardwareBubble !== false) &&
                                             (typeof Config === "undefined" || Config.typingVisualizerEnabled !== false)
@@ -209,6 +219,7 @@ Item {
     IslandMaskController {
         id: maskController
         rootItem: root; capsuleItem: capsule
+        lofiBubble: bubbleLofi
         leftMemoryBubble: bubbleMemory
         leftBubble: bubbleMusic
         hwBubble: bubbleHardware
@@ -220,7 +231,7 @@ Item {
     }
 
     function expandToTab(tabName) {
-        capsule.cancelCollapse()
+        capsule.lockBriefMorph()
         if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
             capsule.activeTransient = ""
@@ -230,7 +241,6 @@ Item {
         capsule.isExpanded = true
         maskController.commit()
     }
-
 
     Timer {
         id: subInteractingTimer
@@ -248,7 +258,7 @@ Item {
         chosenFont: root.chosenFont
         enabledTabs: root.enabledTabs
         dominantColor: relay.dominantColor
-        anySubBubbleHovered: bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
+        anySubBubbleHovered: bubbleLofi.isHovered || bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -271,6 +281,7 @@ Item {
     }
 
     readonly property var islandItemMap: ({
+        "lofi": bubbleLofi,
         "memory": bubbleMemory,
         "music": bubbleMusic,
         "hardware": bubbleHardware,
@@ -279,12 +290,12 @@ Item {
     })
 
     function getIslandSide(key) {
-        var left = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
+        var left = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
         return left.indexOf(key) !== -1 ? "left" : "right"
     }
 
     function getLeftIslandOffset(key, itemWidth) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
+        var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
         var currentOffset = root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
@@ -317,9 +328,28 @@ Item {
         return currentOffset
     }
 
-    // =========================================================================
-    // 5 大副岛组件 (全量绑定 requestMaskUpdate 60帧平滑刷新)
-    // =========================================================================
+    // 🚀 各副岛变更状态时，一律同步触发强制重绘擦除显存脏区域
+    LofiBubbleView {
+        id: bubbleLofi; z: 1
+        readonly property string side: root.getIslandSide("lofi")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("lofi", width) : root.getRightIslandOffset("lofi")
+        property real currentOffset: targetOffset
+        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        y: capsule.y + Math.round((capsule.height - height) / 2)
+        transformOrigin: side === "left" ? Item.Right : Item.Left
+
+        active: !root.isBlockingTransient &&
+                (typeof Config === "undefined" || Config.showLofiBubble !== false)
+
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
+        onXChanged: maskController.requestMaskUpdate()
+        onWidthChanged: maskController.requestMaskUpdate()
+    }
 
     MemoryBubbleView {
         id: bubbleMemory; z: 1
@@ -345,8 +375,10 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        // 🚀 彻底修复通知切角，使用全新的节流更新 Mask
-        onActiveChanged: maskController.requestMaskUpdate()
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
         onXChanged: maskController.requestMaskUpdate()
         onWidthChanged: maskController.requestMaskUpdate()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
@@ -371,15 +403,16 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        // 🚀 彻底修复通知切角
-        onActiveChanged: maskController.requestMaskUpdate()
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
         onXChanged: maskController.requestMaskUpdate()
         onWidthChanged: maskController.requestMaskUpdate()
         onClicked: root.expandToTab("media")
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
-    // 🚀【击键心流副岛】：直接绑定 relay 真实输入数据，彻底打通触觉脉冲链路！
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
@@ -390,7 +423,7 @@ Item {
 
         activeMod: relay.typingMod
         activeKey: relay.typingKey
-        strokeRevision: relay.strokeRevision // 🚀 绑定底层每一次物理击键计数，绝不漏按！
+        strokeRevision: relay.strokeRevision
 
         x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
@@ -406,8 +439,10 @@ Item {
         spec4: relay.typingSpec4
         kps: relay.typingKps
 
-        // 🚀 动态宽度呼吸时平滑请求重绘遮罩，彻底告别旧版的系统 Mask 清空闪烁
-        onActiveChanged: maskController.requestMaskUpdate()
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
         onXChanged: maskController.requestMaskUpdate()
         onWidthChanged: maskController.requestMaskUpdate()
     }
@@ -432,7 +467,10 @@ Item {
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        onActiveChanged: maskController.requestMaskUpdate()
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
         onXChanged: maskController.requestMaskUpdate()
         onWidthChanged: maskController.requestMaskUpdate()
 
@@ -454,7 +492,10 @@ Item {
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        onActiveChanged: maskController.requestMaskUpdate()
+        onActiveChanged: {
+            maskController.requestMaskUpdate()
+            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
+        }
         onXChanged: maskController.requestMaskUpdate()
         onWidthChanged: maskController.requestMaskUpdate()
         onClicked: root.expandToTab("notification")

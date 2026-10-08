@@ -1,3 +1,6 @@
+// ==========================================
+// 📄 File: MediaPage.qml (统一 Token 瘦身版)
+// ==========================================
 import QtQuick
 import QtQuick.Shapes
 
@@ -5,16 +8,8 @@ Item {
     id: mediaRoot
 
     property string chosenFont: ""
-    readonly property string effectiveFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) {
-            return chosenFont
-        }
-        return ""
-    }
-    readonly property string displayFont: (effectiveFont !== "") ? effectiveFont : "Monospace"
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string displayFont: Theme.displayMonoFont
 
     property string title: "等待播放..."
     property string artist: "未知歌手"
@@ -30,9 +25,7 @@ Item {
         mediaRevision++
         resetFadeAnim.restart()
     }
-    onArtUrlChanged: {
-        mediaRevision++
-    }
+    onArtUrlChanged: mediaRevision++
 
     signal cancelCollapse()
     signal requestCollapse()
@@ -172,7 +165,7 @@ Item {
             }
         }
 
-        // 2. 音乐播放时间轴与进度条（彻底响应用户字体）
+        // 2. 音乐播放时间轴
         Item {
             width: parent.width
             height: 12

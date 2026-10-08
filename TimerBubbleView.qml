@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: TimerBubbleView.qml (中央动效驱动·可重入无抖动版)
+// 📄 File: TimerBubbleView.qml
+// 🌟 独立等宽数字槽位架构 · 彻底死锁时间长度 · 零抖动完整版
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -56,20 +57,20 @@ Rectangle {
         return Theme.timer
     }
 
-    // 宽度槽位死锁，彻底杜绝跳动
+    // 🚀【宽度锁定】：小时态固定 104px，分秒态固定 88px
     width: hasHours ? 104 : 88
     height: 34
     radius: height / 2
     clip: true
 
     color: Theme.bgCapsule
-    border.width: 1.2
+    border.width: 1
     border.color: isConfirmingDismiss ?
                   Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.85) :
                   (timerBubbleRoot.isHovered ?
                   Qt.lighter(stateAccentColor, 1.2) :
-                  (currentState === "paused" ? Qt.rgba(245, 158, 11, 0.6) :
-                  (currentState === "completed" ? Qt.rgba(16, 185, 129, 0.7) : Qt.rgba(stateAccentColor.r, stateAccentColor.g, stateAccentColor.b, 0.4))))
+                  (currentState === "paused" ? Qt.rgba(245 / 255, 158 / 255, 11 / 255, 0.6) :
+                  (currentState === "completed" ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.7) : Qt.rgba(stateAccentColor.r, stateAccentColor.g, stateAccentColor.b, 0.4))))
 
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
@@ -77,7 +78,6 @@ Rectangle {
     opacity: active ? 1.0 : 0.0
     scale: active ? 1.0 : 0.0
 
-    // 中央动效接入：平滑可重入
     Behavior on width { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
     Behavior on opacity { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveFluid } }
     Behavior on scale {
@@ -95,6 +95,7 @@ Rectangle {
         if (currentState !== "paused") contentRow.opacity = 1.0
     }
 
+    // 右键解散警告底色
     Rectangle {
         anchors.fill: parent
         radius: parent.radius
@@ -104,7 +105,13 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
     }
 
-    // 1. 常态时间行
+    // 🚀 将当前时间文本拆分为单字符数组，供等宽槽位绑定
+    readonly property string rawDisplayStr: timerBubbleRoot.currentState === "completed" ? "00:00" : timerBubbleRoot.timerText
+    readonly property var charList: rawDisplayStr.split("")
+
+    // =========================================================================
+    // 1. 常态时间展示行 (圆环进度 + 独立等宽槽位时间)
+    // =========================================================================
     Row {
         id: contentRow
         anchors.centerIn: parent
@@ -123,6 +130,7 @@ Rectangle {
             onRunningChanged: if (!running) contentRow.opacity = 1.0
         }
 
+        // 1.1 左侧动态圆环指示器 (18x18 固定)
         Item {
             width: 18; height: 18
             anchors.verticalCenter: parent.verticalCenter
@@ -162,7 +170,7 @@ Rectangle {
 
             Row {
                 anchors.centerIn: parent
-                spacing: 2.2
+                spacing: 2
                 visible: timerBubbleRoot.currentState === "paused"
                 Rectangle { width: 1.8; height: 6; radius: 0.9; color: "#f59e0b" }
                 Rectangle { width: 1.8; height: 6; radius: 0.9; color: "#f59e0b" }
@@ -178,22 +186,31 @@ Rectangle {
             }
         }
 
-        Item {
-            width: timerBubbleRoot.hasHours ? 62 : 46
-            height: 20
+        // 1.2 🚀【核心设计：独立等宽槽位】：数字独占 9px，冒号独占 5px，物理长度绝对死锁！
+        Row {
             anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
 
-            Text {
-                anchors.centerIn: parent
-                text: timerBubbleRoot.currentState === "completed" ? "00:00" : timerBubbleRoot.timerText
-                color: timerBubbleRoot.currentState === "paused" ? "#fcd34d" :
-                       (timerBubbleRoot.currentState === "completed" ? "#6ee7b7" : "white")
-                font.family: timerBubbleRoot.displayFont
-                font.pixelSize: timerBubbleRoot.hasHours ? 12 : 13
-                font.weight: Font.Black
-                font.letterSpacing: 0.2
-                font.features: { "tnum": 1 }
-                renderType: Text.QtRendering
+            Repeater {
+                model: timerBubbleRoot.charList
+
+                Item {
+                    // 数字锁定 9px (含小时字号略小锁定 8px)，冒号锁定 5px
+                    readonly property bool isColon: (modelData === ":")
+                    width: isColon ? 5 : (timerBubbleRoot.hasHours ? 8 : 9)
+                    height: 20
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: modelData
+                        color: timerBubbleRoot.currentState === "paused" ? "#fcd34d" :
+                               (timerBubbleRoot.currentState === "completed" ? "#6ee7b7" : "white")
+                        font.family: timerBubbleRoot.displayFont
+                        font.pixelSize: timerBubbleRoot.hasHours ? 12 : 13
+                        font.weight: Font.Black
+                        renderType: Text.QtRendering
+                    }
+                }
             }
         }
     }
@@ -215,7 +232,9 @@ Rectangle {
         }
     }
 
-    // 2. 右键确认层（纯可重入动态浮现）
+    // =========================================================================
+    // 2. 右键确认层
+    // =========================================================================
     Row {
         id: confirmRow
         anchors.centerIn: parent

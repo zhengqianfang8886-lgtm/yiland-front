@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: MusicBubbleView.qml (去除彩色色调背景·纯净黑曜石版)
+// 📄 File: MusicBubbleView.qml
+// 🌟 饱满实体声波柱 (3.6px 加粗质感版) · 纯正通透发光
 // ==========================================
 import QtQuick
 
@@ -25,22 +26,19 @@ Rectangle {
     signal clicked()
     signal wheelInteracted()
 
-    width: 48 + (barsCount - 5) * 4
+    // 🚀 适应加粗后的条宽与间距，基底宽度提升至 52px
+    width: 52 + (barsCount - 5) * 6
     height: 34
     radius: 17
     clip: true
     transformOrigin: Item.Right
 
-    // 中央动效平滑接管
     Behavior on width { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveDecel } }
 
     antialiasing: true
     smooth: true
-    
-    // 🚀 核心修复 1：纯净黑曜石底色，绝不再泛任何彩色底调
     color: Theme.bgCapsule
 
-    // 🚀 核心修复 2：彻底移除刺眼的彩色外框，回归纯正微光极细边
     border.width: 1
     border.color: musicBubbleRoot.isHovered ? Qt.rgba(255, 255, 255, 0.35) : Theme.borderSubtle
     Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
@@ -58,9 +56,6 @@ Rectangle {
         }
     }
 
-    // （已彻底删除原本中间那个发青蓝色的彩色背景光块 Rectangle）
-
-    // 4 通道自然展开为 5~10 通道
     function getBarScale(index, total) {
         if (total <= 1) return Math.max(0.20, Math.min(1.0, spec1))
         var t = index / (total - 1)
@@ -76,12 +71,13 @@ Rectangle {
     }
 
     // =========================================================================
-    // 纯粹声学跳动柱（高光通透、背景纯净）
+    // 纯粹声学跳动柱（3.6px 加粗高光质感）
     // =========================================================================
     Row {
         id: waveRow
         anchors.centerIn: parent
-        spacing: musicBubbleRoot.barsCount >= 9 ? 1.8 : 2.0
+        // 🚀 调整条间距：根据条数动态紧凑排布，确保呼吸感
+        spacing: musicBubbleRoot.barsCount >= 8 ? 2.2 : 2.5
         height: 16
 
         Repeater {
@@ -89,22 +85,35 @@ Rectangle {
 
             Item {
                 id: barItem
-                width: 2.8
+                // 🚀【核心加粗】：从 2.8px 提升到 3.6px，饱满且圆润
+                width: 3.6
                 height: 16
                 anchors.verticalCenter: parent.verticalCenter
 
                 readonly property real barVal: musicBubbleRoot.getBarScale(index, musicBubbleRoot.barsCount)
                 readonly property real centerRatio: 1.0 - Math.abs((index / (musicBubbleRoot.barsCount - 1)) - 0.5) * 2.0
 
+                // 1. 底层纯正发光色柱 (高饱和)
                 Rectangle {
                     anchors.fill: parent
                     radius: 99
-                    // 声波柱颜色：中心稍亮、两端沉稳，悬停时自然提亮
-                    color: centerRatio > 0.6 ? 
-                           (musicBubbleRoot.isHovered ? "#ffffff" : Qt.lighter(musicBubbleRoot.dominantColor, 1.25)) : 
-                           (musicBubbleRoot.isHovered ? Qt.rgba(255, 255, 255, 0.85) : musicBubbleRoot.dominantColor)
+                    color: musicBubbleRoot.dominantColor
 
                     Behavior on color { ColorAnimation { duration: Theme.animFast } }
+
+                    // 2. 自发光中心高光叠层
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "#ffffff"
+                        opacity: {
+                            if (musicBubbleRoot.isHovered) {
+                                return barItem.centerRatio > 0.6 ? 0.70 : 0.35
+                            }
+                            return barItem.centerRatio > 0.6 ? 0.28 : 0.0
+                        }
+                        Behavior on opacity { NumberAnimation { duration: Theme.animFast } }
+                    }
 
                     transform: Scale {
                         origin.y: 8

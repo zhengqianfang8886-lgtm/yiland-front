@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: BluetoothPage.qml (零魔法数字·声明式驱动版)
+// 📄 File: BluetoothPage.qml (紧凑高性能版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -9,12 +9,12 @@ Item {
     id: btRoot
 
     property string chosenFont: ""
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+
     property bool isPowered: (typeof Bridge !== "undefined" && Bridge.isBluetoothPowered) ? Bridge.isBluetoothPowered() : true
     property bool isRefreshing: false
 
     readonly property var btModel: (typeof Bridge !== "undefined") ? Bridge.bluetoothModel : null
-
-    // 🚀【彻底重构】：直接声明式绑定 Model 暴露的原子属性，零遍历、零魔法数字
     readonly property int connectedCount: btModel ? btModel.connectedCount : 0
     readonly property var primaryDev: btModel ? btModel.primaryDevice : ({})
     readonly property string primaryName: primaryDev.name || ""
@@ -46,13 +46,13 @@ Item {
         onTriggered: btRoot.isRefreshing = false
     }
 
-    function getDeviceIcon(name, iconType) {
-        var n = (name || "").toLowerCase()
-        var ic = (iconType || "").toLowerCase()
-        if (ic.indexOf("audio") !== -1 || n.indexOf("pods") !== -1 || n.indexOf("buds") !== -1 || n.indexOf("wh-") !== -1 || n.indexOf("head") !== -1 || n.indexOf("sound") !== -1) return "🎧"
-        if (ic.indexOf("mouse") !== -1 || n.indexOf("mouse") !== -1 || n.indexOf("mx ") !== -1) return "🖱️"
-        if (ic.indexOf("keyboard") !== -1 || n.indexOf("key") !== -1) return "⌨️"
-        if (ic.indexOf("phone") !== -1 || n.indexOf("phone") !== -1) return "📱"
+    // 优化的设备图标解析
+    function resolveDeviceIcon(name, iconType) {
+        var str = ((name || "") + " " + (iconType || "")).toLowerCase()
+        if (str.indexOf("audio") !== -1 || str.indexOf("pods") !== -1 || str.indexOf("buds") !== -1 || str.indexOf("head") !== -1 || str.indexOf("sound") !== -1 || str.indexOf("wh-") !== -1) return "🎧"
+        if (str.indexOf("mouse") !== -1 || str.indexOf("mx ") !== -1) return "🖱️"
+        if (str.indexOf("key") !== -1) return "⌨️"
+        if (str.indexOf("phone") !== -1) return "📱"
         return "bluetooth"
     }
 
@@ -87,7 +87,7 @@ Item {
                         font.pixelSize: 9
                         font.weight: Font.Black
                         color: btRoot.isPowered ? Theme.bluetooth : Theme.textMuted
-                        font.family: btRoot.chosenFont
+                        font.family: btRoot.effectiveFont
                         font.letterSpacing: 0.8
                     }
                 }
@@ -96,10 +96,12 @@ Item {
                     width: 38; height: 38
                     anchors.horizontalCenter: parent.horizontalCenter
 
+                    readonly property string resolvedPrimaryIcon: btRoot.resolveDeviceIcon(btRoot.primaryName, btRoot.primaryIcon)
+
                     Shape {
                         anchors.centerIn: parent
                         width: 20; height: 24
-                        visible: btRoot.connectedCount === 0 || btRoot.getDeviceIcon(btRoot.primaryName, btRoot.primaryIcon) === "bluetooth"
+                        visible: btRoot.connectedCount === 0 || parent.resolvedPrimaryIcon === "bluetooth"
 
                         ShapePath {
                             strokeColor: Theme.bluetooth
@@ -107,7 +109,6 @@ Item {
                             fillColor: "transparent"
                             capStyle: ShapePath.RoundCap
                             joinStyle: ShapePath.RoundJoin
-
                             startX: 5.5; startY: 6.5
                             PathLine { x: 14.5; y: 17.5 }
                             PathLine { x: 10.0; y: 22.5 }
@@ -119,7 +120,7 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: btRoot.getDeviceIcon(btRoot.primaryName, btRoot.primaryIcon)
+                        text: parent.resolvedPrimaryIcon
                         font.pixelSize: 30
                         visible: btRoot.connectedCount > 0 && text !== "bluetooth"
                     }
@@ -135,7 +136,7 @@ Item {
                     color: "white"
                     font.pixelSize: 12
                     font.weight: Font.Black
-                    font.family: btRoot.chosenFont
+                    font.family: btRoot.effectiveFont
                     elide: Text.ElideRight
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
@@ -167,7 +168,7 @@ Item {
                         color: btRoot.getBatteryColor(btRoot.primaryBattery)
                         font.pixelSize: 10
                         font.weight: Font.Black
-                        font.family: "Monospace"
+                        font.family: Theme.displayMonoFont
                         anchors.verticalCenter: parent.verticalCenter
                     }
                 }
@@ -177,7 +178,7 @@ Item {
                     color: Theme.textMuted
                     font.pixelSize: 9
                     font.weight: Font.Bold
-                    font.family: btRoot.chosenFont
+                    font.family: btRoot.effectiveFont
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: !(btRoot.connectedCount > 0 && btRoot.primaryBattery !== null)
                 }
@@ -197,7 +198,7 @@ Item {
                     Row {
                         anchors.centerIn: parent
                         spacing: 4
-                        Text { text: "系统管理"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.chosenFont }
+                        Text { text: "系统管理"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.effectiveFont }
                         Text { text: "↗"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Bold }
                     }
 
@@ -210,7 +211,7 @@ Item {
             }
         }
 
-        // 2. 右侧设备列表（纯声明式 Diffing 更新）
+        // 2. 右侧设备列表
         Column {
             width: parent.width - 156
             height: parent.height
@@ -225,7 +226,7 @@ Item {
                     color: Theme.textMuted
                     font.pixelSize: 11
                     font.weight: Font.Bold
-                    font.family: btRoot.chosenFont
+                    font.family: btRoot.effectiveFont
                 }
 
                 Rectangle {
@@ -248,7 +249,7 @@ Item {
                                 from: 0; to: 360; duration: 600
                             }
                         }
-                        Text { text: "刷新"; font.pixelSize: 9; color: "white"; font.weight: Font.Bold; font.family: btRoot.chosenFont }
+                        Text { text: "刷新"; font.pixelSize: 9; color: "white"; font.weight: Font.Bold; font.family: btRoot.effectiveFont }
                     }
 
                     HoverHandler { id: refreshHover; cursorShape: Qt.PointingHandCursor }
@@ -276,8 +277,8 @@ Item {
                     Column {
                         anchors.centerIn: parent
                         spacing: 4
-                        Text { text: "未发现配对的蓝牙设备"; color: Theme.textMuted; font.pixelSize: 11; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
-                        Text { text: "点击左侧“系统管理”进行配对 ↗"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.chosenFont; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "未发现配对的蓝牙设备"; color: Theme.textMuted; font.pixelSize: 11; font.family: btRoot.effectiveFont; anchors.horizontalCenter: parent.horizontalCenter }
+                        Text { text: "点击左侧“系统管理”进行配对 ↗"; color: Theme.bluetooth; font.pixelSize: 10; font.weight: Font.Bold; font.family: btRoot.effectiveFont; anchors.horizontalCenter: parent.horizontalCenter }
                     }
                 }
 
@@ -293,6 +294,8 @@ Item {
 
                     HoverHandler { id: devHover }
 
+                    readonly property string resolvedIcon: btRoot.resolveDeviceIcon(model.name, model.icon)
+
                     Row {
                         anchors.fill: parent
                         anchors.leftMargin: 8; anchors.rightMargin: 8
@@ -305,7 +308,7 @@ Item {
                             Shape {
                                 anchors.centerIn: parent
                                 width: 12; height: 14
-                                visible: btRoot.getDeviceIcon(model.name, model.icon) === "bluetooth"
+                                visible: devCard.resolvedIcon === "bluetooth"
 
                                 ShapePath {
                                     strokeColor: model.connected ? Theme.bluetooth : Theme.textMuted
@@ -313,7 +316,6 @@ Item {
                                     fillColor: "transparent"
                                     capStyle: ShapePath.RoundCap
                                     joinStyle: ShapePath.RoundJoin
-
                                     startX: 3.2; startY: 3.8
                                     PathLine { x: 8.8; y: 10.2 }
                                     PathLine { x: 6.0; y: 13.0 }
@@ -325,7 +327,7 @@ Item {
 
                             Text {
                                 anchors.centerIn: parent
-                                text: btRoot.getDeviceIcon(model.name, model.icon)
+                                text: devCard.resolvedIcon
                                 font.pixelSize: 16
                                 visible: text !== "bluetooth"
                             }
@@ -341,7 +343,7 @@ Item {
                                 color: "white"
                                 font.pixelSize: 11
                                 font.weight: Font.Bold
-                                font.family: btRoot.chosenFont
+                                font.family: btRoot.effectiveFont
                                 elide: Text.ElideRight
                                 width: parent.width
                             }
@@ -361,7 +363,7 @@ Item {
                                         text: model.connected ? "已连接" : "未连接"
                                         color: model.connected ? Theme.network : Theme.textMuted
                                         font.pixelSize: 9
-                                        font.family: btRoot.chosenFont
+                                        font.family: btRoot.effectiveFont
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                 }
@@ -398,7 +400,7 @@ Item {
                                         color: btRoot.getBatteryColor(model.battery)
                                         font.pixelSize: 9
                                         font.weight: Font.Bold
-                                        font.family: "Monospace"
+                                        font.family: Theme.displayMonoFont
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                 }
@@ -425,7 +427,7 @@ Item {
                                 font.pixelSize: 9
                                 font.weight: Font.Bold
                                 color: model.connected ? (toggleBtnHover.hovered ? Theme.danger : "white") : Theme.bluetooth
-                                font.family: btRoot.chosenFont
+                                font.family: btRoot.effectiveFont
                             }
 
                             HoverHandler { id: toggleBtnHover; cursorShape: Qt.PointingHandCursor }

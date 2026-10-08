@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: services/hardware.py (节能与自适应频控版)
+# 📄 File: services/hardware.py
+# 🌟 统一硬件调控路径（消除 IPC 与本地执行竞态）
 # ==========================================
 import os
 import glob
@@ -18,7 +19,7 @@ class HardwareService(QObject):
     numLockChanged = Signal(bool)
     memoryUpdated = Signal(int, str, str)
     osdTriggered = Signal(str, str, int)
-    batteryUpdated = Signal(int, bool)  # percentage, is_charging
+    batteryUpdated = Signal(int, bool)
 
     def __init__(self, executor, send_ipc_func, parent=None):
         super().__init__(parent)
@@ -45,9 +46,9 @@ class HardwareService(QObject):
         self._vol_flush_timer.setInterval(25)
         self._vol_flush_timer.timeout.connect(self._flush_volume_to_hardware)
 
-        # 内存监控 (2.5秒周期)
+        # 内存监控 (3秒周期)
         self._mem_timer = QTimer(self)
-        self._mem_timer.setInterval(2500)
+        self._mem_timer.setInterval(3000)
         self._mem_timer.timeout.connect(self._poll_memory_usage)
         self._mem_timer.start()
 
@@ -60,22 +61,23 @@ class HardwareService(QObject):
         self._last_lock_change_time = time.monotonic()
         self._refresh_lock_paths()
         
-        # 🚀 自适应定时器：活跃时 150ms，稳定 5 秒后退火至 350ms
+        # 自适应频控定时器
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(150)
         self._lock_timer.timeout.connect(self._check_lock_keys)
         self._lock_timer.start()
 
-        # 硬件亮度轮询 (3秒周期)
+        # 硬件亮度轮询 (3.5秒周期)
         self._hw_poll_timer = QTimer(self)
-        self._hw_poll_timer.setInterval(3000)
+        self._hw_poll_timer.setInterval(3500)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
         self._hw_poll_timer.start()
 
+        # 电池轮询
         self._cached_battery = 100
         self._is_charging = False
         self._bat_timer = QTimer(self)
-        self._bat_timer.setInterval(3000)
+        self._bat_timer.setInterval(4000)
         self._bat_timer.timeout.connect(self._poll_battery)
         self._bat_timer.start()
         self._poll_battery()
@@ -91,6 +93,12 @@ class HardwareService(QObject):
 
     @property
     def is_num_lock(self) -> bool: return self._is_num_lock
+
+    @property
+    def current_battery(self) -> int: return self._cached_battery
+
+    @property
+    def is_charging(self) -> bool: return self._is_charging
 
     def _read_system_brightness(self) -> int:
         try:
@@ -109,7 +117,7 @@ class HardwareService(QObject):
 
         if shutil.which("brightnessctl"):
             try:
-                res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.4)
+                res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.3)
                 m = re.search(r"\((\d+)%\)", res.stdout)
                 if m:
                     return max(5, min(100, int(m.group(1))))
@@ -137,13 +145,6 @@ class HardwareService(QObject):
                     self._cached_volume = 15
                     self.volumeChanged.emit(self._cached_volume)
 
-            if delta > 0 and self._cached_volume >= 100:
-                self.osdTriggered.emit("🔊", "Volume", 100)
-                return
-            if delta < 0 and self._cached_volume <= 0:
-                self.osdTriggered.emit("🔈", "Volume", 0)
-                return
-
             new_val = max(0, min(100, self._cached_volume + delta))
             self._cached_volume = new_val
             self.volumeChanged.emit(self._cached_volume)
@@ -157,7 +158,7 @@ class HardwareService(QObject):
             self._cached_brightness = new_val
             self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", new_val)
-            self._send_ipc("BRIGHTNESS_DELTA", delta=delta)
+            # 🚀 收敛：直接在本地执行调光，不再触发重复冗余的 IPC
             self._execute_local_brightness(new_val)
 
         elif mode == 2:
@@ -170,7 +171,6 @@ class HardwareService(QObject):
             new_val = max(0, min(100, self._cached_mic + delta))
             self._cached_mic = new_val
             self.osdTriggered.emit("🎙️", "Microphone", new_val)
-            self._send_ipc("MIC_DELTA", delta=delta)
             self._execute_local_mic_volume(new_val)
 
     def toggle_hardware_mute(self, mode: int):
@@ -182,14 +182,12 @@ class HardwareService(QObject):
 
             if self._vol_muted:
                 self.osdTriggered.emit("🔇", "Volume", 0)
-                self._send_ipc("VOLUME_MUTE_TOGGLE")
                 self._execute_local_volume_mute(True)
             else:
                 if self._cached_volume == 0:
                     self._cached_volume = 20
                     self.volumeChanged.emit(self._cached_volume)
                 self.osdTriggered.emit("🔊", "Volume", self._cached_volume)
-                self._send_ipc("VOLUME_MUTE_TOGGLE")
                 self._execute_local_volume_mute(False)
                 self._execute_local_volume(self._cached_volume)
 
@@ -202,7 +200,6 @@ class HardwareService(QObject):
                 self._cached_brightness = max(20, min(100, self._prev_brightness))
             self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", self._cached_brightness)
-            self._send_ipc("BRIGHTNESS_SET", value=self._cached_brightness)
             self._execute_local_brightness(self._cached_brightness)
 
         elif mode == 2:
@@ -211,7 +208,6 @@ class HardwareService(QObject):
             self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
             disp_val = 0 if self._mic_muted else min(100, max(0, self._cached_mic))
             self.osdTriggered.emit("🚫" if self._mic_muted else "🎙️", "Microphone", disp_val)
-            self._send_ipc("MIC_MUTE_TOGGLE")
             self._execute_local_mic_mute(self._mic_muted)
 
     def apply_daemon_volume(self, real_vol: int, is_muted: bool, m_type: str):
@@ -229,11 +225,7 @@ class HardwareService(QObject):
             self._vol_muted = is_muted
             self.hardwareMuteStateChanged.emit(self._vol_muted, self._mic_muted)
 
-        is_startup = (time.monotonic() - self._startup_time) < 2.5
-        if is_startup:
-            return
-
-        if m_type == "VOLUME_UPDATE" and (vol_changed or mute_changed):
+        if (time.monotonic() - self._startup_time) >= 2.5 and m_type == "VOLUME_UPDATE" and (vol_changed or mute_changed):
             icon = "🔇" if is_muted else ("🔈" if real_vol == 0 else "🔊")
             self.osdTriggered.emit(icon, "Volume", real_vol)
 
@@ -242,20 +234,14 @@ class HardwareService(QObject):
             return
 
         b_val = max(5, min(100, b_val))
-        bright_changed = (abs(self._cached_brightness - b_val) >= 2)
-
-        if bright_changed:
+        if abs(self._cached_brightness - b_val) >= 2:
             self._cached_brightness = b_val
             self.brightnessChanged.emit(self._cached_brightness)
-
-            is_startup = (time.monotonic() - self._startup_time) < 2.5
-            if not is_startup:
+            if (time.monotonic() - self._startup_time) >= 2.5:
                 self.osdTriggered.emit("☀️", "Display", b_val)
 
     def _flush_volume_to_hardware(self):
-        val = self._cached_volume
-        self._send_ipc("VOLUME_SET", value=val)
-        self._execute_local_volume(val)
+        self._execute_local_volume(self._cached_volume)
 
     def _execute_local_volume(self, val: int):
         val = max(0, min(100, val))
@@ -303,19 +289,16 @@ class HardwareService(QObject):
     def _refresh_lock_paths(self):
         try:
             self._caps_led_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
-        except Exception:
-            self._caps_led_paths = []
-        try:
             self._num_led_paths = glob.glob("/sys/class/leds/*numlock*/brightness")
         except Exception:
+            self._caps_led_paths = []
             self._num_led_paths = []
 
     def _check_lock_keys(self):
         if not self._caps_led_paths and not self._num_led_paths:
             self._refresh_lock_paths()
 
-        caps_active = False
-        caps_found = False
+        caps_active, caps_found = False, False
         if self._caps_led_paths:
             for p in self._caps_led_paths:
                 try:
@@ -328,8 +311,7 @@ class HardwareService(QObject):
                 except Exception:
                     continue
 
-        num_active = False
-        num_found = False
+        num_active, num_found = False, False
         if self._num_led_paths:
             for p in self._num_led_paths:
                 try:
@@ -342,7 +324,7 @@ class HardwareService(QObject):
                 except Exception:
                     continue
 
-        # 降级模式：无 sysfs 节点时走 xset
+        # 降级模式：仅当无硬件节点时才走 xset
         if (not caps_found or not num_found) and shutil.which("xset"):
             now = time.monotonic()
             if (now - self._last_xset_poll_time) >= 1.5:
@@ -356,10 +338,8 @@ class HardwareService(QObject):
                 except Exception:
                     pass
             else:
-                if not caps_found:
-                    caps_active = self._is_caps_lock
-                if not num_found:
-                    num_active = self._is_num_lock
+                if not caps_found: caps_active = self._is_caps_lock
+                if not num_found: num_active = self._is_num_lock
 
         state_changed = False
         if caps_active != self._is_caps_lock:
@@ -372,14 +352,14 @@ class HardwareService(QObject):
             self.numLockChanged.emit(self._is_num_lock)
             state_changed = True
 
-        # 🚀 自适应频控节流：当状态变更时拉高频率（150ms），连续 5 秒稳定无变动退火至 350ms 节约能耗
+        # 自适应频控节流
         now = time.monotonic()
         if state_changed:
             self._last_lock_change_time = now
             if self._lock_timer.interval() != 150:
                 self._lock_timer.setInterval(150)
         else:
-            if (now - self._last_lock_change_time) > 5.0:
+            if (now - self._last_lock_change_time) > 4.0:
                 if self._lock_timer.interval() != 350:
                     self._lock_timer.setInterval(350)
 
@@ -425,9 +405,3 @@ class HardwareService(QObject):
                     self.batteryUpdated.emit(pct, charging)
         except Exception:
             pass
-
-    @property
-    def current_battery(self) -> int: return self._cached_battery
-
-    @property
-    def is_charging(self) -> bool: return self._is_charging

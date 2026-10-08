@@ -317,6 +317,24 @@ class IslandBridge(QObject):
             self.wm.open_system_monitor()
         self._pool.submit(_open)
 
+    @Slot(result=list)
+    def scanLofiAnimations(self):
+        """扫描 ~/.config/alcove_island/lofi/ 目录下的所有动图与视频文件"""
+        lofi_dir = os.path.expanduser("~/.config/alcove_island/lofi")
+        if not os.path.exists(lofi_dir) or not os.path.isdir(lofi_dir):
+            return []
+        
+        valid_exts = {".webp", ".gif", ".png", ".jpg", ".jpeg"}
+        files = []
+        try:
+            for fname in sorted(os.listdir(lofi_dir)):
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in valid_exts:
+                    files.append(os.path.join(lofi_dir, fname))
+        except Exception:
+            pass
+        return files
+
     # =========================================================================
     # 遮罩穿透与窗口行为
     # =========================================================================

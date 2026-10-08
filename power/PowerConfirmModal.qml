@@ -1,8 +1,7 @@
 // ==========================================
-// 📄 File: power/PowerConfirmModal.qml (流体阻尼模态弹窗)
+// 📄 File: power/PowerConfirmModal.qml (统一引用 PowerActionIcon 版)
 // ==========================================
 import QtQuick
-import QtQuick.Shapes
 
 Rectangle {
     id: modalRoot
@@ -22,17 +21,11 @@ Rectangle {
     property string pendingWarningText: ""
     property color pendingColor: Theme.danger
     property string chosenFont: ""
-    readonly property string effectiveFont: {
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) {
-            return Config.fontFamily
-        }
-        return ""
-    }
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
 
     signal confirmed()
     signal cancelled()
 
-    // 中央动效接管
     Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
     Behavior on scale {
         NumberAnimation {
@@ -57,158 +50,12 @@ Rectangle {
                 border.color: modalRoot.pendingColor; border.width: 1
                 anchors.verticalCenter: parent.verticalCenter
 
-                Item {
+                // 🚀 核心优化：直接复用 PowerActionIcon
+                PowerActionIcon {
                     anchors.centerIn: parent
-                    width: 16; height: 16
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "poweroff"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.8
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            startX: 4.8; startY: 4.4
-                            PathArc { x: 11.2; y: 4.4; radiusX: 5.8; radiusY: 5.8; useLargeArc: true }
-                        }
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.8
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            startX: 8.0; startY: 1.5
-                            PathLine { x: 8.0; y: 8.0 }
-                        }
-                    }
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "reboot"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.7
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            startX: 8.0; startY: 1.8
-                            PathArc { x: 14.2; y: 8.0; radiusX: 6.2; radiusY: 6.2; useLargeArc: false }
-                            PathArc { x: 8.0; y: 14.2; radiusX: 6.2; radiusY: 6.2; useLargeArc: false }
-                            PathArc { x: 2.5; y: 9.8; radiusX: 6.2; radiusY: 6.2; useLargeArc: false }
-                        }
-                        ShapePath {
-                            fillColor: modalRoot.pendingColor
-                            strokeColor: "transparent"
-                            startX: 0.8; startY: 10.5
-                            PathLine { x: 4.5; y: 10.5 }
-                            PathLine { x: 2.6; y: 6.8 }
-                            PathLine { x: 0.8; y: 10.5 }
-                        }
-                    }
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "suspend"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            fillColor: modalRoot.pendingColor
-                            strokeColor: "transparent"
-                            startX: 12.0; startY: 2.5
-                            PathArc { x: 4.0; y: 13.5; radiusX: 6.5; radiusY: 6.5; useLargeArc: false }
-                            PathQuad { x: 12.0; y: 2.5; controlX: 9.2; controlY: 8.5 }
-                        }
-                    }
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "lock"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.6
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            startX: 5.0; startY: 6.8
-                            PathLine { x: 5.0; y: 4.8 }
-                            PathArc { x: 11.0; y: 4.8; radiusX: 3.0; radiusY: 3.0; useLargeArc: false }
-                            PathLine { x: 11.0; y: 6.8 }
-                        }
-                        ShapePath {
-                            fillColor: modalRoot.pendingColor
-                            strokeColor: "transparent"
-                            startX: 2.8; startY: 6.8
-                            PathLine { x: 13.2; y: 6.8 }
-                            PathLine { x: 13.2; y: 14.5 }
-                            PathLine { x: 2.8; y: 14.5 }
-                            PathLine { x: 2.8; y: 6.8 }
-                        }
-                    }
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "logout"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.6
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            joinStyle: ShapePath.RoundJoin
-                            startX: 8.5; startY: 2.0
-                            PathLine { x: 2.5; y: 2.0 }
-                            PathLine { x: 2.5; y: 14.0 }
-                            PathLine { x: 8.5; y: 14.0 }
-                        }
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.7
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            joinStyle: ShapePath.RoundJoin
-                            startX: 6.2; startY: 8.0
-                            PathLine { x: 14.2; y: 8.0 }
-                            PathMove { x: 11.2; y: 4.8 }
-                            PathLine { x: 14.2; y: 8.0 }
-                            PathLine { x: 11.2; y: 11.2 }
-                        }
-                    }
-
-                    Shape {
-                        anchors.fill: parent
-                        visible: modalRoot.pendingIconType === "switch"
-                        layer.enabled: true
-                        layer.samples: 4
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.6
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            joinStyle: ShapePath.RoundJoin
-                            startX: 2.0; startY: 5.0
-                            PathLine { x: 13.0; y: 5.0 }
-                            PathMove { x: 10.0; y: 2.5 }
-                            PathLine { x: 13.0; y: 5.0 }
-                            PathLine { x: 10.0; y: 7.5 }
-                        }
-                        ShapePath {
-                            strokeColor: modalRoot.pendingColor
-                            strokeWidth: 1.6
-                            fillColor: "transparent"
-                            capStyle: ShapePath.RoundCap
-                            joinStyle: ShapePath.RoundJoin
-                            startX: 14.0; startY: 11.0
-                            PathLine { x: 3.0; y: 11.0 }
-                            PathMove { x: 6.0; y: 8.5 }
-                            PathLine { x: 3.0; y: 11.0 }
-                            PathLine { x: 6.0; y: 13.5 }
-                        }
-                    }
+                    iconType: modalRoot.pendingIconType
+                    strokeColor: modalRoot.pendingColor
+                    fillColor: modalRoot.pendingColor
                 }
             }
 

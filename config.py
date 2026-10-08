@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: config.py (已集成打字副岛模式持久化)
+# 📄 File: config.py (已集成 Lofi 动态副岛持久化)
 # ==========================================
 import os
 import json
@@ -41,14 +41,19 @@ CONFIG_SCHEMA = {
 
     # [4] 灵动副岛与律动
     "splitGap": {"default": 8, "val": lambda v: max(2, min(24, int(v)))},
-    "subIslandsLeft": {"default": ["memory", "music"], "val": lambda v: list(v)},
+    "subIslandsLeft": {"default": ["lofi", "memory", "music"], "val": lambda v: list(v)},
     "subIslandsRight": {"default": ["hardware", "timer", "notification"], "val": lambda v: list(v)},
     "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
     "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
     "typingVisualizerEnabled": {"default": True, "val": lambda v: bool(v)},
-    "typingBubbleMode": {"default": "keycaps", "val": lambda v: str(v) if v in ("bars", "keycaps") else "keycaps"}, # 🚀 永久记忆: "bars" 或 "keycaps"
+    "typingBubbleMode": {"default": "keycaps", "val": lambda v: str(v) if v in ("bars", "keycaps") else "keycaps"},
     "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
+
+    # 🚀 Lofi 动态副岛控制项
+    "showLofiBubble": {"default": True, "val": lambda v: bool(v)},
+    "lofiSceneIndex": {"default": 0, "val": lambda v: max(0, min(10, int(v)))},
+    "lofiCustomPath": {"default": "", "val": lambda v: str(v)},
 
     # [5] 健康与系统监控
     "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
@@ -113,8 +118,13 @@ class ConfigManager(QObject):
     showHardwareBubbleChanged = Signal(bool)
     musicVisualizerBarsChanged = Signal(int)
     typingVisualizerEnabledChanged = Signal(bool)
-    typingBubbleModeChanged = Signal(str) # 🚀 副岛模式信号
+    typingBubbleModeChanged = Signal(str)
     tourbillonAnimationEnabledChanged = Signal(bool)
+
+    # 🚀 Lofi 动态副岛信号
+    showLofiBubbleChanged = Signal(bool)
+    lofiSceneIndexChanged = Signal(int)
+    lofiCustomPathChanged = Signal(str)
 
     # [5] 健康与系统监控
     showMemoryBubbleChanged = Signal(bool)
@@ -187,6 +197,10 @@ class ConfigManager(QObject):
                     raw_val = data[key]
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
+
+            # 自愈修复：平滑在左侧引入 lofi 副岛
+            if "lofi" not in self._subIslandsLeft and "lofi" not in self._subIslandsRight:
+                self._subIslandsLeft.insert(0, "lofi")
 
             if "hardware" not in self._subIslandsRight and "hardware" not in self._subIslandsLeft:
                 self._subIslandsRight.insert(0, "hardware")
@@ -327,7 +341,6 @@ class ConfigManager(QObject):
     @typingVisualizerEnabled.setter
     def typingVisualizerEnabled(self, val): self._set_value("typingVisualizerEnabled", val, self.typingVisualizerEnabledChanged)
 
-    # 🚀 副岛模式持久化属性: "bars" (机械律动) | "keycaps" (实体双键帽 HUD)
     @Property(str, notify=typingBubbleModeChanged)
     def typingBubbleMode(self): return self._typingBubbleMode
     @typingBubbleMode.setter
@@ -337,6 +350,22 @@ class ConfigManager(QObject):
     def tourbillonAnimationEnabled(self): return self._tourbillonAnimationEnabled
     @tourbillonAnimationEnabled.setter
     def tourbillonAnimationEnabled(self, val): self._set_value("tourbillonAnimationEnabled", val, self.tourbillonAnimationEnabledChanged)
+
+    # 🚀 Lofi 副岛属性暴露
+    @Property(bool, notify=showLofiBubbleChanged)
+    def showLofiBubble(self): return self._showLofiBubble
+    @showLofiBubble.setter
+    def showLofiBubble(self, val): self._set_value("showLofiBubble", val, self.showLofiBubbleChanged)
+
+    @Property(int, notify=lofiSceneIndexChanged)
+    def lofiSceneIndex(self): return self._lofiSceneIndex
+    @lofiSceneIndex.setter
+    def lofiSceneIndex(self, val): self._set_value("lofiSceneIndex", val, self.lofiSceneIndexChanged)
+
+    @Property(str, notify=lofiCustomPathChanged)
+    def lofiCustomPath(self): return self._lofiCustomPath
+    @lofiCustomPath.setter
+    def lofiCustomPath(self, val): self._set_value("lofiCustomPath", val, self.lofiCustomPathChanged)
 
     # [5] 健康与系统监控
     @Property(bool, notify=showMemoryBubbleChanged)

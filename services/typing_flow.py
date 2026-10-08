@@ -1,11 +1,9 @@
 # ==========================================
 # 📄 File: services/typing_flow.py
-# 🌟 零延迟物理击键脉冲 · 支持连击同一键 · 9参数瞬态防泄密管道
+# 🌟 修复跨线程 QTimer 启动冲突 · 线程安全唤醒
 # ==========================================
 import os
-import sys
 import time
-import math
 import select
 import struct
 import shutil
@@ -13,8 +11,7 @@ import subprocess
 import threading
 import re
 from collections import deque
-from PySide6.QtCore import QObject, QTimer, Signal
-from logger import app_logger
+from PySide6.QtCore import QObject, QTimer, Signal, Qt
 
 IS_64BIT = struct.calcsize("P") == 8
 EVENT_FORMAT = "qqHHi" if IS_64BIT else "iiHHi"
@@ -116,10 +113,10 @@ def interpolate_typing_color(intensity: float) -> str:
 
 
 class TypingFlowService(QObject):
-    # 9 参数全量频谱信号
     typingUpdated = Signal(bool, str, float, float, float, float, float, str, str)
-    # 🚀 物理按键瞬态击键脉冲信号 (每次物理下按 0ms 瞬间发射，无论是否同键)
     keyStrokeTriggered = Signal(str, str, int)
+    # 🚀 内部跨线程信号：安全通知主线程启动定时器
+    _sig_wake_timer = Signal()
 
     def __init__(self, executor, config=None, parent=None):
         super().__init__(parent)
@@ -143,10 +140,16 @@ class TypingFlowService(QObject):
         self._tick_timer = QTimer(self)
         self._tick_timer.setInterval(25)
         self._tick_timer.timeout.connect(self._physics_tick)
-        self._tick_timer.start()
+
+        # 🚀 队列连接：当后台线程发射信号时，在主线程槽函数内安全拉起定时器
+        self._sig_wake_timer.connect(self._safe_start_timer, Qt.ConnectionType.QueuedConnection)
 
         self._stop_event = threading.Event()
         self._pool.submit(self._start_keyboard_listener)
+
+    def _safe_start_timer(self):
+        if not self._tick_timer.isActive():
+            self._tick_timer.start()
 
     def set_media_playing(self, playing: bool):
         self._is_media_playing = playing
@@ -183,7 +186,6 @@ class TypingFlowService(QObject):
                     time.sleep(0.05)
             return
 
-        # 降级：xinput 模式
         if os.environ.get("DISPLAY") and shutil.which("xinput"):
             try:
                 proc = subprocess.Popen(
@@ -211,7 +213,6 @@ class TypingFlowService(QObject):
         if self._config and hasattr(self._config, "typingVisualizerEnabled") and not self._config.typingVisualizerEnabled:
             return
 
-        # 跟踪当前所有按下的修饰键集合 (val==1 按下, val==0 抬起)
         if code in MODIFIER_KEY_MAP:
             mod_name = MODIFIER_KEY_MAP[code]
             if val == 1:
@@ -228,7 +229,9 @@ class TypingFlowService(QObject):
         self._keystrokes.append(now)
         self._last_key_time = now
 
-        # 律动频段打击动量分配
+        # 🚀 线程安全唤醒：通过信号委托给主线程开启 QTimer
+        self._sig_wake_timer.emit()
+
         if code == SPACE_KEY:
             self._strokes[1] = max(self._strokes[1], 0.85)
             self._strokes[2] = max(self._strokes[2], 0.85)
@@ -267,7 +270,6 @@ class TypingFlowService(QObject):
         self._latest_key = key_str
         self._stroke_counter = (self._stroke_counter + 1) % 1000000
 
-        # 🚀 击键瞬间 0ms 发射脉冲，连按同一键时 counter 必然改变
         self.keyStrokeTriggered.emit(resolved_mod, key_str, self._stroke_counter)
 
     def _physics_tick(self):
@@ -302,11 +304,10 @@ class TypingFlowService(QObject):
         is_active = (self._smooth_intensity > 0.005) or (idle_duration < 1.2)
         continuous_color = interpolate_typing_color(self._smooth_intensity)
 
-        if idle_duration > 2.5:
+        if idle_duration > 2.0:
             self._latest_mod = ""
             self._latest_key = ""
 
-        # 9 参数全量发射
         self.typingUpdated.emit(
             is_active, continuous_color,
             round(self._strokes[0], 3),
@@ -318,7 +319,12 @@ class TypingFlowService(QObject):
             self._latest_key
         )
 
+        # 闲置智能挂起（此函数在主线程执行，直接调用 stop() 绝对安全）
+        if idle_duration > 2.2 and self._smooth_intensity == 0.0 and all(s == 0.0 for s in self._strokes):
+            self._tick_timer.stop()
+
     def cleanup(self):
         self._stop_event.set()
+        self._tick_timer.stop()
         self._latest_mod = ""
         self._latest_key = ""

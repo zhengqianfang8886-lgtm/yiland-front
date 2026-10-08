@@ -1,15 +1,16 @@
 // ==========================================
-// 📄 File: process/ProcessModal.qml (适配异步非阻塞选择器版)
+// 📄 File: process/ProcessModal.qml (引用通用工具库版)
 // ==========================================
 import QtQuick
+import "ProcessUtils.js" as ProcessUtils
 
 Row {
     id: modalRoot
     anchors.fill: parent
     spacing: 10
 
-    property string effectiveFont: ""
-    property string effectiveMono: ""
+    property string effectiveFont: Theme.activeFont
+    property string effectiveMono: Theme.displayMonoFont
 
     property string editId: ""
     property string editStatus: "stopped"
@@ -23,30 +24,14 @@ Row {
     signal deleteRequested(string id)
     signal cancelRequested()
 
-    // 🚀【核心机制】：跨线程监听 Bridge 异步选择完成信号
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         function onLocalDirectorySelected(path) {
-            if (path && modalRoot.visible) {
-                cwdInput.text = path
-            }
+            if (path && modalRoot.visible) cwdInput.text = path
         }
         function onLocalImageFileSelected(path) {
-            if (path && modalRoot.visible) {
-                modalRoot.editIcon = path
-            }
+            if (path && modalRoot.visible) modalRoot.editIcon = path
         }
-    }
-
-    function getTechIcon(cmd, name) {
-        var c = (cmd || "").toLowerCase()
-        var n = (name || "").toLowerCase()
-        if (c.indexOf("python") !== -1 || n.indexOf("py") !== -1) return "🐍"
-        if (c.indexOf("cargo") !== -1 || c.indexOf("rust") !== -1 || c.indexOf("tauri") !== -1) return "🦀"
-        if (c.indexOf("npm") !== -1 || c.indexOf("node") !== -1 || c.indexOf("vite") !== -1 || c.indexOf("yarn") !== -1) return "⬢"
-        if (c.indexOf("docker") !== -1) return "🐳"
-        if (c.indexOf("go ") !== -1) return "🐹"
-        return "⚡"
     }
 
     function openAdd() {
@@ -84,7 +69,6 @@ Row {
         onTriggered: { nameInput.forceActiveFocus(); nameInput.selectAll() }
     }
 
-    // 1. 左列：服务概览与图片槽位
     Rectangle {
         width: 120
         height: parent.height
@@ -117,9 +101,10 @@ Row {
                     asynchronous: true
                 }
 
+                // 🚀 核心优化：调用 ProcessUtils.getTechIcon
                 Text {
                     anchors.centerIn: parent
-                    text: modalRoot.getTechIcon(cmdInput.text, nameInput.text)
+                    text: ProcessUtils.getTechIcon(cmdInput.text, nameInput.text)
                     font.pixelSize: 22
                     visible: !modalRoot.isPreviewReady
                 }
@@ -143,7 +128,6 @@ Row {
                     id: imgHover
                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        // 🚀 触发异步图片选择，不挂起渲染主线程
                         if (typeof Bridge !== "undefined" && Bridge.selectLocalImageFile) {
                             Bridge.selectLocalImageFile()
                         }
@@ -225,7 +209,6 @@ Row {
         }
     }
 
-    // 2. 右列：参数配置表单
     Rectangle {
         width: parent.width - 130
         height: parent.height
@@ -253,7 +236,7 @@ Row {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     width: delText.implicitWidth + 8; height: 18; radius: 4
                     visible: Boolean(modalRoot.editId !== "")
-                    color: delHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.2) : "transparent"
+                    color: delHover.hovered ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.2) : "transparent"
 
                     Text {
                         id: delText; anchors.centerIn: parent
@@ -270,7 +253,6 @@ Row {
                 width: parent.width
                 spacing: 5
 
-                // 2.1 服务名称
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: nameInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -307,7 +289,6 @@ Row {
                     }
                 }
 
-                // 2.2 工作目录
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: cwdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -332,7 +313,6 @@ Row {
                         HoverHandler { id: browseHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler {
                             onTapped: {
-                                // 🚀 触发异步目录选择，不挂起渲染主线程
                                 if (typeof Bridge !== "undefined" && Bridge.selectLocalDirectory) {
                                     Bridge.selectLocalDirectory()
                                 }
@@ -362,7 +342,6 @@ Row {
                     }
                 }
 
-                // 2.3 执行命令
                 Rectangle {
                     width: parent.width; height: 26; radius: 5
                     color: cmdInput.activeFocus ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.12) : Qt.rgba(1, 1, 1, 0.05)
@@ -407,7 +386,6 @@ Row {
                 }
             }
 
-            // 底部操作栏
             Row {
                 anchors.right: parent.right
                 spacing: 8

@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: CalendarPage.qml (集成返回今天业务流)
+// 📄 File: CalendarPage.qml (统一 Token 瘦身版)
 // ==========================================
 import QtQuick
 import QtQuick.LocalStorage
@@ -13,10 +13,9 @@ Rectangle {
     radius: Theme.radiusCard
 
     property string chosenFont: ""
-    readonly property string effectiveFont: (chosenFont !== "") ? chosenFont : Theme.defaultFontFamily
-    readonly property string effectiveMonoFont: Theme.defaultMonoFamily
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string effectiveMonoFont: Theme.displayMonoFont
 
-    // 日期状态
     readonly property var todayDate: new Date()
     property int calYear: todayDate.getFullYear()
     property int calMonth: todayDate.getMonth()
@@ -24,14 +23,12 @@ Rectangle {
     property int selMonth: todayDate.getMonth()
     property int selDay: todayDate.getDate()
 
-    // 判断当前是否完全处于“今天且当月”
     readonly property bool isAlreadyToday: (selYear === todayDate.getFullYear() &&
                                            selMonth === todayDate.getMonth() &&
                                            selDay === todayDate.getDate() &&
                                            calYear === todayDate.getFullYear() &&
                                            calMonth === todayDate.getMonth())
 
-    // 事项状态
     property var habitsList: []
     property int currentHabitIndex: 0
     property bool isManagingHabits: false
@@ -88,7 +85,6 @@ Rectangle {
         toggleSelectedDay();
     }
 
-    // 🚀 一键返回今天函数
     function gotoToday() {
         selYear = todayDate.getFullYear();
         selMonth = todayDate.getMonth();
@@ -169,7 +165,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 10
 
-        // 1. 左侧 Bento 看板
         Rectangle {
             width: 128
             height: parent.height
@@ -225,7 +220,6 @@ Rectangle {
             }
         }
 
-        // 2. 右侧全景月历
         CalendarMonthView {
             width: parent.width - 138
             height: parent.height

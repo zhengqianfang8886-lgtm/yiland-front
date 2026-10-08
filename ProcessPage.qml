@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ProcessPage.qml (双排版·真实图片图标版)
+// 📄 File: ProcessPage.qml (统一 Token 瘦身版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -10,26 +10,14 @@ Item {
     anchors.fill: parent
 
     property string chosenFont: ""
-
-    readonly property string effectiveFont: {
-        if (typeof Theme !== "undefined" && Theme.activeFont) return Theme.activeFont
-        if (typeof Config !== "undefined" && Config.fontFamily && Config.fontFamily.indexOf("系统默认") === -1) return Config.fontFamily
-        if (chosenFont !== "" && chosenFont.indexOf("系统默认") === -1) return chosenFont
-        return ""
-    }
-
-    readonly property string displayFont: {
-        if (typeof Theme !== "undefined" && Theme.displayMonoFont) return Theme.displayMonoFont
-        return (effectiveFont !== "") ? effectiveFont : "Monospace"
-    }
+    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
+    readonly property string displayFont: Theme.displayMonoFont
 
     readonly property var procModel: (typeof Bridge !== "undefined") ? Bridge.processModel : null
     property int totalCount: procModel ? procModel.count : 0
     property int runningCount: procModel ? procModel.runningCount : 0
 
-    // 视图状态：'list'（列表主界面）或 'detail'（配置编辑界面）
     property string currentView: "list"
-    // 🚀 排版状态："list"（单列卡片）或 "icon"（双列大图标网格）
     property string viewLayout: "list"
 
     Connections {
@@ -52,9 +40,6 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 视图 1：服务概览界面 (支持 ☰ 单列卡片 与 ⊞ 双列大图标网格无缝切换)
-    // =========================================================================
     Row {
         id: listViewRoot
         anchors.fill: parent
@@ -63,7 +48,6 @@ Item {
         opacity: visible ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 150 } }
 
-        // 1.1 左侧中枢侧边栏（集成排版切换条）
         ProcessSidebar {
             effectiveFont: procRoot.effectiveFont
             effectiveMono: procRoot.displayFont
@@ -72,7 +56,6 @@ Item {
             viewLayout: procRoot.viewLayout
 
             onLayoutChanged: (layout) => procRoot.viewLayout = layout
-
             onRequestAdd: {
                 detailView.openAdd()
                 procRoot.currentView = "detail"
@@ -82,12 +65,10 @@ Item {
             onRequestStopAll: if (typeof Bridge !== "undefined") Bridge.stopAllProcessTasks()
         }
 
-        // 1.2 右侧任务展示区
         Item {
             width: parent.width - 118
             height: parent.height
 
-            // 空白指引
             Item {
                 anchors.fill: parent
                 visible: procRoot.totalCount === 0
@@ -98,7 +79,6 @@ Item {
                 }
             }
 
-            // 模式 A：单列标准列表视图 (viewLayout === "list")
             ListView {
                 id: taskListView
                 anchors.fill: parent
@@ -129,7 +109,6 @@ Item {
                         procRoot.currentView = "detail"
                         if (typeof Bridge !== "undefined" && Bridge.requestWindowFocus) Bridge.requestWindowFocus()
                     }
-
                     onToggleRunning: {
                         if (typeof Bridge === "undefined") return
                         if (model.status === "running") Bridge.stopProcessTask(model.taskId)
@@ -138,7 +117,6 @@ Item {
                 }
             }
 
-            // 模式 B：🚀 双列 Bento 大图标网格视图 (viewLayout === "icon")
             GridView {
                 id: taskGridView
                 anchors.fill: parent
@@ -175,7 +153,6 @@ Item {
                             procRoot.currentView = "detail"
                             if (typeof Bridge !== "undefined" && Bridge.requestWindowFocus) Bridge.requestWindowFocus()
                         }
-
                         onToggleRunning: {
                             if (typeof Bridge === "undefined") return
                             if (model.status === "running") Bridge.stopProcessTask(model.taskId)
@@ -187,9 +164,6 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 视图 2：Bento 详情与配置界面
-    // =========================================================================
     ProcessModal {
         id: detailView
         anchors.fill: parent
@@ -206,14 +180,10 @@ Item {
             }
             procRoot.currentView = "list"
         }
-
         onDeleteRequested: (id) => {
             if (typeof Bridge !== "undefined") Bridge.deleteProcessTask(id)
             procRoot.currentView = "list"
         }
-
-        onCancelRequested: {
-            procRoot.currentView = "list"
-        }
+        onCancelRequested: procRoot.currentView = "list"
     }
 }
