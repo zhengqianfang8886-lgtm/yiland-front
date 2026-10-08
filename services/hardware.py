@@ -1,6 +1,5 @@
 # ==========================================
-# 📄 File: services/hardware.py
-# 🌟 统一硬件调控路径（消除 IPC 与本地执行竞态）
+# 📄 File: services/hardware.py (高并发无阻塞架构版)
 # ==========================================
 import os
 import glob
@@ -26,9 +25,13 @@ class HardwareService(QObject):
         self._pool = executor
         self._send_ipc = send_ipc_func
 
+        # 1. 缓存背光节点路径，杜绝重复 glob.glob 和外部进程探测
+        self._backlight_cur_path = None
+        self._backlight_max_val = 0
+        self._init_backlight_paths()
+
         self._cached_volume = 50
         self._vol_muted = False
-        
         self._cached_brightness = self._read_system_brightness()
         self._prev_brightness = self._cached_brightness
         self._cached_mic = 80
@@ -37,22 +40,31 @@ class HardwareService(QObject):
         self._last_user_vol_adjust_time = 0.0
         self._last_user_bright_adjust_time = 0.0
         self._last_user_mic_adjust_time = 0.0
-
         self._startup_time = time.monotonic()
 
-        # 音量写回防抖
+        # 2. 🚀【核心修复】：为所有硬件写入建立微节流防抖，合并高频滑块事件
         self._vol_flush_timer = QTimer(self)
         self._vol_flush_timer.setSingleShot(True)
-        self._vol_flush_timer.setInterval(25)
+        self._vol_flush_timer.setInterval(20)
         self._vol_flush_timer.timeout.connect(self._flush_volume_to_hardware)
 
-        # 内存监控 (3秒周期)
+        self._bright_flush_timer = QTimer(self)
+        self._bright_flush_timer.setSingleShot(True)
+        self._bright_flush_timer.setInterval(25)
+        self._bright_flush_timer.timeout.connect(self._flush_brightness_to_hardware)
+
+        self._mic_flush_timer = QTimer(self)
+        self._mic_flush_timer.setSingleShot(True)
+        self._mic_flush_timer.setInterval(25)
+        self._mic_flush_timer.timeout.connect(self._flush_mic_to_hardware)
+
+        # 3. 内存监控（3 秒一次）
         self._mem_timer = QTimer(self)
         self._mem_timer.setInterval(3000)
         self._mem_timer.timeout.connect(self._poll_memory_usage)
         self._mem_timer.start()
 
-        # 锁定键监控（CapsLock & NumLock）
+        # 4. 键盘锁状态监听
         self._is_caps_lock = False
         self._is_num_lock = False
         self._caps_led_paths = []
@@ -60,20 +72,19 @@ class HardwareService(QObject):
         self._last_xset_poll_time = 0.0
         self._last_lock_change_time = time.monotonic()
         self._refresh_lock_paths()
-        
-        # 自适应频控定时器
+
         self._lock_timer = QTimer(self)
         self._lock_timer.setInterval(150)
         self._lock_timer.timeout.connect(self._check_lock_keys)
         self._lock_timer.start()
 
-        # 硬件亮度轮询 (3.5秒周期)
+        # 5. 亮度回读（低频 3.5 秒）
         self._hw_poll_timer = QTimer(self)
         self._hw_poll_timer.setInterval(3500)
         self._hw_poll_timer.timeout.connect(self._poll_system_brightness)
         self._hw_poll_timer.start()
 
-        # 电池轮询
+        # 6. 电池轮询
         self._cached_battery = 100
         self._is_charging = False
         self._bat_timer = QTimer(self)
@@ -81,6 +92,22 @@ class HardwareService(QObject):
         self._bat_timer.timeout.connect(self._poll_battery)
         self._bat_timer.start()
         self._poll_battery()
+
+    def _init_backlight_paths(self):
+        try:
+            backlight_dirs = glob.glob("/sys/class/backlight/*")
+            for b_dir in backlight_dirs:
+                cur_p = os.path.join(b_dir, "brightness")
+                max_p = os.path.join(b_dir, "max_brightness")
+                if os.path.exists(cur_p) and os.path.exists(max_p):
+                    with open(max_p, "r") as f_max:
+                        max_b = float(f_max.read().strip())
+                        if max_b > 0:
+                            self._backlight_cur_path = cur_p
+                            self._backlight_max_val = max_b
+                            return
+        except Exception:
+            pass
 
     @property
     def current_volume(self) -> int: return self._cached_volume
@@ -101,23 +128,18 @@ class HardwareService(QObject):
     def is_charging(self) -> bool: return self._is_charging
 
     def _read_system_brightness(self) -> int:
-        try:
-            backlight_dirs = glob.glob("/sys/class/backlight/*")
-            for b_dir in backlight_dirs:
-                cur_path = os.path.join(b_dir, "brightness")
-                max_path = os.path.join(b_dir, "max_brightness")
-                if os.path.exists(cur_path) and os.path.exists(max_path):
-                    with open(cur_path, "r") as f_cur, open(max_path, "r") as f_max:
-                        cur = float(f_cur.read().strip())
-                        max_b = float(f_max.read().strip())
-                        if max_b > 0:
-                            return max(5, min(100, int(round((cur / max_b) * 100))))
-        except Exception:
-            pass
+        # 优先极速内核文件读取
+        if self._backlight_cur_path and self._backlight_max_val > 0:
+            try:
+                with open(self._backlight_cur_path, "r") as f:
+                    cur = float(f.read().strip())
+                    return max(5, min(100, int(round((cur / self._backlight_max_val) * 100))))
+            except Exception:
+                pass
 
         if shutil.which("brightnessctl"):
             try:
-                res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.3)
+                res = subprocess.run(["brightnessctl", "info"], capture_output=True, text=True, timeout=0.2)
                 m = re.search(r"\((\d+)%\)", res.stdout)
                 if m:
                     return max(5, min(100, int(m.group(1))))
@@ -158,8 +180,8 @@ class HardwareService(QObject):
             self._cached_brightness = new_val
             self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", new_val)
-            # 🚀 收敛：直接在本地执行调光，不再触发重复冗余的 IPC
-            self._execute_local_brightness(new_val)
+            # 🚀 合并节流：拖动滑块不再瞬间派生进程，启动定时器批处理
+            self._bright_flush_timer.start()
 
         elif mode == 2:
             self._last_user_mic_adjust_time = now
@@ -171,7 +193,7 @@ class HardwareService(QObject):
             new_val = max(0, min(100, self._cached_mic + delta))
             self._cached_mic = new_val
             self.osdTriggered.emit("🎙️", "Microphone", new_val)
-            self._execute_local_mic_volume(new_val)
+            self._mic_flush_timer.start()
 
     def toggle_hardware_mute(self, mode: int):
         now = time.monotonic()
@@ -189,7 +211,7 @@ class HardwareService(QObject):
                     self.volumeChanged.emit(self._cached_volume)
                 self.osdTriggered.emit("🔊", "Volume", self._cached_volume)
                 self._execute_local_volume_mute(False)
-                self._execute_local_volume(self._cached_volume)
+                self._vol_flush_timer.start()
 
         elif mode == 1:
             self._last_user_bright_adjust_time = now
@@ -200,7 +222,7 @@ class HardwareService(QObject):
                 self._cached_brightness = max(20, min(100, self._prev_brightness))
             self.brightnessChanged.emit(self._cached_brightness)
             self.osdTriggered.emit("☀️", "Display", self._cached_brightness)
-            self._execute_local_brightness(self._cached_brightness)
+            self._bright_flush_timer.start()
 
         elif mode == 2:
             self._last_user_mic_adjust_time = now
@@ -240,11 +262,11 @@ class HardwareService(QObject):
             if (time.monotonic() - self._startup_time) >= 2.5:
                 self.osdTriggered.emit("☀️", "Display", b_val)
 
+    # =========================================================================
+    # 异步合并写回硬件 (Debounced Flush Workers)
+    # =========================================================================
     def _flush_volume_to_hardware(self):
-        self._execute_local_volume(self._cached_volume)
-
-    def _execute_local_volume(self, val: int):
-        val = max(0, min(100, val))
+        val = self._cached_volume
         def _run():
             if shutil.which("wpctl"):
                 subprocess.run(["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SINK@", f"{val/100.0:.2f}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -254,11 +276,30 @@ class HardwareService(QObject):
                 subprocess.run(["amixer", "-D", "pulse", "sset", "Master", f"{val}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._pool.submit(_run)
 
-    def _execute_local_brightness(self, val: int):
-        val = max(5, min(100, val))
+    def _flush_brightness_to_hardware(self):
+        val = self._cached_brightness
         def _run():
+            # 优先写 sysfs (免去额外进程启动)
+            if self._backlight_cur_path and self._backlight_max_val > 0 and os.access(self._backlight_cur_path, os.W_OK):
+                try:
+                    target_raw = int(round((val / 100.0) * self._backlight_max_val))
+                    with open(self._backlight_cur_path, "w") as f:
+                        f.write(str(target_raw))
+                    return
+                except Exception:
+                    pass
+            # 降级走 brightnessctl
             if shutil.which("brightnessctl"):
                 subprocess.run(["brightnessctl", "set", f"{val}%"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._pool.submit(_run)
+
+    def _flush_mic_to_hardware(self):
+        val = self._cached_mic
+        def _run():
+            if shutil.which("wpctl"):
+                subprocess.run(["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SOURCE@", f"{val/100.0:.2f}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif shutil.which("pamixer"):
+                subprocess.run(["pamixer", "--default-source", "--set-volume", str(val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._pool.submit(_run)
 
     def _execute_local_volume_mute(self, is_mute: bool):
@@ -267,15 +308,6 @@ class HardwareService(QObject):
                 subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if is_mute else "0"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             elif shutil.which("pamixer"):
                 subprocess.run(["pamixer", "-m" if is_mute else "-u"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self._pool.submit(_run)
-
-    def _execute_local_mic_volume(self, val: int):
-        val = max(0, min(100, val))
-        def _run():
-            if shutil.which("wpctl"):
-                subprocess.run(["wpctl", "set-volume", "--limit", "1.0", "@DEFAULT_AUDIO_SOURCE@", f"{val/100.0:.2f}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            elif shutil.which("pamixer"):
-                subprocess.run(["pamixer", "--default-source", "--set-volume", str(val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._pool.submit(_run)
 
     def _execute_local_mic_mute(self, is_mute: bool):
@@ -324,7 +356,6 @@ class HardwareService(QObject):
                 except Exception:
                     continue
 
-        # 降级模式：仅当无硬件节点时才走 xset
         if (not caps_found or not num_found) and shutil.which("xset"):
             now = time.monotonic()
             if (now - self._last_xset_poll_time) >= 1.5:
@@ -352,7 +383,6 @@ class HardwareService(QObject):
             self.numLockChanged.emit(self._is_num_lock)
             state_changed = True
 
-        # 自适应频控节流
         now = time.monotonic()
         if state_changed:
             self._last_lock_change_time = now
@@ -382,7 +412,7 @@ class HardwareService(QObject):
                 self.memoryUpdated.emit(pct, used_gb, total_gb)
         except Exception:
             pass
-        
+
     def _poll_battery(self):
         try:
             bat_dirs = glob.glob("/sys/class/power_supply/BAT*")
@@ -398,7 +428,7 @@ class HardwareService(QObject):
                 if os.path.exists(stat_file):
                     with open(stat_file, "r") as f:
                         charging = f.read().strip().lower() in ("charging", "full")
-                
+
                 if pct != self._cached_battery or charging != self._is_charging:
                     self._cached_battery = pct
                     self._is_charging = charging

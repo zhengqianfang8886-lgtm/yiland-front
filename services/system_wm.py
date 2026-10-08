@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: services/system_wm.py
-# 🌟 剪贴板静默监听 · 零日志完整版
+# 🌟 修复圆角退化挖空漏洞 · 稳定复合遮罩与防误穿透
 # ==========================================
 import os
 import shutil
@@ -21,33 +21,57 @@ class WindowManagerService(QObject):
         self._pool = executor
         self.config = config
         self._last_applied_mask = QRegion()
+        self._last_applied_rects_sig = ""
         self._last_clip_hash = ""
         self._setup_clipboard_listener()
 
+    # 🚀【核心重构】：具备几何拓扑自愈保护的 1-bit 窗口遮罩合成器
     def update_composite_mask(self, rects):
         if not rects:
             self.set_passthrough()
             return
 
-        composite = QRegion()
         vw = self.view.width()
         vh = self.view.height()
+
+        sig_parts = []
+        valid_items = []
 
         for r in rects:
             rx = max(0, int(r.get("x", 0)))
             ry = max(0, int(r.get("y", 0)))
             rw = min(vw - rx, int(r.get("w", 0)))
             rh = min(vh - ry, int(r.get("h", 0)))
-            radius = int(r.get("r", 0))
-            if rw <= 0 or rh <= 0:
+            rr = max(0, int(r.get("r", 0)))
+
+            if rw <= 2 or rh <= 2:
                 continue
-            if radius <= 0:
-                composite = composite.united(QRect(rx, ry, rw, rh))
+
+            # 🚀【关键数学约束】：圆角半径绝对不得超过短边的一半！彻底阻止自交退化导致的挖空消失！
+            max_r = max(0, int(min(rw, rh) / 2) - 1)
+            safe_r = min(rr, max_r)
+
+            sig_parts.append(f"{rx},{ry},{rw},{rh},{safe_r}")
+            valid_items.append((rx, ry, rw, rh, safe_r))
+
+        new_sig = "|".join(sig_parts)
+        if new_sig == self._last_applied_rects_sig:
+            return
+        self._last_applied_rects_sig = new_sig
+
+        composite = QRegion()
+        for rx, ry, rw, rh, safe_r in valid_items:
+            if safe_r <= 2:
+                composite = composite.united(QRegion(rx, ry, rw, rh))
             else:
                 path = QPainterPath()
-                path.addRoundedRect(rx, ry, rw, rh, radius, radius)
+                path.addRoundedRect(float(rx), float(ry), float(rw), float(rh), float(safe_r), float(safe_r))
                 poly = path.toFillPolygon().toPolygon()
-                composite = composite.united(QRegion(poly))
+                if not poly.isEmpty():
+                    composite = composite.united(QRegion(poly))
+                else:
+                    # 兜底：若多边形异常，退化为实体矩形，绝不允许小岛消失
+                    composite = composite.united(QRegion(rx, ry, rw, rh))
 
         if not composite.isEmpty():
             if composite != self._last_applied_mask:
@@ -59,12 +83,14 @@ class WindowManagerService(QObject):
 
     def set_passthrough(self):
         passthrough_region = QRegion(-10, -10, 1, 1)
+        self._last_applied_rects_sig = "PASSTHROUGH"
         if self._last_applied_mask != passthrough_region:
             self._last_applied_mask = passthrough_region
             self.view.setMask(passthrough_region)
             self.view.requestUpdate()
 
     def clear_mask(self):
+        self._last_applied_rects_sig = "CLEAR"
         self._last_applied_mask = QRegion()
         self.view.setMask(QRegion())
         self.view.requestUpdate()
@@ -74,7 +100,7 @@ class WindowManagerService(QObject):
         clipboard.dataChanged.connect(self._on_clipboard_changed)
 
     def _on_clipboard_changed(self):
-        if self.config and not self.config.clipboardMonitorEnabled:
+        if self.config and not getattr(self.config, "clipboardMonitorEnabled", True):
             return
         clipboard = QGuiApplication.clipboard()
         mime = clipboard.mimeData()
@@ -82,7 +108,6 @@ class WindowManagerService(QObject):
             return
         formats = set(mime.formats())
 
-        # 🔒 静默处理，绝对不入日志
         if formats.intersection(CONCEAL_MIME_TYPES):
             self.clipboardTriggered.emit("🔐", "密码凭据", "已安全复制保密数据 · [已脱敏]", 1400)
             return
@@ -93,7 +118,7 @@ class WindowManagerService(QObject):
 
         if mime.hasText():
             raw_text = clipboard.text()
-            if not raw_text:
+            if not raw_text or len(raw_text) > 100000:
                 return
             content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
             if content_hash == self._last_clip_hash:
@@ -107,7 +132,6 @@ class WindowManagerService(QObject):
             if len(preview) > 16:
                 preview = preview[:14] + "..."
             detail_str = f"已复制 {count} 字符 · \"{preview}\""
-            # 仅向前端发射信号，零日志记录
             self.clipboardTriggered.emit("📋", "剪贴板", detail_str, 1300)
 
     def focus_teams_window(self):

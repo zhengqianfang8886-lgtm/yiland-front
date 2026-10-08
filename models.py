@@ -324,3 +324,51 @@ class ProcessListModel(QAbstractListModel):
                         bridge.alertTriggered.emit("⚠️", f"{t.get('name', '服务')} 启动失败", error_msg, 4000, "")
                 break
         self.runningCountChanged.emit()
+
+class AppListModel(QAbstractListModel):
+    IdRole = Qt.ItemDataRole.UserRole + 1
+    NameRole = Qt.ItemDataRole.UserRole + 2
+    ExecRole = Qt.ItemDataRole.UserRole + 3
+    IconRole = Qt.ItemDataRole.UserRole + 4
+
+    countChanged = Signal()
+
+    def __init__(self, launcher_service, parent=None):
+        super().__init__(parent)
+        self._service = launcher_service
+        self._service.appsChanged.connect(self._sync_all)
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._service.get_apps())
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        apps = self._service.get_apps()
+        if not index.isValid() or not (0 <= index.row() < len(apps)):
+            return None
+        app = apps[index.row()]
+        if role == self.IdRole:
+            return app.get("id")
+        elif role == self.NameRole:
+            return app.get("name")
+        elif role == self.ExecRole:
+            return app.get("exec")
+        elif role == self.IconRole:
+            return app.get("icon", "")
+        return None
+
+    def roleNames(self):
+        return {
+            self.IdRole: b"appId",
+            self.NameRole: b"name",
+            self.ExecRole: b"execCmd",
+            self.IconRole: b"icon",
+        }
+
+    @Property(int, notify=countChanged)
+    def count(self):
+        return len(self._service.get_apps())
+
+    def _sync_all(self):
+        self.beginResetModel()
+        self.endResetModel()
+        self.countChanged.emit()

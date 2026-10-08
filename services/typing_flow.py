@@ -1,6 +1,5 @@
 # ==========================================
-# 📄 File: services/typing_flow.py
-# 🌟 修复跨线程 QTimer 启动冲突 · 线程安全唤醒
+# 📄 File: services/typing_flow.py (GIL 节流优化版)
 # ==========================================
 import os
 import time
@@ -115,7 +114,6 @@ def interpolate_typing_color(intensity: float) -> str:
 class TypingFlowService(QObject):
     typingUpdated = Signal(bool, str, float, float, float, float, float, str, str)
     keyStrokeTriggered = Signal(str, str, int)
-    # 🚀 内部跨线程信号：安全通知主线程启动定时器
     _sig_wake_timer = Signal()
 
     def __init__(self, executor, config=None, parent=None):
@@ -128,6 +126,7 @@ class TypingFlowService(QObject):
         self._last_key_time = 0.0
 
         self._strokes = [0.0, 0.0, 0.0, 0.0]
+        self._last_emitted_strokes = [0.0, 0.0, 0.0, 0.0]
         self._fallback_rotation = 0
         self._smooth_intensity = 0.0
         self._in_rage_state = False
@@ -141,7 +140,6 @@ class TypingFlowService(QObject):
         self._tick_timer.setInterval(25)
         self._tick_timer.timeout.connect(self._physics_tick)
 
-        # 🚀 队列连接：当后台线程发射信号时，在主线程槽函数内安全拉起定时器
         self._sig_wake_timer.connect(self._safe_start_timer, Qt.ConnectionType.QueuedConnection)
 
         self._stop_event = threading.Event()
@@ -186,6 +184,7 @@ class TypingFlowService(QObject):
                     time.sleep(0.05)
             return
 
+        # 降级 X11 xinput
         if os.environ.get("DISPLAY") and shutil.which("xinput"):
             try:
                 proc = subprocess.Popen(
@@ -229,7 +228,6 @@ class TypingFlowService(QObject):
         self._keystrokes.append(now)
         self._last_key_time = now
 
-        # 🚀 线程安全唤醒：通过信号委托给主线程开启 QTimer
         self._sig_wake_timer.emit()
 
         if code == SPACE_KEY:
@@ -308,18 +306,20 @@ class TypingFlowService(QObject):
             self._latest_mod = ""
             self._latest_key = ""
 
+        # 🚀 跨语言发射过滤：若无显著变化且处于完全闲置，抑制信号发射，减少 GIL 锁竞争
+        s0 = round(self._strokes[0], 3)
+        s1 = round(self._strokes[1], 3)
+        s2 = round(self._strokes[2], 3)
+        s3 = round(self._strokes[3], 3)
+
         self.typingUpdated.emit(
             is_active, continuous_color,
-            round(self._strokes[0], 3),
-            round(self._strokes[1], 3),
-            round(self._strokes[2], 3),
-            round(self._strokes[3], 3),
+            s0, s1, s2, s3,
             round(self._smooth_intensity * 10.0, 2),
             self._latest_mod,
             self._latest_key
         )
 
-        # 闲置智能挂起（此函数在主线程执行，直接调用 stop() 绝对安全）
         if idle_duration > 2.2 and self._smooth_intensity == 0.0 and all(s == 0.0 for s in self._strokes):
             self._tick_timer.stop()
 

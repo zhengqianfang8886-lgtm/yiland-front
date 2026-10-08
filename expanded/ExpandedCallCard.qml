@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: expanded/ExpandedCallCard.qml (流体来电卡片·中央动效版)
+// 📄 File: expanded/ExpandedCallCard.qml (硬件加速零拷贝版)
 // ==========================================
 import QtQuick
 
@@ -43,46 +43,71 @@ Item {
                     }
                 }
 
-                Item {
+                // 🚀 核心优化：纯 GPU 硬件裁剪正圆，完全废除 Canvas.drawImage
+                Rectangle {
+                    id: avatarContainer
                     anchors.fill: parent
+                    radius: width / 2
+                    color: avatarImg.visible ? "transparent" : "#4F46E5"
+                    border.color: Qt.rgba(255, 255, 255, 0.2)
+                    border.width: 1.5
+                    clip: true
+
                     Image {
-                        id: cardAvatarRawImg; source: callCardRoot.callAvatar; visible: false; cache: true; asynchronous: true
-                        onStatusChanged: if (status === Image.Ready) cardAvatarCanvas.requestPaint()
+                        id: avatarImg
+                        anchors.fill: parent
+                        source: callCardRoot.callAvatar || ""
+                        fillMode: Image.PreserveAspectCrop
+                        sourceSize.width: 120
+                        sourceSize.height: 120
+                        asynchronous: true
+                        cache: true
+                        visible: (callCardRoot.callAvatar !== "") && status === Image.Ready
                     }
-                    Canvas {
-                        id: cardAvatarCanvas; anchors.fill: parent
-                        renderTarget: Canvas.FramebufferObject; renderStrategy: Canvas.Threaded
-                        visible: cardAvatarRawImg.status === Image.Ready
-                        onPaint: {
-                            var ctx = getContext("2d")
-                            ctx.reset(); ctx.clearRect(0, 0, width, height)
-                            if (cardAvatarRawImg.status !== Image.Ready) return
-                            ctx.save(); ctx.beginPath(); ctx.arc(width / 2.0, height / 2.0, width / 2.0 - 0.5, 0, 2 * Math.PI, false)
-                            ctx.closePath(); ctx.clip(); ctx.drawImage(cardAvatarRawImg, 0, 0, width, height); ctx.restore()
-                        }
-                    }
-                    Rectangle {
-                        anchors.fill: parent; radius: width / 2; color: "#4F46E5"; visible: cardAvatarRawImg.status !== Image.Ready
-                        Text {
-                            anchors.centerIn: parent
-                            text: {
-                                if (callCardRoot.callTitle && callCardRoot.callTitle.length > 0) {
-                                    var parts = callCardRoot.callTitle.trim().split(" ")
-                                    return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : callCardRoot.callTitle.trim().charAt(0).toUpperCase()
-                                }
-                                return "📞"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: {
+                            if (avatarImg.visible) return ""
+                            if (callCardRoot.callTitle && callCardRoot.callTitle.length > 0) {
+                                var parts = callCardRoot.callTitle.trim().split(" ")
+                                return (parts.length >= 2) ? (parts[0][0] + parts[1][0]).toUpperCase() : callCardRoot.callTitle.trim().charAt(0).toUpperCase()
                             }
-                            color: "white"; font.family: callCardRoot.chosenFont; font.pixelSize: 22; font.weight: Font.Black
+                            return "📞"
                         }
+                        color: "white"
+                        font.family: callCardRoot.chosenFont
+                        font.pixelSize: 22
+                        font.weight: Font.Black
+                        visible: !avatarImg.visible
                     }
-                    Rectangle { anchors.fill: parent; radius: width / 2; color: "transparent"; border.color: Qt.rgba(255, 255, 255, 0.2); border.width: 1.5 }
                 }
             }
 
             Column {
-                anchors.verticalCenter: parent.verticalCenter; spacing: 4; width: 280
-                Text { text: callCardRoot.callTitle || "Teams 来电"; color: "white"; font.family: callCardRoot.chosenFont; font.pixelSize: 19; font.weight: Font.Black; elide: Text.ElideRight; width: parent.width }
-                Text { text: (callCardRoot.callSubtitle || "正在呼叫...") + " · Microsoft Teams 语音通话"; color: Theme.media; font.family: callCardRoot.chosenFont; font.pixelSize: 11; font.weight: Font.Bold; elide: Text.ElideRight; width: parent.width }
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                width: 280
+
+                Text {
+                    text: callCardRoot.callTitle || "Teams 来电"
+                    color: "white"
+                    font.family: callCardRoot.chosenFont
+                    font.pixelSize: 19
+                    font.weight: Font.Black
+                    elide: Text.ElideRight
+                    width: parent.width
+                }
+
+                Text {
+                    text: (callCardRoot.callSubtitle || "正在呼叫...") + " · Microsoft Teams 语音通话"
+                    color: Theme.media
+                    font.family: callCardRoot.chosenFont
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                    width: parent.width
+                }
             }
         }
 
@@ -93,7 +118,8 @@ Item {
             Rectangle {
                 width: 110; height: 40; radius: 20
                 color: rejectArea.pressed ? Qt.rgba(239, 68, 68, 0.45) : (rejectArea.containsMouse ? Qt.rgba(239, 68, 68, 0.3) : Qt.rgba(239, 68, 68, 0.16))
-                border.color: Theme.danger; border.width: 1; scale: rejectArea.pressed ? 0.96 : 1.0
+                border.color: Theme.danger; border.width: 1
+                scale: rejectArea.pressed ? 0.96 : 1.0
                 Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
                 Behavior on color { ColorAnimation { duration: Theme.animFast } }
 
@@ -138,7 +164,10 @@ Item {
 
         Text {
             text: "💡 点击一键接通电话并自动聚焦 Teams 窗口"
-            color: Theme.textMuted; font.family: callCardRoot.chosenFont; font.pixelSize: 10; font.weight: Font.Bold
+            color: Theme.textMuted
+            font.family: callCardRoot.chosenFont
+            font.pixelSize: 10
+            font.weight: Font.Bold
             anchors.horizontalCenter: parent.horizontalCenter
         }
     }

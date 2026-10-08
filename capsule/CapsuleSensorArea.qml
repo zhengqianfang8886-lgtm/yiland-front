@@ -1,15 +1,12 @@
 // ==========================================
 // 📄 File: capsule/CapsuleSensorArea.qml
-// 🌟 修复松手误触展开Bug · 全局事件隔离防误收缩完整版
+// 🌟 顶层穿透单向闭环感知 · 移入常驻 · 移出准时收回
 // ==========================================
 import QtQuick
 
 Item {
     id: sensorRoot
     anchors.fill: parent
-
-    // 🚀 核心状态：接收来自最外层的全局悬停守卫状态
-    property bool isGlobalHovered: false
 
     property bool isExpanded: false
     property bool isCollapsing: false
@@ -21,8 +18,8 @@ Item {
     property bool isScrubbing: false
     property bool isScrubCanceling: false
 
-    // 🚀 核心修复：融合全局守卫状态，哪怕内部子按钮抢走 MouseArea 的 hover，这里依然为 true
-    readonly property bool isPointerHovered: isGlobalHovered || capsuleHoverHandler.hovered || hitArea.containsMouse
+    // 🚀【唯一真理源】：处于 z: 20 的 HoverHandler 直接判定，无任何多余中间变量干扰
+    readonly property bool isPointerHovered: globalCapsuleHover.hovered
 
     signal requestExpand(string tabName)
     signal requestCollapse()
@@ -39,36 +36,26 @@ Item {
     property real pressStartX: 0
     property real pressStartY: 0
     property bool scrollSessionLocked: false
-    property bool morphBriefLocked: false
-
     property bool wasScrubbingJustNow: false
 
-    Timer {
-        id: resetWasScrubbingTimer
-        interval: 100
-        repeat: false
-        onTriggered: sensorRoot.wasScrubbingJustNow = false
-    }
-
-    Timer {
-        id: longPressTimer
-        interval: 180
-        repeat: false
-        onTriggered: {
-            if (sensorRoot.isPointerPressed && !sensorRoot.isExpanded && !sensorRoot.isCalling) {
-                sensorRoot.activateScrubbing()
-            }
+    function logT(tag, msg) {
+        if (typeof Bridge !== "undefined" && Bridge.traceLog) {
+            Bridge.traceLog(tag, msg)
         }
     }
 
+    // 1. 悬停展开定时器（未展开时 240ms 触发）
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
+        repeat: false
         onTriggered: {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
             if (sensorRoot.isPointerPressed || sensorRoot.isScrubbing || sensorRoot.wasScrubbingJustNow) return
 
-            if (!sensorRoot.scrollSessionLocked && !sensorRoot.subBubbleInteracting && !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
+            if (!sensorRoot.scrollSessionLocked && !sensorRoot.subBubbleInteracting && 
+                !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
+                sensorRoot.logT("TRACE-EXPAND", "⏱️ hoverDwellTimer 到期，触发主胶囊展开")
                 if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
                 else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification")
                 else if (sensorRoot.activeTransient === "SEDENTARY") return
@@ -77,34 +64,31 @@ Item {
         }
     }
 
+    // 🚀【跟手修复】：由 380ms 降至 160ms，鼠标刚滑出卡片边缘便立即无感触发收拢
     Timer {
         id: leaveGraceTimer
         interval: 160
         repeat: false
         onTriggered: {
-            // 🚀 这里会检查 isPointerHovered，由于注入了全局的 isGlobalHovered，进入卡片内部按钮绝不会触发收缩
-            if (sensorRoot.isExpanded && !sensorRoot.morphBriefLocked && !sensorRoot.isPointerHovered) {
-                sensorRoot.startCollapse()
+            if (!sensorRoot.isExpanded) return
+
+            if (sensorRoot.isPointerHovered) {
+                return
             }
+
+            sensorRoot.startCollapse()
         }
     }
 
+    Timer { id: resetWasScrubbingTimer; interval: 100; onTriggered: sensorRoot.wasScrubbingJustNow = false }
     Timer {
-        id: morphBriefTimer
-        interval: 260
-        repeat: false
-        onTriggered: {
-            sensorRoot.morphBriefLocked = false
-            if (sensorRoot.isExpanded && !sensorRoot.isPointerHovered) {
-                sensorRoot.requestCollapse()
-            }
+        id: longPressTimer; interval: 180; onTriggered: {
+            if (sensorRoot.isPointerPressed && !sensorRoot.isExpanded && !sensorRoot.isCalling) sensorRoot.activateScrubbing()
         }
     }
 
     function lockBriefMorph() {
         leaveGraceTimer.stop()
-        sensorRoot.morphBriefLocked = true
-        morphBriefTimer.restart()
     }
 
     function cancelCollapse() {
@@ -112,15 +96,13 @@ Item {
     }
 
     function triggerRequestCollapse() {
-        if (sensorRoot.isExpanded && !sensorRoot.morphBriefLocked) {
+        if (sensorRoot.isExpanded && !sensorRoot.isPointerHovered) {
             leaveGraceTimer.restart()
         }
     }
 
     function triggerImmediateCollapse() {
         if (!sensorRoot.isExpanded) return
-        sensorRoot.morphBriefLocked = false
-        morphBriefTimer.stop()
         hoverDwellTimer.stop()
         leaveGraceTimer.stop()
         sensorRoot.startCollapse()
@@ -135,36 +117,42 @@ Item {
         sensorRoot.scrubStarted()
     }
 
+    // 🚀【核心机制】：最高层级 (z: 20) 纯观察指针处理器，不拦截点击，精准感应进出
     HoverHandler {
-        id: capsuleHoverHandler
+        id: globalCapsuleHover
+        blocking: false
         onHoveredChanged: {
+            sensorRoot.logT("TRACE-HOVER", "Capsule Hover 变化 -> hovered: " + hovered + " (isExpanded=" + sensorRoot.isExpanded + ")")
             if (hovered) {
-                sensorRoot.morphBriefLocked = false
-                morphBriefTimer.stop()
+                // 鼠标移入：立即终止任何收缩企图！
                 leaveGraceTimer.stop()
-                if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && !sensorRoot.subBubbleInteracting && !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed) {
+
+                if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && 
+                    !sensorRoot.subBubbleInteracting && !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed) {
                     if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
                         hoverDwellTimer.restart()
                     }
                 }
             } else {
+                // 鼠标移出：停止展开计时，启动离开收回倒计时！
                 hoverDwellTimer.stop()
                 sensorRoot.scrollSessionLocked = false
+
                 if (sensorRoot.isExpanded) {
-                    sensorRoot.triggerRequestCollapse()
+                    sensorRoot.logT("TRACE-COLLAPSE", "🚪 鼠标移出胶囊外框，启动 380ms 收缩倒计时！")
+                    leaveGraceTimer.restart()
                 }
             }
         }
     }
 
+    // 常态专用手势区（展开后完全禁用，绝不阻挡卡片内任何按钮或输入框）
     MouseArea {
         id: hitArea
         anchors.fill: parent
-        z: (sensorRoot.isExpanded || sensorRoot.isNoticeActive) ? -1 : 1
-        hoverEnabled: true
-
-        acceptedButtons: sensorRoot.isExpanded ? Qt.NoButton : (Qt.LeftButton | Qt.RightButton)
-        cursorShape: sensorRoot.isScrubbing ? (sensorRoot.isScrubCanceling ? Qt.ForbiddenCursor : Qt.SplitHCursor) : (sensorRoot.isExpanded ? Qt.ArrowCursor : Qt.PointingHandCursor)
+        enabled: !sensorRoot.isExpanded && !sensorRoot.isNoticeActive
+        hoverEnabled: false
+        cursorShape: sensorRoot.isScrubbing ? (sensorRoot.isScrubCanceling ? Qt.ForbiddenCursor : Qt.SplitHCursor) : Qt.PointingHandCursor
 
         onPressed: (mouse) => {
             if (mouse.button === Qt.LeftButton) {
@@ -178,24 +166,15 @@ Item {
 
         onPositionChanged: (mouse) => {
             if (!sensorRoot.isPointerPressed) return
-
             var dx = Math.abs(mouse.x - sensorRoot.pressStartX)
             var dy = mouse.y - sensorRoot.pressStartY
-
-            if (!sensorRoot.isScrubbing) {
-                if (dx >= 6 && Math.abs(dy) < 18) {
-                    longPressTimer.stop()
-                    sensorRoot.activateScrubbing()
-                }
+            if (!sensorRoot.isScrubbing && (dx >= 6 && Math.abs(dy) < 18)) {
+                longPressTimer.stop()
+                sensorRoot.activateScrubbing()
             }
-
             if (sensorRoot.isScrubbing) {
-                if (dy > 30) {
-                    sensorRoot.isScrubCanceling = true
-                } else {
-                    sensorRoot.isScrubCanceling = false
-                    sensorRoot.scrubMoved(mouse.x, mouse.y)
-                }
+                if (dy > 30) sensorRoot.isScrubCanceling = true
+                else { sensorRoot.isScrubCanceling = false; sensorRoot.scrubMoved(mouse.x, mouse.y) }
             }
         }
 
@@ -203,17 +182,11 @@ Item {
             sensorRoot.isPointerPressed = false
             longPressTimer.stop()
             hoverDwellTimer.stop()
-
             if (sensorRoot.isScrubbing) {
                 sensorRoot.wasScrubbingJustNow = true
                 resetWasScrubbingTimer.restart()
-
-                if (sensorRoot.isScrubCanceling) {
-                    sensorRoot.scrubCanceled()
-                } else {
-                    sensorRoot.scrubCommitted()
-                }
-
+                if (sensorRoot.isScrubCanceling) sensorRoot.scrubCanceled()
+                else sensorRoot.scrubCommitted()
                 sensorRoot.isScrubbing = false
                 sensorRoot.isScrubCanceling = false
             }
@@ -232,22 +205,6 @@ Item {
             }
         }
 
-        onEntered: {
-            leaveGraceTimer.stop()
-            sensorRoot.scrollSessionLocked = false
-            if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && !sensorRoot.subBubbleInteracting && !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed) {
-                if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
-                    hoverDwellTimer.restart()
-                }
-            }
-        }
-
-        onExited: {
-            hoverDwellTimer.stop()
-            sensorRoot.scrollSessionLocked = false
-            sensorRoot.triggerRequestCollapse()
-        }
-
         onWheel: (wheel) => {
             wheel.accepted = true
             if (sensorRoot.isScrubbing) return
@@ -259,20 +216,17 @@ Item {
                 sensorRoot.wasScrubbingJustNow = false
                 return
             }
-
             if (mouse.button === Qt.RightButton) {
                 hoverDwellTimer.stop()
                 leaveGraceTimer.stop()
                 sensorRoot.requestHideIsland()
                 return
             }
-
             if (sensorRoot.isExpanded) return
 
             hoverDwellTimer.stop()
             leaveGraceTimer.stop()
             sensorRoot.scrollSessionLocked = false
-
             if (sensorRoot.isCalling) { sensorRoot.requestExpand("media"); return }
             if (sensorRoot.activeTransient === "ALERT") { sensorRoot.requestExpand("notification"); return }
             sensorRoot.requestExpand("time")

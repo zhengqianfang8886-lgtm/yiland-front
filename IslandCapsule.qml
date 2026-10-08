@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: IslandCapsule.qml
-// 🌟 修复展开状态下子元素被 Hover 导致误收缩 Bug
+// 🌟 终极修复：逻辑统一收拢 · 离开准时收回
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -61,11 +61,6 @@ Item {
     property int continuousSitMinutes: 45
     signal sedentaryRested()
     signal sedentarySnooze()
-
-    // 🚀 全局悬停守卫：监听整个胶囊的物理边界，防止内部按钮窃取 Hover 导致误判退出
-    HoverHandler {
-        id: globalCapsuleHover
-    }
 
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
@@ -156,22 +151,24 @@ Item {
     visible: opacity > 0.001
     Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
 
-    onWidthChanged: maskCommitRequested()
-    onHeightChanged: maskCommitRequested()
+    onIsExpandedChanged: {
+        if (isExpanded) {
+            maskCommitRequested()
+        }
+    }
 
     Behavior on width {
         enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
-            duration: sensorArea.isScrubbing ? 110 : (capsuleRoot.width < capsuleRoot.targetWidth ? Theme.animFast : Theme.animNormal)
-            easing.type: sensorArea.isScrubbing ? Theme.curveSpring : Theme.curveDecel
-            easing.overshoot: sensorArea.isScrubbing ? 1.05 : 1.0
+            // 收缩时（isCollapsing 或卡片变小）使用 130ms 迅速收合
+            duration: capsuleRoot.isExpanded ? Theme.animNormal : 130
+            easing.type: capsuleRoot.isExpanded ? Theme.curveSpring : Easing.OutCubic
+            easing.overshoot: 1.0
             onRunningChanged: {
-                capsuleRoot.maskCommitRequested()
                 if (!running && !heightNumAnim.running && !capsuleRoot.isExpanded) {
                     capsuleRoot.isCollapsing = false
                     capsuleRoot.maskCommitRequested()
-                    if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
                 }
             }
         }
@@ -180,15 +177,14 @@ Item {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            duration: capsuleRoot.isMorphGrowing ? Theme.animNormal : Theme.animFast
-            easing.type: capsuleRoot.isMorphGrowing ? Theme.curveSpring : Theme.curveDecel
-            easing.overshoot: capsuleRoot.isMorphGrowing ? Theme.springOvershootNormal : 1.0
+            // 收缩时使用 130ms 迅速收合
+            duration: capsuleRoot.isExpanded ? Theme.animNormal : 130
+            easing.type: capsuleRoot.isExpanded ? Theme.curveSpring : Easing.OutCubic
+            easing.overshoot: 1.0
             onRunningChanged: {
-                capsuleRoot.maskCommitRequested()
                 if (!running && !widthNumAnim.running && !capsuleRoot.isExpanded) {
                     capsuleRoot.isCollapsing = false
                     capsuleRoot.maskCommitRequested()
-                    if (typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
                 }
             }
         }
@@ -202,70 +198,7 @@ Item {
         isHovered: sensorArea.isPointerHovered
     }
 
-    // 2. 交互感知层
-    CapsuleSensorArea {
-        id: sensorArea
-        isGlobalHovered: globalCapsuleHover.hovered  // 🚀 注入全局守卫状态
-
-        isExpanded: capsuleRoot.isExpanded
-        isCollapsing: capsuleRoot.isCollapsing
-        isCalling: capsuleRoot.isCalling
-        isNoticeActive: capsuleRoot.isNoticeActive
-        activeTransient: capsuleRoot.activeTransient
-        subBubbleInteracting: capsuleRoot.subBubbleInteracting
-
-        onRequestExpand: (tab) => capsuleRoot.requestExpand(tab)
-        onRequestCollapse: () => capsuleRoot.maskCommitRequested()
-        onRequestHideIsland: () => capsuleRoot.requestHideIsland()
-
-        onStartCollapse: {
-            capsuleRoot.isCollapsing = true
-            capsuleRoot.isExpanded = false
-            if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.activeTransient = ""
-            capsuleRoot.maskCommitRequested()
-        }
-
-        onWheelScrolled: (deltaY) => {
-            if (typeof Bridge !== "undefined" && (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace")) {
-                if (deltaY > 0) Bridge.switchWorkspacePrev()
-                else if (deltaY < 0) Bridge.switchWorkspaceNext()
-            }
-        }
-
-        onScrubStarted: {
-            compactCapsuleView.updateCursorByMouseX(sensorArea.pressStartX)
-        }
-
-        onScrubMoved: (mx, my) => {
-            compactCapsuleView.updateCursorByMouseX(mx)
-            var targetIdx = compactCapsuleView.scrubHoverIndex
-            var items = compactCapsuleView.workspaceItems
-            var tId = targetIdx
-
-            if (items && items.length > targetIdx && targetIdx >= 0) {
-                var it = items[targetIdx]
-                if (it && it.id !== undefined) {
-                    tId = it.id
-                }
-            }
-            capsuleRoot.lockedTargetId = tId
-        }
-
-        onScrubCommitted: {
-            compactCapsuleView.snapToNearest()
-            var finalTarget = capsuleRoot.lockedTargetId
-            if (typeof Bridge !== "undefined" && Bridge.switchWorkspace) {
-                Bridge.switchWorkspace(finalTarget)
-            }
-            capsuleRoot.maskCommitRequested()
-        }
-
-        onScrubCanceled: {
-            capsuleRoot.maskCommitRequested()
-        }
-    }
-
-    // 3. 常态胶囊内构
+    // 2. 常态胶囊内构
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
@@ -318,7 +251,7 @@ Item {
         Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Theme.curveFluid } }
     }
 
-    // 4. 展开卡片内构
+    // 3. 展开卡片内构 (z: 10)
     Item {
         anchors.fill: parent
         clip: false
@@ -367,5 +300,58 @@ Item {
             Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animFast : Theme.animInstant; easing.type: Theme.curveFluid } }
             Behavior on scale { NumberAnimation { duration: capsuleRoot.isExpanded ? Theme.animNormal : Theme.animInstant; easing.type: Theme.curveDecel } }
         }
+    }
+
+    // 4. 🚀【核心设计】：交互感知层置于最顶层 (z: 20)
+    // 展开时它的点击层已通过 enabled: false 完全穿透，绝不阻碍卡片内的按钮点击；
+    // 它的 HoverHandler 处于最高优先级，能够完整覆盖整个 430x240 范围，进出状态绝对准确！
+    CapsuleSensorArea {
+        id: sensorArea
+        z: 20
+        isExpanded: capsuleRoot.isExpanded
+        isCollapsing: capsuleRoot.isCollapsing
+        isCalling: capsuleRoot.isCalling
+        isNoticeActive: capsuleRoot.isNoticeActive
+        activeTransient: capsuleRoot.activeTransient
+        subBubbleInteracting: capsuleRoot.subBubbleInteracting
+
+        onRequestExpand: (tab) => capsuleRoot.requestExpand(tab)
+        onRequestHideIsland: () => capsuleRoot.requestHideIsland()
+
+        onStartCollapse: {
+            capsuleRoot.isCollapsing = true
+            capsuleRoot.isExpanded = false
+            if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.activeTransient = ""
+        }
+
+        onWheelScrolled: (deltaY) => {
+            if (typeof Bridge !== "undefined" && (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace")) {
+                if (deltaY > 0) Bridge.switchWorkspacePrev()
+                else if (deltaY < 0) Bridge.switchWorkspaceNext()
+            }
+        }
+
+        onScrubStarted: compactCapsuleView.updateCursorByMouseX(sensorArea.pressStartX)
+
+        onScrubMoved: (mx, my) => {
+            compactCapsuleView.updateCursorByMouseX(mx)
+            var targetIdx = compactCapsuleView.scrubHoverIndex
+            var items = compactCapsuleView.workspaceItems
+            var tId = targetIdx
+            if (items && items.length > targetIdx && targetIdx >= 0) {
+                var it = items[targetIdx]
+                if (it && it.id !== undefined) tId = it.id
+            }
+            capsuleRoot.lockedTargetId = tId
+        }
+
+        onScrubCommitted: {
+            compactCapsuleView.snapToNearest()
+            var finalTarget = capsuleRoot.lockedTargetId
+            if (typeof Bridge !== "undefined" && Bridge.switchWorkspace) Bridge.switchWorkspace(finalTarget)
+            capsuleRoot.maskCommitRequested()
+        }
+
+        onScrubCanceled: capsuleRoot.maskCommitRequested()
     }
 }

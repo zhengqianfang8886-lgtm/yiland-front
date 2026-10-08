@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: IslandMaskController.qml
-// 🌟 60帧节流原子掩模引擎 · 物理隔离边距 · 彻底消除边缘穿模残影完整版
+// 🌟 终极稳妥：全状态物理遮罩 · 彻底消除漏切与小岛消失
 // ==========================================
 import QtQuick
 
@@ -11,6 +11,7 @@ Item {
     property var capsuleItem: null
 
     property var lofiBubble: null
+    property var appsBubble: null
     property var leftMemoryBubble: null
     property var leftBubble: null
     property var hwBubble: null
@@ -25,19 +26,17 @@ Item {
     property bool isMorphing: false
     property int targetW: 150
     property int targetH: 36
-    
-    property bool _updatePending: false
 
     onIsIslandHiddenChanged: {
         if (!maskActive || typeof Bridge === "undefined") return
         if (isIslandHidden) {
-            throttleTimer.stop()
             if (Bridge.setPassthrough) Bridge.setPassthrough()
         } else {
-            requestMaskUpdate()
+            commit()
         }
     }
 
+    // 🚀【核心修复】：只要小岛是 active 状态，哪怕 opacity 在淡入中，也 100% 加入保护，绝不漏切！
     function getDiscoveredIslands() {
         var list = []
         var seen = ({})
@@ -47,8 +46,9 @@ Item {
             if (item === maskCtrl || item === capsuleItem || item === rootItem) return
             if (typeof item.x === "undefined" || typeof item.width === "undefined") return
             if (item.width <= 0 || item.height <= 0) return
+            
+            // 只要小岛配置是激活的，必须纳入遮罩！只有明确 active===false 才能剔除
             if (item.active !== undefined && !item.active) return
-            if (item.visible !== undefined && !item.visible) return
 
             var key = item.toString()
             if (seen[key]) return
@@ -57,6 +57,7 @@ Item {
         }
 
         registerItem(lofiBubble)
+        registerItem(appsBubble)
         registerItem(leftMemoryBubble)
         registerItem(leftBubble)
         registerItem(hwBubble)
@@ -78,34 +79,6 @@ Item {
         return list
     }
 
-    function requestMaskUpdate() {
-        if (!maskActive || typeof Bridge === "undefined" || isIslandHidden) return
-
-        if (!throttleTimer.running) {
-            commitPreciseMask()
-            throttleTimer.start()
-        } else {
-            _updatePending = true
-        }
-    }
-
-    Timer {
-        id: throttleTimer
-        interval: 16
-        repeat: false
-        onTriggered: {
-            if (_updatePending) {
-                _updatePending = false
-                commitPreciseMask()
-                throttleTimer.start()
-            }
-        }
-    }
-
-    function notifyIslandMoving() { requestMaskUpdate() }
-    function commit() { requestMaskUpdate() }
-
-    // 🚀【核心修复】：主胶囊 marginX 从过大的 14px 纠正为安全的 4px，彻底杜绝掩模侵入副岛领地 6px 的月牙穿模！
     function computeSafeMaskGeometry(item, isCapsule) {
         if (!item) return null
 
@@ -113,22 +86,44 @@ Item {
         var iy = Math.round(item.y)
         var iw = Math.round(item.width)
         var ih = Math.round(item.height)
+
+        // 胶囊展开时赋予目标宽度，防止边缘漏空
+        if (isCapsule && capsuleItem.isExpanded) {
+            iw = Math.max(iw, capsuleItem.targetWidth)
+            ih = Math.max(ih, capsuleItem.targetHeight)
+            ix = Math.round((rootItem.width - iw) / 2 + (typeof Config !== "undefined" ? Config.offsetX : 0))
+        }
+
         if (iw <= 0 || ih <= 0) return null
 
-        var marginX = isCapsule ? 4 : 8
-        var marginY = 4
+        var padX = isCapsule && capsuleItem.isExpanded ? 10 : 5
+        var padY = isCapsule && capsuleItem.isExpanded ? 10 : 4
+
+        var rVal = 17
+        if (item.radius !== undefined && item.radius > 0) {
+            rVal = Math.round(item.radius)
+        } else if (isCapsule) {
+            rVal = capsuleItem.isExpanded ? 28 : 17
+        } else {
+            rVal = Math.round(ih / 2)
+        }
+
+        var maskX = Math.max(0, ix - padX)
+        var maskY = (iy <= (padY + 2)) ? 0 : Math.max(0, iy - padY)
+        var maskW = iw + (ix - maskX) + padX
+        var maskH = (iy - maskY) + ih + padY
 
         return {
-            x: ix - marginX,
-            y: 0,
-            w: iw + marginX * 2,
-            h: iy + ih + marginY,
-            r: isCapsule ? Math.round(item.radius + marginY) : Math.max(8, Math.round(ih * 0.38))
+            x: maskX,
+            y: maskY,
+            w: maskW,
+            h: maskH,
+            r: rVal
         }
     }
 
-    function commitPreciseMask() {
-        if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem) return
+    function commit() {
+        if (!maskActive || typeof Bridge === "undefined" || !capsuleItem || !rootItem || isIslandHidden) return
 
         var rectList = []
         var capMask = computeSafeMaskGeometry(capsuleItem, true)
@@ -141,5 +136,9 @@ Item {
         }
 
         Bridge.updateCompositeMask(rectList)
+    }
+
+    function requestMaskUpdate() {
+        commit()
     }
 }

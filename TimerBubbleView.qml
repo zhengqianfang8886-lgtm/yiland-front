@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: TimerBubbleView.qml
-// 🌟 独立等宽数字槽位架构 · 彻底死锁时间长度 · 零抖动完整版
+// 📄 File: TimerBubbleView.qml (修复颜色类型编译报错版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -57,7 +56,6 @@ Rectangle {
         return Theme.timer
     }
 
-    // 🚀【宽度锁定】：小时态固定 104px，分秒态固定 88px
     width: hasHours ? 104 : 88
     height: 34
     radius: height / 2
@@ -88,14 +86,10 @@ Rectangle {
         }
     }
 
-    onProgressChanged: progressCanvas.requestPaint()
-    onStateAccentColorChanged: progressCanvas.requestPaint()
     onCurrentStateChanged: {
-        progressCanvas.requestPaint()
         if (currentState !== "paused") contentRow.opacity = 1.0
     }
 
-    // 右键解散警告底色
     Rectangle {
         anchors.fill: parent
         radius: parent.radius
@@ -105,13 +99,9 @@ Rectangle {
         Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
     }
 
-    // 🚀 将当前时间文本拆分为单字符数组，供等宽槽位绑定
     readonly property string rawDisplayStr: timerBubbleRoot.currentState === "completed" ? "00:00" : timerBubbleRoot.timerText
     readonly property var charList: rawDisplayStr.split("")
 
-    // =========================================================================
-    // 1. 常态时间展示行 (圆环进度 + 独立等宽槽位时间)
-    // =========================================================================
     Row {
         id: contentRow
         anchors.centerIn: parent
@@ -130,40 +120,46 @@ Rectangle {
             onRunningChanged: if (!running) contentRow.opacity = 1.0
         }
 
-        // 1.1 左侧动态圆环指示器 (18x18 固定)
+        // 1.1 动态圆环指示器
         Item {
             width: 18; height: 18
             anchors.verticalCenter: parent.verticalCenter
 
-            Canvas {
-                id: progressCanvas
+            Shape {
                 anchors.fill: parent
-                renderTarget: Canvas.FramebufferObject
-                renderStrategy: Canvas.Immediate
+                layer.enabled: true
+                layer.samples: 4
 
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.reset()
-                    ctx.clearRect(0, 0, width, height)
+                // 底轨（已修正为 Qt.rgba）
+                ShapePath {
+                    strokeWidth: 2.2
+                    strokeColor: Qt.rgba(1, 1, 1, 0.12)
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
 
-                    var cx = width / 2, cy = height / 2, radius = 7.0, strokeW = 2.2
-                    ctx.beginPath()
-                    ctx.arc(cx, cy, radius, 0, 2 * Math.PI, false)
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)"
-                    ctx.lineWidth = strokeW
-                    ctx.stroke()
+                    PathAngleArc {
+                        centerX: 9; centerY: 9
+                        radiusX: 7.0; radiusY: 7.0
+                        startAngle: -90; sweepAngle: 360
+                    }
+                }
 
-                    var p = Math.min(1.0, Math.max(0.0, timerBubbleRoot.progress))
-                    if (timerBubbleRoot.currentState === "completed") p = 1.0
-                    if (p > 0.005) {
-                        var startAngle = -0.5 * Math.PI
-                        var endAngle = startAngle + (2 * Math.PI * p)
-                        ctx.beginPath()
-                        ctx.arc(cx, cy, radius, startAngle, endAngle, false)
-                        ctx.strokeStyle = timerBubbleRoot.stateAccentColor.toString()
-                        ctx.lineWidth = strokeW
-                        ctx.lineCap = "round"
-                        ctx.stroke()
+                // 进度弧线
+                ShapePath {
+                    strokeWidth: 2.2
+                    strokeColor: timerBubbleRoot.stateAccentColor
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+
+                    PathAngleArc {
+                        centerX: 9; centerY: 9
+                        radiusX: 7.0; radiusY: 7.0
+                        startAngle: -90
+                        sweepAngle: {
+                            if (timerBubbleRoot.currentState === "completed") return 360
+                            var p = Math.min(1.0, Math.max(0.0, timerBubbleRoot.progress))
+                            return p > 0.005 ? 360 * p : 0
+                        }
                     }
                 }
             }
@@ -186,7 +182,7 @@ Rectangle {
             }
         }
 
-        // 1.2 🚀【核心设计：独立等宽槽位】：数字独占 9px，冒号独占 5px，物理长度绝对死锁！
+        // 1.2 独立等宽槽位
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 0
@@ -195,7 +191,6 @@ Rectangle {
                 model: timerBubbleRoot.charList
 
                 Item {
-                    // 数字锁定 9px (含小时字号略小锁定 8px)，冒号锁定 5px
                     readonly property bool isColon: (modelData === ":")
                     width: isColon ? 5 : (timerBubbleRoot.hasHours ? 8 : 9)
                     height: 20
@@ -232,9 +227,6 @@ Rectangle {
         }
     }
 
-    // =========================================================================
-    // 2. 右键确认层
-    // =========================================================================
     Row {
         id: confirmRow
         anchors.centerIn: parent

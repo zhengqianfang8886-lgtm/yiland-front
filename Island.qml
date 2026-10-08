@@ -1,13 +1,14 @@
 // ==========================================
 // 📄 File: Island.qml
-// 🌟 配合 4px 遮罩隔离 · 状态变更自动清屏消除残影完整版
+// 🌟 稳妥修复：自适应工作区宽度 · 杜绝穿模重叠 · 优雅隐退
 // ==========================================
 import QtQuick
 import QtQuick.Controls
 
 Item {
     id: root
-    width: 860; height: 270
+    width: 860
+    height: 270
 
     readonly property string chosenFont: Theme.activeFont
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
@@ -36,6 +37,9 @@ Item {
             capsule.isExpanded = false
             capsule.isCollapsing = false
         }
+        if (bubbleApps.isExpanded) {
+            bubbleApps.collapse()
+        }
         autoRestoreTimer.stop()
         root.isIslandHidden = true
 
@@ -55,6 +59,17 @@ Item {
     }
 
     readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || root.isIslandHidden)
+
+    // 🚀【核心稳妥定位算法】：
+    // 1. 在平时所有状态（时钟、网速、工作区 2 Person 等），小岛严格跟随胶囊当前实际物理边缘，绝不重叠穿模！
+    // 2. 仅在胶囊大展开为 430px 卡片时，小岛才锁定在常态边缘原地淡化，绝不被推到屏幕两侧！
+    readonly property real effectiveCapsuleX: capsule.isExpanded ? 
+        Math.round((root.width - capsule.currentNormalWidth) / 2 + (typeof Config !== "undefined" ? Config.offsetX : 0)) : 
+        capsule.x
+
+    readonly property real effectiveCapsuleWidth: capsule.isExpanded ? 
+        capsule.currentNormalWidth : 
+        capsule.width
 
     property bool musicRetained: relay.status === "Playing"
 
@@ -204,6 +219,29 @@ Item {
         }
     }
 
+    Loader {
+        id: appManagerLoader
+        active: false; source: "AppManagerWindow.qml"
+        onLoaded: { item.show(); item.raise(); item.requestActivate() }
+    }
+
+    function openAppManagerWindow() {
+        if (appManagerLoader.status === Loader.Ready && appManagerLoader.item) {
+            appManagerLoader.item.show()
+            appManagerLoader.item.raise()
+            appManagerLoader.item.requestActivate()
+        } else {
+            appManagerLoader.active = true
+        }
+    }
+
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+        function onAppManagerRequested() {
+            root.openAppManagerWindow()
+        }
+    }
+
     Timer { id: transientTimer; onTriggered: capsule.activeTransient = "" }
     function triggerTransient(mode, ms) {
         if (capsule.isExpanded) return
@@ -218,19 +256,27 @@ Item {
 
     IslandMaskController {
         id: maskController
-        rootItem: root; capsuleItem: capsule
+        rootItem: root
+        capsuleItem: capsule
         lofiBubble: bubbleLofi
+        appsBubble: bubbleApps
         leftMemoryBubble: bubbleMemory
         leftBubble: bubbleMusic
         hwBubble: bubbleHardware
         rightBubble: bubbleTimer
         notifBubble: bubbleNotif
-        isExpanded: capsule.isExpanded; isCollapsing: capsule.isCollapsing; isMorphing: capsule.isMorphing
+        isExpanded: capsule.isExpanded
+        isCollapsing: capsule.isCollapsing
+        isMorphing: capsule.isMorphing
         isIslandHidden: root.isIslandHidden
-        targetW: capsule.targetWidth; targetH: capsule.targetHeight
+        targetW: capsule.targetWidth
+        targetH: capsule.targetHeight
     }
 
     function expandToTab(tabName) {
+        if (bubbleApps.isExpanded) {
+            bubbleApps.collapse()
+        }
         capsule.lockBriefMorph()
         if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
@@ -258,7 +304,7 @@ Item {
         chosenFont: root.chosenFont
         enabledTabs: root.enabledTabs
         dominantColor: relay.dominantColor
-        anySubBubbleHovered: bubbleLofi.isHovered || bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
+        anySubBubbleHovered: bubbleLofi.isHovered || bubbleApps.isHovered || bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -280,8 +326,18 @@ Item {
         }
     }
 
+    Connections {
+        target: capsule
+        function onIsExpandedChanged() {
+            if (capsule.isExpanded && bubbleApps.isExpanded) {
+                bubbleApps.collapse()
+            }
+        }
+    }
+
     readonly property var islandItemMap: ({
         "lofi": bubbleLofi,
+        "apps": bubbleApps,
         "memory": bubbleMemory,
         "music": bubbleMusic,
         "hardware": bubbleHardware,
@@ -290,12 +346,12 @@ Item {
     })
 
     function getIslandSide(key) {
-        var left = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
+        var left = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "apps", "memory", "music"]
         return left.indexOf(key) !== -1 ? "left" : "right"
     }
 
     function getLeftIslandOffset(key, itemWidth) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
+        var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "apps", "memory", "music"]
         var currentOffset = root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
@@ -312,7 +368,7 @@ Item {
     }
 
     function getRightIslandOffset(key) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["hardware", "timer", "notification"]
+        var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["apps", "hardware", "timer", "notification"]
         var currentOffset = root.splitGap
         for (var i = 0; i < list.length; i++) {
             var k = list[i]
@@ -328,7 +384,7 @@ Item {
         return currentOffset
     }
 
-    // 🚀 各副岛变更状态时，一律同步触发强制重绘擦除显存脏区域
+    // 1. Lofi 动画副岛
     LofiBubbleView {
         id: bubbleLofi; z: 1
         readonly property string side: root.getIslandSide("lofi")
@@ -336,21 +392,49 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
         active: !root.isBlockingTransient &&
                 (typeof Config === "undefined" || Config.showLofiBubble !== false)
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
     }
 
+    // 2. 程序应用岛 (Apps Launcher Island)
+    AppsBubbleView {
+        id: bubbleApps
+        z: isExpanded ? 50 : 1
+        readonly property string side: root.getIslandSide("apps")
+        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("apps", width) : root.getRightIslandOffset("apps")
+        property real currentOffset: targetOffset
+
+        Behavior on currentOffset {
+            NumberAnimation {
+                duration: Theme.animSpring
+                easing.type: Theme.curveSpring
+                easing.overshoot: Theme.springOvershootNormal
+            }
+        }
+
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
+        y: capsule.y + (isExpanded ? 0 : Math.round((capsule.height - height) / 2))
+        transformOrigin: side === "left" ? Item.Right : Item.Left
+
+        active: !root.isBlockingTransient &&
+                (typeof Config === "undefined" || Config.showAppsBubble !== false)
+
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
+        onWidthChanged: maskController.commit()
+        onClicked: root.handleSubBubbleInteracted()
+        onWheelInteracted: root.handleSubBubbleInteracted()
+        onRequestOpenManagerWindow: root.openAppManagerWindow()
+    }
+
+    // 3. 内存监控副岛
     MemoryBubbleView {
         id: bubbleMemory; z: 1
         readonly property string side: root.getIslandSide("memory")
@@ -358,7 +442,7 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
@@ -375,15 +459,12 @@ Item {
         memoryUsedGb: relay.memoryUsedGb
         memoryTotalGb: relay.memoryTotalGb
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
         onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
     }
 
+    // 4. 音乐律动副岛
     MusicBubbleView {
         id: bubbleMusic; z: 1
         readonly property string side: root.getIslandSide("music")
@@ -391,7 +472,7 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
@@ -403,16 +484,13 @@ Item {
         spec3: relay.spec3
         spec4: relay.spec4
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
         onClicked: root.expandToTab("media")
         onWheelInteracted: root.handleSubBubbleInteracted()
     }
 
+    // 5. 击键心流副岛
     HardwareBubbleView {
         id: bubbleHardware
         z: 5
@@ -425,7 +503,7 @@ Item {
         activeKey: relay.typingKey
         strokeRevision: relay.strokeRevision
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
@@ -439,14 +517,11 @@ Item {
         spec4: relay.typingSpec4
         kps: relay.typingKps
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
     }
 
+    // 6. 专注计时副岛
     TimerBubbleView {
         id: bubbleTimer; z: 1
         readonly property string side: root.getIslandSide("timer")
@@ -454,7 +529,7 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
@@ -467,17 +542,13 @@ Item {
         isPaused: capsule.timerIsPaused
         isCompleted: capsule.timerIsCompleted
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
-
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
         onTogglePause: capsule.toggleTimerPause()
         onDismissTimer: capsule.dismissTimer()
     }
 
+    // 7. 消息通知副岛
     NotificationBubbleView {
         id: bubbleNotif; z: 1
         readonly property string side: root.getIslandSide("notification")
@@ -485,19 +556,15 @@ Item {
         property real currentOffset: targetOffset
         Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-        x: side === "left" ? Math.max(8, capsule.x - currentOffset) : (capsule.x + capsule.width + currentOffset)
+        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
         y: capsule.y + Math.round((capsule.height - height) / 2)
         transformOrigin: side === "left" ? Item.Right : Item.Left
 
         active: !root.isBlockingTransient && root.hasNotifIsland
         unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
 
-        onActiveChanged: {
-            maskController.requestMaskUpdate()
-            if (!active && typeof Bridge !== "undefined" && Bridge.forceClearWindow) Bridge.forceClearWindow()
-        }
-        onXChanged: maskController.requestMaskUpdate()
-        onWidthChanged: maskController.requestMaskUpdate()
+        onActiveChanged: maskController.commit()
+        onXChanged: maskController.commit()
         onClicked: root.expandToTab("notification")
         onRightClicked: root.expandToTab("notification")
     }

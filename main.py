@@ -71,8 +71,8 @@ def main():
     view.setFlags(
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 
-        Qt.WindowType.Tool |
-        Qt.WindowType.BypassWindowManagerHint
+        Qt.WindowType.Tool #|
+        # Qt.WindowType.BypassWindowManagerHint
     )
 
     bridge = IslandBridge(view, config)

@@ -7,6 +7,7 @@ from .media import MediaService
 from .system_wm import WindowManagerService
 from .typing_flow import TypingFlowService
 from .timezone import get_world_time, get_tz_offset_str
+from .app_launcher import AppLauncherService
 from .utils import (
     process_notification_avatar,
     to_compact_speed,
@@ -19,6 +20,7 @@ __all__ = [
     "MediaService",
     "WindowManagerService",
     "TypingFlowService",
+    "AppLauncherService",
     "get_world_time",
     "get_tz_offset_str",
     "process_notification_avatar",

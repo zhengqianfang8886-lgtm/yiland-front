@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: config.py (已集成 Lofi 动态副岛持久化)
+# 📄 File: config.py
+# 🌟 补齐 apps 副岛默认项 · 完整自愈加载
 # ==========================================
 import os
 import json
@@ -39,10 +40,11 @@ CONFIG_SCHEMA = {
     "showNetSpeed": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
 
-    # [4] 灵动副岛与律动
+    # [4] 灵动副岛与律动（🚀【关键点】：默认包含 apps）
     "splitGap": {"default": 8, "val": lambda v: max(2, min(24, int(v)))},
-    "subIslandsLeft": {"default": ["lofi", "memory", "music"], "val": lambda v: list(v)},
+    "subIslandsLeft": {"default": ["lofi", "apps", "memory", "music"], "val": lambda v: list(v)},
     "subIslandsRight": {"default": ["hardware", "timer", "notification"], "val": lambda v: list(v)},
+    "showAppsBubble": {"default": True, "val": lambda v: bool(v)},
     "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
     "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
@@ -50,7 +52,7 @@ CONFIG_SCHEMA = {
     "typingBubbleMode": {"default": "keycaps", "val": lambda v: str(v) if v in ("bars", "keycaps") else "keycaps"},
     "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
 
-    # 🚀 Lofi 动态副岛控制项
+    # Lofi 动态副岛控制项
     "showLofiBubble": {"default": True, "val": lambda v: bool(v)},
     "lofiSceneIndex": {"default": 0, "val": lambda v: max(0, min(10, int(v)))},
     "lofiCustomPath": {"default": "", "val": lambda v: str(v)},
@@ -93,24 +95,17 @@ CONFIG_SCHEMA = {
 
 
 class ConfigManager(QObject):
-    # [1] 几何布局
     topMarginChanged = Signal(int)
     offsetXChanged = Signal(int)
     anchorModeChanged = Signal(str)
     capsuleTopMarginChanged = Signal(int)
     expandedTopMarginChanged = Signal(int)
-
-    # [2] 字体排版
     fontFamilyChanged = Signal(str)
-
-    # [3] 常态时钟与网络
     timeFormatChanged = Signal(str)
     showSecondsChanged = Signal(bool)
     showDateChanged = Signal(bool)
     showNetSpeedChanged = Signal(bool)
     savedClocksChanged = Signal(list)
-
-    # [4] 灵动副岛与律动
     splitGapChanged = Signal(int)
     subIslandsLeftChanged = Signal(list)
     subIslandsRightChanged = Signal(list)
@@ -120,13 +115,9 @@ class ConfigManager(QObject):
     typingVisualizerEnabledChanged = Signal(bool)
     typingBubbleModeChanged = Signal(str)
     tourbillonAnimationEnabledChanged = Signal(bool)
-
-    # 🚀 Lofi 动态副岛信号
     showLofiBubbleChanged = Signal(bool)
     lofiSceneIndexChanged = Signal(int)
     lofiCustomPathChanged = Signal(str)
-
-    # [5] 健康与系统监控
     showMemoryBubbleChanged = Signal(bool)
     memoryThresholdChanged = Signal(int)
     sedentaryReminderEnabledChanged = Signal(bool)
@@ -134,14 +125,10 @@ class ConfigManager(QObject):
     sedentarySnoozeMinutesChanged = Signal(int)
     volumeStepChanged = Signal(int)
     clipboardMonitorEnabledChanged = Signal(bool)
-
-    # [6] 交互与动效
     animStyleChanged = Signal(str)
     hoverDwellTimeChanged = Signal(int)
     hoverExpandEnabledChanged = Signal(bool)
     autoHideDurationSecondsChanged = Signal(int)
-
-    # [7] 展开卡片导航
     tabOrderChanged = Signal(list)
     showHardwareTabChanged = Signal(bool)
     showWorkspaceTabChanged = Signal(bool)
@@ -153,12 +140,9 @@ class ConfigManager(QObject):
     showBluetoothTabChanged = Signal(bool)
     showNotificationTabChanged = Signal(bool)
     showProcessTabChanged = Signal(bool)
-
-    # [8] 消息通知与隐私防窥管理
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
     notificationPrivacyModeChanged = Signal(bool)
-
     showBatteryChanged = Signal(bool)
 
     def __init__(self):
@@ -198,7 +182,10 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 自愈修复：平滑在左侧引入 lofi 副岛
+            # 🚀 自愈修复：确保 apps 与 lofi 均完整存在于副岛映射列表中
+            if "apps" not in self._subIslandsLeft and "apps" not in self._subIslandsRight:
+                self._subIslandsLeft.insert(1, "apps")
+
             if "lofi" not in self._subIslandsLeft and "lofi" not in self._subIslandsRight:
                 self._subIslandsLeft.insert(0, "lofi")
 
@@ -226,7 +213,6 @@ class ConfigManager(QObject):
         except Exception as e:
             app_logger.warning(f"[Config] 保存配置失败: {e}")
 
-    # [1] 几何布局
     @Property(int, notify=topMarginChanged)
     def topMargin(self): return self._topMargin
     @topMargin.setter
@@ -252,7 +238,6 @@ class ConfigManager(QObject):
     @expandedTopMargin.setter
     def expandedTopMargin(self, val): self._set_value("expandedTopMargin", val, self.expandedTopMarginChanged)
 
-    # [2] 字体排版
     @Property(str, notify=fontFamilyChanged)
     def fontFamily(self): return self._fontFamily
     @fontFamily.setter
@@ -276,7 +261,6 @@ class ConfigManager(QObject):
             self._system_fonts = self._load_system_fonts()
         return self._system_fonts
 
-    # [3] 常态时钟与网络
     @Property(str, notify=timeFormatChanged)
     def timeFormat(self): return self._timeFormat
     @timeFormat.setter
@@ -305,7 +289,6 @@ class ConfigManager(QObject):
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
 
-    # [4] 灵动副岛与律动
     @Property(int, notify=splitGapChanged)
     def splitGap(self): return self._splitGap
     @splitGap.setter
@@ -351,7 +334,6 @@ class ConfigManager(QObject):
     @tourbillonAnimationEnabled.setter
     def tourbillonAnimationEnabled(self, val): self._set_value("tourbillonAnimationEnabled", val, self.tourbillonAnimationEnabledChanged)
 
-    # 🚀 Lofi 副岛属性暴露
     @Property(bool, notify=showLofiBubbleChanged)
     def showLofiBubble(self): return self._showLofiBubble
     @showLofiBubble.setter
@@ -367,7 +349,6 @@ class ConfigManager(QObject):
     @lofiCustomPath.setter
     def lofiCustomPath(self, val): self._set_value("lofiCustomPath", val, self.lofiCustomPathChanged)
 
-    # [5] 健康与系统监控
     @Property(bool, notify=showMemoryBubbleChanged)
     def showMemoryBubble(self): return self._showMemoryBubble
     @showMemoryBubble.setter
@@ -403,7 +384,6 @@ class ConfigManager(QObject):
     @clipboardMonitorEnabled.setter
     def clipboardMonitorEnabled(self, val): self._set_value("clipboardMonitorEnabled", val, self.clipboardMonitorEnabledChanged)
 
-    # [6] 交互与动效
     @Property(str, notify=animStyleChanged)
     def animStyle(self): return self._animStyle
     @animStyle.setter
@@ -424,7 +404,6 @@ class ConfigManager(QObject):
     @autoHideDurationSeconds.setter
     def autoHideDurationSeconds(self, val): self._set_value("autoHideDurationSeconds", val, self.autoHideDurationSecondsChanged)
 
-    # [7] 展开卡片导航
     @Property(list, notify=tabOrderChanged)
     def tabOrder(self): return self._tabOrder
     @tabOrder.setter
@@ -480,7 +459,6 @@ class ConfigManager(QObject):
     @showProcessTab.setter
     def showProcessTab(self, val): self._set_value("showProcessTab", val, self.showProcessTabChanged)
 
-    # [8] 消息通知与隐私防窥管理
     @Property(bool, notify=dndEnabledChanged)
     def dndEnabled(self): return self._dndEnabled
     @dndEnabled.setter

@@ -1,7 +1,8 @@
 // ==========================================
-// 📄 File: MemoryBubbleView.qml (阻尼平滑监控岛·中央动效版)
+// 📄 File: MemoryBubbleView.qml (硬件加速纯净版)
 // ==========================================
 import QtQuick
+import QtQuick.Shapes
 
 Rectangle {
     id: memoryBubbleRoot
@@ -43,47 +44,50 @@ Rectangle {
         }
     }
 
-    onMemoryPercentChanged: gaugeCanvas.requestPaint()
-    onLoadColorChanged: gaugeCanvas.requestPaint()
-
     Row {
         anchors.centerIn: parent
         spacing: 6
 
-        Canvas {
-            id: gaugeCanvas
-            width: 20; height: 20
+        // 🚀 核心优化：纯 GPU 硬件光栅化 Shape 节点，完全剥离 Canvas 2D
+        Shape {
+            id: gaugeShape
+            width: 20
+            height: 20
             anchors.verticalCenter: parent.verticalCenter
-            renderTarget: Canvas.FramebufferObject
-            renderStrategy: Canvas.Threaded
+            layer.enabled: true
+            layer.samples: 4
 
-            onPaint: {
-                var ctx = getContext("2d")
-                ctx.reset()
-                ctx.clearRect(0, 0, width, height)
+            // 1. 底层静止灰色背景环
+            ShapePath {
+                strokeWidth: 2.6
+                strokeColor: Qt.rgba(1, 1, 1, 0.18)
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
 
-                var centerX = width / 2
-                var centerY = height / 2
-                var radius = 7.0
-                var strokeW = 3.0
+                PathAngleArc {
+                    centerX: 10
+                    centerY: 10
+                    radiusX: 7.0
+                    radiusY: 7.0
+                    startAngle: -90
+                    sweepAngle: 360
+                }
+            }
 
-                ctx.beginPath()
-                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI, false)
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.18)"
-                ctx.lineWidth = strokeW
-                ctx.lineCap = "round"
-                ctx.stroke()
+            // 2. 动态负载有色刻度环（完全由 QML 属性绑定驱动更新）
+            ShapePath {
+                strokeWidth: 2.6
+                strokeColor: memoryBubbleRoot.loadColor
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
 
-                var p = Math.min(1.0, Math.max(0.0, memoryBubbleRoot.memoryPercent / 100.0))
-                if (p > 0.01) {
-                    var startAngle = -0.5 * Math.PI
-                    var endAngle = startAngle + (2 * Math.PI * p)
-                    ctx.beginPath()
-                    ctx.arc(centerX, centerY, radius, startAngle, endAngle, false)
-                    ctx.strokeStyle = memoryBubbleRoot.loadColor.toString()
-                    ctx.lineWidth = strokeW
-                    ctx.lineCap = "round"
-                    ctx.stroke()
+                PathAngleArc {
+                    centerX: 10
+                    centerY: 10
+                    radiusX: 7.0
+                    radiusY: 7.0
+                    startAngle: -90
+                    sweepAngle: 360 * Math.min(1.0, Math.max(0.0, memoryBubbleRoot.memoryPercent / 100.0))
                 }
             }
         }
