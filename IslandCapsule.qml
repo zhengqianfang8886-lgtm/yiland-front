@@ -18,7 +18,6 @@ Item {
     property bool isIslandHidden: false
 
     property alias expandedTab: expandedCardView.expandedTab
-    property alias drillDownPage: expandedCardView.drillDownPage
 
     property string activeTransient: ""
     property string status: "Paused"

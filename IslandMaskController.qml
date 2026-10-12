@@ -1,6 +1,5 @@
 // ==========================================
 // 📄 File: IslandMaskController.qml
-// 🌟 终极稳妥：全状态物理遮罩 · 彻底消除漏切与小岛消失
 // ==========================================
 import QtQuick
 
@@ -11,7 +10,6 @@ Item {
     property var capsuleItem: null
 
     property var lofiBubble: null
-    property var appsBubble: null
     property var leftMemoryBubble: null
     property var leftBubble: null
     property var hwBubble: null
@@ -36,7 +34,6 @@ Item {
         }
     }
 
-    // 🚀【核心修复】：只要小岛是 active 状态，哪怕 opacity 在淡入中，也 100% 加入保护，绝不漏切！
     function getDiscoveredIslands() {
         var list = []
         var seen = ({})
@@ -47,7 +44,6 @@ Item {
             if (typeof item.x === "undefined" || typeof item.width === "undefined") return
             if (item.width <= 0 || item.height <= 0) return
             
-            // 只要小岛配置是激活的，必须纳入遮罩！只有明确 active===false 才能剔除
             if (item.active !== undefined && !item.active) return
 
             var key = item.toString()
@@ -57,7 +53,6 @@ Item {
         }
 
         registerItem(lofiBubble)
-        registerItem(appsBubble)
         registerItem(leftMemoryBubble)
         registerItem(leftBubble)
         registerItem(hwBubble)
@@ -87,7 +82,6 @@ Item {
         var iw = Math.round(item.width)
         var ih = Math.round(item.height)
 
-        // 胶囊展开时赋予目标宽度，防止边缘漏空
         if (isCapsule && capsuleItem.isExpanded) {
             iw = Math.max(iw, capsuleItem.targetWidth)
             ih = Math.max(ih, capsuleItem.targetHeight)

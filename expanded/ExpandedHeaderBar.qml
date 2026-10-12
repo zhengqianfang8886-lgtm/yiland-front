@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: expanded/ExpandedHeaderBar.qml (流体中控胶囊顶栏·动效中枢版)
+// 📄 File: expanded/ExpandedHeaderBar.qml
 // ==========================================
 import QtQuick
 
@@ -18,7 +18,7 @@ Item {
     property var tabMeta: ({})
 
     signal tabWheel(var wheel)
-    signal switchRoute(string targetTab, string targetSubPage)
+    signal switchRoute(string targetTab)
 
     Rectangle {
         id: outerCapsule
@@ -62,7 +62,7 @@ Item {
 
                 HoverHandler { id: powerBackHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
-                    onTapped: barRoot.switchRoute(barRoot.previousTab || "workspace", "")
+                    onTapped: barRoot.switchRoute(barRoot.previousTab || "workspace")
                 }
             }
 
@@ -158,7 +158,7 @@ Item {
                             id: tabMouseArea
                             anchors.fill: parent; anchors.margins: -4
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: barRoot.switchRoute(modelData.key, "")
+                            onClicked: barRoot.switchRoute(modelData.key)
                             onWheel: (wheel) => barRoot.tabWheel(wheel)
                         }
                     }
@@ -206,9 +206,9 @@ Item {
                     id: powerTap
                     onTapped: {
                         if (barRoot.expandedTab === "power") {
-                            barRoot.switchRoute(barRoot.previousTab || "workspace", "")
+                            barRoot.switchRoute(barRoot.previousTab || "workspace")
                         } else {
-                            barRoot.switchRoute("power", "")
+                            barRoot.switchRoute("power")
                         }
                     }
                 }

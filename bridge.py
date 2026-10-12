@@ -1,6 +1,5 @@
 # ==========================================
 # 📄 File: bridge.py
-# 🌟 增加 QML 毫秒级直通日志探针
 # ==========================================
 import os
 import gc
@@ -13,13 +12,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt
 from logger import app_logger
-from models import NotificationListModel, BluetoothListModel, ProcessListModel, AppListModel
+from models import NotificationListModel, BluetoothListModel, ProcessListModel
 from services import (
     HardwareService,
     MediaService,
     WindowManagerService,
     TypingFlowService,
-    AppLauncherService,
     get_world_time,
     get_tz_offset_str,
     process_notification_avatar,
@@ -62,11 +60,9 @@ class IslandBridge(QObject):
     bluetoothStateChanged = Signal(bool)
     unreadCountChanged = Signal(int)
 
-    # 5. 异步非阻塞文件选取与应用管理回调
+    # 5. 异步非阻塞目录与图标选取
     localDirectorySelected = Signal(str)
     localImageFileSelected = Signal(str)
-    localAppFileSelected = Signal(str)
-    appManagerRequested = Signal()
 
     _sig_daemon_payload = Signal(str, str)
 
@@ -85,10 +81,6 @@ class IslandBridge(QObject):
         self.proc_mgr = ProcessManagerService(self)
         self._proc_model = ProcessListModel(self.proc_mgr, self)
 
-        # 程序岛服务与模型
-        self.app_launcher = AppLauncherService(self._pool, self)
-        self._app_model = AppListModel(self.app_launcher, self)
-
         # 状态缓存
         self._bluetooth_powered = True
         self._known_devices_state = {}
@@ -105,7 +97,6 @@ class IslandBridge(QObject):
         self._sig_daemon_payload.connect(self._handle_daemon_payload, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
 
-    # 🚀【核心诊断探针】：直通控制台高亮输出，毫秒级抓现行
     @Slot(str, str)
     def traceLog(self, tag: str, msg: str):
         ts = time.strftime("%H:%M:%S") + f".{int(time.time()*1000)%1000:03d}"
@@ -159,9 +150,6 @@ class IslandBridge(QObject):
     @Property(QObject, constant=True)
     def processModel(self): return self._proc_model
 
-    @Property(QObject, constant=True)
-    def appModel(self): return self._app_model
-
     @Property(int, notify=volumeChanged)
     def currentVolume(self): return self.hardware.current_volume
 
@@ -182,76 +170,6 @@ class IslandBridge(QObject):
 
     @Property(bool, notify=bluetoothStateChanged)
     def isBluetoothPowered(self): return self._bluetooth_powered
-
-    @Slot(str)
-    def launchApp(self, app_id: str):
-        app_logger.info(f"⚡ [Bridge] 转发启动请求给 AppLauncherService -> {app_id}")
-        self.app_launcher.launch_app(app_id)
-
-    @Slot(str)
-    def deleteApp(self, app_id: str):
-        self.app_launcher.delete_app(app_id)
-
-    @Slot(str, str, str)
-    def addAppManual(self, name: str, exec_cmd: str, icon: str):
-        self.app_launcher.add_app(name, exec_cmd, icon)
-
-    @Slot()
-    def openAppManagerWindow(self):
-        app_logger.info("🖥️ [Bridge] 请求打开独立程序岛应用管理窗口")
-        self.appManagerRequested.emit()
-
-    @Slot(result="QVariantList")
-    def getSystemInstalledApps(self):
-        return self.app_launcher.scan_system_desktop_apps()
-
-    @Slot(str, result="QVariantMap")
-    def parseDesktopFileInfo(self, path: str):
-        name, exec_cmd, icon = "", "", ""
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("Name=") and not name:
-                            name = line.split("=", 1)[1]
-                        elif line.startswith("Exec=") and not exec_cmd:
-                            raw_e = line.split("=", 1)[1]
-                            exec_cmd = " ".join([p for p in raw_e.split() if not p.startswith("%")])
-                        elif line.startswith("Icon=") and not icon:
-                            icon = line.split("=", 1)[1]
-            except Exception:
-                pass
-        if not name:
-            name = os.path.splitext(os.path.basename(path))[0]
-        if not exec_cmd:
-            exec_cmd = path
-        resolved_icon = self.app_launcher._resolve_icon_to_file(icon) if hasattr(self.app_launcher, "_resolve_icon_to_file") else ""
-        return {"name": name, "exec": exec_cmd, "raw_icon": icon, "icon": resolved_icon}
-
-    @Slot()
-    def selectLocalExecutableOrDesktop(self):
-        def _pick():
-            chosen = ""
-            if shutil.which("zenity"):
-                res = subprocess.run([
-                    "zenity", "--file-selection",
-                    "--title=选择应用程序或可执行文件",
-                    "--file-filter=桌面快捷方式与程序 (*.desktop *) | *.desktop *",
-                    "--file-filter=所有文件 (*) | *"
-                ], capture_output=True, text=True, timeout=120)
-                if res.returncode == 0 and res.stdout.strip():
-                    chosen = res.stdout.strip()
-            elif shutil.which("kdialog"):
-                res = subprocess.run([
-                    "kdialog", "--getopenfilename", "/usr/share/applications",
-                    "*.desktop"
-                ], capture_output=True, text=True, timeout=120)
-                if res.returncode == 0 and res.stdout.strip():
-                    chosen = res.stdout.strip()
-            if chosen:
-                self.localAppFileSelected.emit(chosen)
-        self._pool.submit(_pick)
 
     @Slot(str)
     def startProcessTask(self, tid: str): self.proc_mgr.start_task(tid)

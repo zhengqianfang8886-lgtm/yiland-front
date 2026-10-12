@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ExpandedCardView.qml (可重入动量传送带引擎)
+// 📄 File: ExpandedCardView.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -11,7 +11,6 @@ Item {
     property string chosenFont: ""
     property string expandedTab: "workspace"
     property string previousTab: "workspace"
-    property string drillDownPage: ""
     property var enabledTabs: []
 
     property bool isCalling: false
@@ -88,7 +87,6 @@ Item {
     function triggerConveyorTransition(newKey, forcedDir) {
         if (newKey === cardRoot.currentKey && cardRoot.departingKey === "") return
 
-        // 计算运动方向
         if (forcedDir !== undefined && forcedDir !== 0) {
             cardRoot.slideDir = forcedDir
         } else if (newKey === "power") {
@@ -110,7 +108,6 @@ Item {
             }
         }
 
-        // 动量接管：捕获当前正在半路中的进度，消除硬打断瞬移
         var startProgress = 0.0
         if (conveyorAnim.running) {
             conveyorAnim.stop()
@@ -152,12 +149,11 @@ Item {
         }
     }
 
-    function switchRoute(targetTab, targetSubPage, explicitDir) {
+    function switchRoute(targetTab, explicitDir) {
         cardRoot.cancelCollapse()
         if (targetTab !== "power" && cardRoot.expandedTab !== "power") {
             cardRoot.previousTab = cardRoot.expandedTab
         }
-        cardRoot.drillDownPage = targetSubPage || ""
         triggerConveyorTransition(targetTab, explicitDir)
         cardRoot.expandedTab = targetTab
     }
@@ -204,7 +200,7 @@ Item {
 
             cardRoot.isFastWheeling = true
             fastWheelResetTimer.restart()
-            cardRoot.switchRoute(cardRoot.enabledTabs[nextIndex].key, "", dir)
+            cardRoot.switchRoute(cardRoot.enabledTabs[nextIndex].key, dir)
             cardRoot.tabWheelAccum = 0
         }
     }
@@ -235,7 +231,7 @@ Item {
             enabledTabs: cardRoot.enabledTabs
             tabMeta: cardRoot.currentTabMeta
             onTabWheel: (wheel) => cardRoot.handleTabWheel(wheel)
-            onSwitchRoute: (targetTab, targetSubPage) => cardRoot.switchRoute(targetTab, targetSubPage)
+            onSwitchRoute: (targetTab) => cardRoot.switchRoute(targetTab)
         }
 
         Item {

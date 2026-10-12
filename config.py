@@ -1,6 +1,5 @@
 # ==========================================
 # 📄 File: config.py
-# 🌟 补齐 apps 副岛默认项 · 完整自愈加载
 # ==========================================
 import os
 import json
@@ -40,11 +39,10 @@ CONFIG_SCHEMA = {
     "showNetSpeed": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
 
-    # [4] 灵动副岛与律动（🚀【关键点】：默认包含 apps）
+    # [4] 灵动副岛与律动
     "splitGap": {"default": 8, "val": lambda v: max(2, min(24, int(v)))},
-    "subIslandsLeft": {"default": ["lofi", "apps", "memory", "music"], "val": lambda v: list(v)},
+    "subIslandsLeft": {"default": ["lofi", "memory", "music"], "val": lambda v: list(v)},
     "subIslandsRight": {"default": ["hardware", "timer", "notification"], "val": lambda v: list(v)},
-    "showAppsBubble": {"default": True, "val": lambda v: bool(v)},
     "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
     "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
@@ -182,9 +180,11 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 🚀 自愈修复：确保 apps 与 lofi 均完整存在于副岛映射列表中
-            if "apps" not in self._subIslandsLeft and "apps" not in self._subIslandsRight:
-                self._subIslandsLeft.insert(1, "apps")
+            # 保持 subIslandsLeft 不存在废弃项
+            if "apps" in self._subIslandsLeft:
+                self._subIslandsLeft.remove("apps")
+            if "apps" in self._subIslandsRight:
+                self._subIslandsRight.remove("apps")
 
             if "lofi" not in self._subIslandsLeft and "lofi" not in self._subIslandsRight:
                 self._subIslandsLeft.insert(0, "lofi")
