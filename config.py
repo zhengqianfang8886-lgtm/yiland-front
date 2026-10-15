@@ -18,44 +18,29 @@ DEFAULT_SAVED_CLOCKS = [
 
 DEFAULT_TAB_ORDER = [
     "time", "hardware", "workspace", "media", "calendar",
-    "timer", "clock", "network", "bluetooth", "notification", "process"
+    "timer", "clock", "network", "bluetooth", "notification"
 ]
 
 CONFIG_SCHEMA = {
-    # [1] 几何布局
     "topMargin": {"default": 0, "val": lambda v: int(v)},
     "offsetX": {"default": 0, "val": lambda v: int(v)},
     "anchorMode": {"default": "screen", "val": lambda v: str(v) if v in ("screen", "window") else "screen"},
     "capsuleTopMargin": {"default": 6, "val": lambda v: max(0, min(50, int(v)))},
     "expandedTopMargin": {"default": 16, "val": lambda v: max(0, min(100, int(v)))},
-
-    # [2] 字体排版
     "fontFamily": {"default": "系统默认 (Default)", "val": lambda v: str(v)},
-
-    # [3] 常态时钟与网络
     "timeFormat": {"default": "12h", "val": lambda v: str(v) if v in ("12h", "24h") else "12h"},
     "showSeconds": {"default": False, "val": lambda v: bool(v)},
     "showDate": {"default": False, "val": lambda v: bool(v)},
     "showNetSpeed": {"default": True, "val": lambda v: bool(v)},
+    # 🚀 方案 A：常态桌面徽标显示开关
+    "showWorkspaceName": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
-
-    # [4] 灵动副岛与律动
     "splitGap": {"default": 8, "val": lambda v: max(2, min(24, int(v)))},
-    "subIslandsLeft": {"default": ["lofi", "memory", "music"], "val": lambda v: list(v)},
-    "subIslandsRight": {"default": ["hardware", "timer", "notification"], "val": lambda v: list(v)},
+    "subIslandsLeft": {"default": ["memory", "music"], "val": lambda v: list(v)},
+    "subIslandsRight": {"default": ["timer", "notification"], "val": lambda v: list(v)},
     "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
-    "showHardwareBubble": {"default": True, "val": lambda v: bool(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
-    "typingVisualizerEnabled": {"default": True, "val": lambda v: bool(v)},
-    "typingBubbleMode": {"default": "keycaps", "val": lambda v: str(v) if v in ("bars", "keycaps") else "keycaps"},
     "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
-
-    # Lofi 动态副岛控制项
-    "showLofiBubble": {"default": True, "val": lambda v: bool(v)},
-    "lofiSceneIndex": {"default": 0, "val": lambda v: max(0, min(10, int(v)))},
-    "lofiCustomPath": {"default": "", "val": lambda v: str(v)},
-
-    # [5] 健康与系统监控
     "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
     "memoryThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
     "sedentaryReminderEnabled": {"default": True, "val": lambda v: bool(v)},
@@ -63,14 +48,10 @@ CONFIG_SCHEMA = {
     "sedentarySnoozeMinutes": {"default": 5, "val": lambda v: max(1, min(30, int(v)))},
     "volumeStep": {"default": 5, "val": lambda v: max(1, min(20, int(v)))},
     "clipboardMonitorEnabled": {"default": True, "val": lambda v: bool(v)},
-
-    # [6] 交互与动效
     "animStyle": {"default": "precision", "val": lambda v: str(v) if v in ("precision", "jelly") else "precision"},
     "hoverDwellTime": {"default": 240, "val": lambda v: max(50, min(2000, int(v)))},
     "hoverExpandEnabled": {"default": True, "val": lambda v: bool(v)},
     "autoHideDurationSeconds": {"default": 5, "val": lambda v: max(1, min(60, int(v)))},
-
-    # [7] 展开卡片导航
     "tabOrder": {"default": DEFAULT_TAB_ORDER, "val": lambda v: list(v)},
     "showHardwareTab": {"default": True, "val": lambda v: bool(v)},
     "showWorkspaceTab": {"default": True, "val": lambda v: bool(v)},
@@ -81,13 +62,9 @@ CONFIG_SCHEMA = {
     "showNetworkTab": {"default": True, "val": lambda v: bool(v)},
     "showBluetoothTab": {"default": True, "val": lambda v: bool(v)},
     "showNotificationTab": {"default": True, "val": lambda v: bool(v)},
-    "showProcessTab": {"default": True, "val": lambda v: bool(v)},
-
-    # [8] 消息通知与隐私防窥管理
     "dndEnabled": {"default": False, "val": lambda v: bool(v)},
     "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
     "notificationPrivacyMode": {"default": False, "val": lambda v: bool(v)},
-
     "showBattery": {"default": True, "val": lambda v: bool(v)},
 }
 
@@ -103,19 +80,14 @@ class ConfigManager(QObject):
     showSecondsChanged = Signal(bool)
     showDateChanged = Signal(bool)
     showNetSpeedChanged = Signal(bool)
+    showWorkspaceNameChanged = Signal(bool)
     savedClocksChanged = Signal(list)
     splitGapChanged = Signal(int)
     subIslandsLeftChanged = Signal(list)
     subIslandsRightChanged = Signal(list)
     multiIslandExpandDirectionChanged = Signal(str)
-    showHardwareBubbleChanged = Signal(bool)
     musicVisualizerBarsChanged = Signal(int)
-    typingVisualizerEnabledChanged = Signal(bool)
-    typingBubbleModeChanged = Signal(str)
     tourbillonAnimationEnabledChanged = Signal(bool)
-    showLofiBubbleChanged = Signal(bool)
-    lofiSceneIndexChanged = Signal(int)
-    lofiCustomPathChanged = Signal(str)
     showMemoryBubbleChanged = Signal(bool)
     memoryThresholdChanged = Signal(int)
     sedentaryReminderEnabledChanged = Signal(bool)
@@ -137,7 +109,6 @@ class ConfigManager(QObject):
     showNetworkTabChanged = Signal(bool)
     showBluetoothTabChanged = Signal(bool)
     showNotificationTabChanged = Signal(bool)
-    showProcessTabChanged = Signal(bool)
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
     notificationPrivacyModeChanged = Signal(bool)
@@ -180,24 +151,11 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 保持 subIslandsLeft 不存在废弃项
-            if "apps" in self._subIslandsLeft:
-                self._subIslandsLeft.remove("apps")
-            if "apps" in self._subIslandsRight:
-                self._subIslandsRight.remove("apps")
-
-            if "lofi" not in self._subIslandsLeft and "lofi" not in self._subIslandsRight:
-                self._subIslandsLeft.insert(0, "lofi")
-
-            if "hardware" not in self._subIslandsRight and "hardware" not in self._subIslandsLeft:
-                self._subIslandsRight.insert(0, "hardware")
-
             for item in DEFAULT_TAB_ORDER:
                 if item not in self._tabOrder:
                     self._tabOrder.append(item)
 
             self._savedClocks = self._migrate_clock_items(self._savedClocks)
-
         except Exception as e:
             app_logger.warning(f"[Config] 配置文件解析异常，已启用自愈默认配置: {e}")
 
@@ -205,7 +163,6 @@ class ConfigManager(QObject):
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             dump_data = {key: getattr(self, f"_{key}") for key in CONFIG_SCHEMA}
-
             tmp_file = CONFIG_FILE + ".tmp"
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(dump_data, f, indent=2, ensure_ascii=False)
@@ -245,20 +202,17 @@ class ConfigManager(QObject):
 
     @Property(str, notify=fontFamilyChanged)
     def activeFont(self):
-        if not self._fontFamily or "系统默认" in self._fontFamily:
-            return ""
+        if not self._fontFamily or "系统默认" in self._fontFamily: return ""
         return self._fontFamily
 
     @Property(str, notify=fontFamilyChanged)
     def numberFont(self):
-        if not self._fontFamily or "系统默认" in self._fontFamily:
-            return "Monospace"
+        if not self._fontFamily or "系统默认" in self._fontFamily: return "Monospace"
         return self._fontFamily
 
     @Property(list, constant=True)
     def systemFonts(self):
-        if self._system_fonts is None:
-            self._system_fonts = self._load_system_fonts()
+        if self._system_fonts is None: self._system_fonts = self._load_system_fonts()
         return self._system_fonts
 
     @Property(str, notify=timeFormatChanged)
@@ -280,6 +234,11 @@ class ConfigManager(QObject):
     def showNetSpeed(self): return self._showNetSpeed
     @showNetSpeed.setter
     def showNetSpeed(self, val): self._set_value("showNetSpeed", val, self.showNetSpeedChanged)
+
+    @Property(bool, notify=showWorkspaceNameChanged)
+    def showWorkspaceName(self): return self._showWorkspaceName
+    @showWorkspaceName.setter
+    def showWorkspaceName(self, val): self._set_value("showWorkspaceName", val, self.showWorkspaceNameChanged)
 
     @Property(list, notify=savedClocksChanged)
     def savedClocks(self): return self._savedClocks
@@ -309,45 +268,15 @@ class ConfigManager(QObject):
     @multiIslandExpandDirection.setter
     def multiIslandExpandDirection(self, val): self._set_value("multiIslandExpandDirection", val, self.multiIslandExpandDirectionChanged)
 
-    @Property(bool, notify=showHardwareBubbleChanged)
-    def showHardwareBubble(self): return self._showHardwareBubble
-    @showHardwareBubble.setter
-    def showHardwareBubble(self, val): self._set_value("showHardwareBubble", val, self.showHardwareBubbleChanged)
-
     @Property(int, notify=musicVisualizerBarsChanged)
     def musicVisualizerBars(self): return self._musicVisualizerBars
     @musicVisualizerBars.setter
     def musicVisualizerBars(self, val): self._set_value("musicVisualizerBars", val, self.musicVisualizerBarsChanged)
 
-    @Property(bool, notify=typingVisualizerEnabledChanged)
-    def typingVisualizerEnabled(self): return self._typingVisualizerEnabled
-    @typingVisualizerEnabled.setter
-    def typingVisualizerEnabled(self, val): self._set_value("typingVisualizerEnabled", val, self.typingVisualizerEnabledChanged)
-
-    @Property(str, notify=typingBubbleModeChanged)
-    def typingBubbleMode(self): return self._typingBubbleMode
-    @typingBubbleMode.setter
-    def typingBubbleMode(self, val): self._set_value("typingBubbleMode", val, self.typingBubbleModeChanged)
-
     @Property(bool, notify=tourbillonAnimationEnabledChanged)
     def tourbillonAnimationEnabled(self): return self._tourbillonAnimationEnabled
     @tourbillonAnimationEnabled.setter
     def tourbillonAnimationEnabled(self, val): self._set_value("tourbillonAnimationEnabled", val, self.tourbillonAnimationEnabledChanged)
-
-    @Property(bool, notify=showLofiBubbleChanged)
-    def showLofiBubble(self): return self._showLofiBubble
-    @showLofiBubble.setter
-    def showLofiBubble(self, val): self._set_value("showLofiBubble", val, self.showLofiBubbleChanged)
-
-    @Property(int, notify=lofiSceneIndexChanged)
-    def lofiSceneIndex(self): return self._lofiSceneIndex
-    @lofiSceneIndex.setter
-    def lofiSceneIndex(self, val): self._set_value("lofiSceneIndex", val, self.lofiSceneIndexChanged)
-
-    @Property(str, notify=lofiCustomPathChanged)
-    def lofiCustomPath(self): return self._lofiCustomPath
-    @lofiCustomPath.setter
-    def lofiCustomPath(self, val): self._set_value("lofiCustomPath", val, self.lofiCustomPathChanged)
 
     @Property(bool, notify=showMemoryBubbleChanged)
     def showMemoryBubble(self): return self._showMemoryBubble
@@ -454,11 +383,6 @@ class ConfigManager(QObject):
     @showNotificationTab.setter
     def showNotificationTab(self, val): self._set_value("showNotificationTab", val, self.showNotificationTabChanged)
 
-    @Property(bool, notify=showProcessTabChanged)
-    def showProcessTab(self): return self._showProcessTab
-    @showProcessTab.setter
-    def showProcessTab(self, val): self._set_value("showProcessTab", val, self.showProcessTabChanged)
-
     @Property(bool, notify=dndEnabledChanged)
     def dndEnabled(self): return self._dndEnabled
     @dndEnabled.setter
@@ -492,24 +416,19 @@ class ConfigManager(QObject):
 
     def _load_system_fonts(self):
         try:
-            try:
-                families = QFontDatabase.families()
-            except TypeError:
-                families = QFontDatabase.families(QFontDatabase.WritingSystem.Any)
+            try: families = QFontDatabase.families()
+            except TypeError: families = QFontDatabase.families(QFontDatabase.WritingSystem.Any)
             families = sorted(list(set(families)))
             return ["系统默认 (Default)"] + families
         except Exception:
             return ["系统默认 (Default)"]
 
     def _migrate_clock_items(self, clock_list):
-        if not clock_list or not isinstance(clock_list, list):
-            return list(DEFAULT_SAVED_CLOCKS)
+        if not clock_list or not isinstance(clock_list, list): return list(DEFAULT_SAVED_CLOCKS)
         city_lookup = {c.get("name"): c for c in self._world_cities} if self._world_cities else {}
         migrated = []
         for item in clock_list:
-            if not isinstance(item, dict):
-                continue
-            if not item.get("tz") and item.get("name") in city_lookup:
-                item = dict(city_lookup[item["name"]])
+            if not isinstance(item, dict): continue
+            if not item.get("tz") and item.get("name") in city_lookup: item = dict(city_lookup[item["name"]])
             migrated.append(item)
         return migrated if migrated else list(DEFAULT_SAVED_CLOCKS)

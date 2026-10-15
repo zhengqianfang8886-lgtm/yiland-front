@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: CompactCapsuleView.qml
-// 🌟 彻底消灭 [undefined] 赋值报错 · 0 索引支持
+// 📄 File: compact/CompactCapsuleView.qml
 // ==========================================
 import QtQuick
 import "compact"
@@ -20,14 +19,13 @@ Item {
     property bool isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
 
     property string wsName: ""
-    property int wsCurrent: 0 // 🚀 默认从 0 开始
+    property int wsCurrent: 0
     property int wsTotal: 4
     property var wsList: []
 
     property bool isScrubbing: false
     property bool isScrubCanceling: false
 
-    // 🚀【核心修复】：三元表达式保护，在初始化阶段安全返回 0，绝不给 int 赋 undefined！
     readonly property int scrubHoverIndex: (wsView && wsView.peakIndex !== undefined) ? wsView.peakIndex : 0
     readonly property var workspaceItems: (wsView && wsView.workspaceItems !== undefined) ? wsView.workspaceItems : []
 
@@ -80,7 +78,6 @@ Item {
         return Theme.notification
     }
 
-    // 🚀 0 索引解析
     readonly property int displayWsNumber: {
         var n = Number(wsCurrent)
         if (isNaN(n)) return 0
@@ -160,7 +157,7 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // 6. 常态时钟
+    // 6. 常态时钟 (集成工作区微徽章透传)
     CompactClockView {
         id: clockView
         anchors.centerIn: parent
@@ -170,6 +167,11 @@ Item {
         showNetSpeed: compactRoot.showNetSpeed
         downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
         displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
+
+        // 🚀【透传桌面方案 A 属性】
+        showWorkspaceName: (typeof Config !== "undefined" && Config.showWorkspaceName !== undefined) ? Config.showWorkspaceName : true
+        wsName: compactRoot.wsName
+        displayWsNumber: compactRoot.displayWsNumber
 
         readonly property bool clockVisibleState: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling && !compactRoot.isScrubbing)
         isClockActive: clockVisibleState

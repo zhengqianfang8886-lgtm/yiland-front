@@ -5,7 +5,6 @@
 from .hardware import HardwareService
 from .media import MediaService
 from .system_wm import WindowManagerService
-from .typing_flow import TypingFlowService
 from .timezone import get_world_time, get_tz_offset_str
 from .utils import (
     process_notification_avatar,
@@ -18,7 +17,6 @@ __all__ = [
     "HardwareService",
     "MediaService",
     "WindowManagerService",
-    "TypingFlowService",
     "get_world_time",
     "get_tz_offset_str",
     "process_notification_avatar",

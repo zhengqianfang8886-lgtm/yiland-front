@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: IslandCapsule.qml
-// 🌟 终极修复：逻辑统一收拢 · 离开准时收回
+// 🌟 悬停偷瞄(Peek)自动缩回 · 点击左键固定常驻(Pin) · 右键隐藏
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -9,13 +9,31 @@ import "capsule"
 Item {
     id: capsuleRoot
 
+    // =========================================================================
+    // 1. 核心业务信号
+    // =========================================================================
+    signal timerAlert(string title, string msg)
+    signal sedentaryRested()
+    signal sedentarySnooze()
+    signal requestExpand(string tabName)
+    signal requestSettings()
+    signal maskCommitRequested()
+
     property string chosenFont: ""
     readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
 
     property bool isExpanded: false
     property bool isCollapsing: false
     property var enabledTabs: []
-    property bool isIslandHidden: false
+
+    // 🚀【核心状态机】
+    // isTucked: 处于隐藏收纳状态
+    // isPeeking: 隐藏状态下鼠标临时悬停探出 (移开后会自动缩回)
+    property bool isTucked: false
+    property bool isPeeking: false
+
+    // 胶囊当前是否实际上物理吸顶（非悬停探出中）
+    readonly property bool isActuallyTucked: isTucked && !isPeeking
 
     property alias expandedTab: expandedCardView.expandedTab
 
@@ -58,8 +76,39 @@ Item {
     property string localIp: ""
 
     property int continuousSitMinutes: 45
-    signal sedentaryRested()
-    signal sedentarySnooze()
+
+    // -------------------------------------------------------------------------
+    // 家与旅馆动力学引擎
+    // -------------------------------------------------------------------------
+    property real islandOffsetX: 0
+    readonly property bool isAtMotel: Math.abs(islandOffsetX) > 8
+
+    function goHome() {
+        islandOffsetX = 0
+        maskCommitRequested()
+    }
+
+    Behavior on islandOffsetX {
+        NumberAnimation {
+            duration: 280
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.18
+        }
+    }
+
+    function applyDragDelta(deltaX) {
+        var next = islandOffsetX + deltaX
+        islandOffsetX = Math.max(-250, Math.min(250, next))
+        maskCommitRequested()
+    }
+
+    function finishDrag(velocityX) {
+        if (Math.abs(islandOffsetX) < 35 || (islandOffsetX > 0 && velocityX < -6) || (islandOffsetX < 0 && velocityX > 6)) {
+            goHome()
+        } else {
+            maskCommitRequested()
+        }
+    }
 
     readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
     readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
@@ -72,19 +121,28 @@ Item {
     readonly property int timerRemaining: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.remainingSeconds : 0
     readonly property int timerTotal: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.totalSeconds : 0
 
-    function toggleTimerPause() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.togglePause() }
-    function dismissTimer() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.dismissTimer() }
-    function resetTimer() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.resetTimer() }
+    function toggleTimerPause() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.togglePause()
+            maskCommitRequested()
+        }
+    }
+    function dismissTimer() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.dismissTimer()
+            maskCommitRequested()
+        }
+    }
+    function resetTimer() {
+        if (expandedCardView.timerPageRef) {
+            expandedCardView.timerPageRef.resetTimer()
+            maskCommitRequested()
+        }
+    }
 
     property bool anySubBubbleHovered: false
     property bool subBubbleInteracting: false
     readonly property bool isMouseOver: sensorArea.isPointerHovered
-
-    signal requestExpand(string tabName)
-    signal requestSettings()
-    signal maskCommitRequested()
-    signal timerAlert(string title, string msg)
-    signal requestHideIsland()
 
     function lockBriefMorph() { sensorArea.lockBriefMorph() }
     function cancelCollapse() { sensorArea.cancelCollapse() }
@@ -96,6 +154,7 @@ Item {
     readonly property int currentNormalWidth: Math.max(80, Math.ceil((compactCapsuleView.textRowImplicitWidth + 24) / 2) * 2)
 
     readonly property int targetWidth: {
+        if (isActuallyTucked) return 140
         if (isExpanded) return 430
         if (isCalling) return 320
         if (activeTransient === "SEDENTARY") return 520
@@ -116,9 +175,15 @@ Item {
     readonly property int radius: isExpanded ? 28 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
     readonly property bool isNoticeActive: (activeTransient === "ALERT") || (activeTransient === "SEDENTARY") || isCalling
     readonly property bool isMorphGrowing: isExpanded || isNoticeActive || (activeTransient === "WORKSPACE") || sensorArea.isScrubbing
-    readonly property bool isMorphing: (widthNumAnim && widthNumAnim.running) || (heightNumAnim && heightNumAnim.running)
+
+    readonly property bool isMorphing: widthNumAnim.running || heightNumAnim.running || topMarginAnim.running
+
+    // 仅当下落滑动动画在进行时才标记为未就位
+    readonly property bool isDroppingFromTuck: !isActuallyTucked && topMarginAnim.running
+    readonly property bool isCapsuleSettled: !isActuallyTucked && !isExpanded && !isCollapsing && !isDroppingFromTuck
 
     readonly property color currentEffectiveAccent: {
+        if (isActuallyTucked) return "#1d4ed8"
         if (isCalling) return Theme.media
         if (activeTransient === "SEDENTARY") return Qt.rgba(52 / 255, 211 / 255, 153 / 255, 1.0)
         if (activeTransient === "ALERT") return compactCapsuleView.alertThemeColor
@@ -131,44 +196,67 @@ Item {
     z: 2
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
-    anchors.horizontalCenterOffset: Math.round(Config.offsetX)
-    Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveDecel } }
+    anchors.horizontalCenterOffset: Math.round(Config.offsetX + capsuleRoot.islandOffsetX)
 
-    anchors.topMargin: isIslandHidden ? (-height - 20) : ((typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8)
+    // =========================================================================
+    // 🌊 物理滑轨：isActuallyTucked 为真时吸顶，Peek 或固定显示时滑下
+    // =========================================================================
+    readonly property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
+    anchors.topMargin: isActuallyTucked ? -(targetHeight - 4.5) : normalTopMargin
+
     Behavior on anchors.topMargin {
         NumberAnimation {
-            duration: capsuleRoot.isIslandHidden ? 100 : Theme.animSlow
-            easing.type: capsuleRoot.isIslandHidden ? Easing.InQuad : Theme.curveSpring
-            easing.overshoot: Theme.springOvershootNormal
+            id: topMarginAnim
+            duration: capsuleRoot.isActuallyTucked ? 240 : 320
+            easing.type: capsuleRoot.isActuallyTucked ? Easing.OutCubic : Easing.OutBack
+            easing.overshoot: capsuleRoot.isActuallyTucked ? 1.0 : 1.12
+            onRunningChanged: {
+                if (!running && !widthNumAnim.running && !heightNumAnim.running && !capsuleRoot.isExpanded) {
+                    capsuleRoot.isCollapsing = false
+                }
+                capsuleRoot.maskCommitRequested()
+            }
         }
     }
 
     width: targetWidth
     height: targetHeight
 
-    opacity: isIslandHidden ? 0.0 : 1.0
-    visible: opacity > 0.001
-    Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
-
     onIsExpandedChanged: {
         if (isExpanded) {
-            maskCommitRequested()
+            isCollapsing = false
+            if (isTucked) { isTucked = false; isPeeking = false }
+            if (isAtMotel) goHome()
+        } else {
+            collapseWatchdog.restart()
+        }
+        maskCommitRequested()
+    }
+
+    Timer {
+        id: collapseWatchdog
+        interval: 350
+        onTriggered: {
+            if (capsuleRoot.isCollapsing && !capsuleRoot.isExpanded) {
+                capsuleRoot.isCollapsing = false
+                capsuleRoot.maskCommitRequested()
+            }
         }
     }
 
+    onIsTuckedChanged: maskCommitRequested()
+    onIsPeekingChanged: maskCommitRequested()
+
     Behavior on width {
-        enabled: !capsuleRoot.isIslandHidden
         NumberAnimation {
             id: widthNumAnim
-            // 收缩时（isCollapsing 或卡片变小）使用 130ms 迅速收合
-            duration: capsuleRoot.isExpanded ? Theme.animNormal : 130
-            easing.type: capsuleRoot.isExpanded ? Theme.curveSpring : Easing.OutCubic
-            easing.overshoot: 1.0
+            duration: 240
+            easing.type: Easing.OutCubic
             onRunningChanged: {
-                if (!running && !heightNumAnim.running && !capsuleRoot.isExpanded) {
+                if (!running && !heightNumAnim.running && !topMarginAnim.running && !capsuleRoot.isExpanded) {
                     capsuleRoot.isCollapsing = false
-                    capsuleRoot.maskCommitRequested()
                 }
+                capsuleRoot.maskCommitRequested()
             }
         }
     }
@@ -176,20 +264,20 @@ Item {
     Behavior on height {
         NumberAnimation {
             id: heightNumAnim
-            // 收缩时使用 130ms 迅速收合
-            duration: capsuleRoot.isExpanded ? Theme.animNormal : 130
-            easing.type: capsuleRoot.isExpanded ? Theme.curveSpring : Easing.OutCubic
-            easing.overshoot: 1.0
+            duration: 240
+            easing.type: Easing.OutCubic
             onRunningChanged: {
-                if (!running && !widthNumAnim.running && !capsuleRoot.isExpanded) {
+                if (!running && !widthNumAnim.running && !topMarginAnim.running && !capsuleRoot.isExpanded) {
                     capsuleRoot.isCollapsing = false
-                    capsuleRoot.maskCommitRequested()
                 }
+                capsuleRoot.maskCommitRequested()
             }
         }
     }
 
-    // 1. 材质与高光底板
+    // -------------------------------------------------------------------------
+    // 1. 胶囊外壳底板
+    // -------------------------------------------------------------------------
     CapsuleBackground {
         id: capsuleBackground
         capsuleRadius: capsuleRoot.radius
@@ -197,17 +285,20 @@ Item {
         isHovered: sensorArea.isPointerHovered
     }
 
-    // 2. 常态胶囊内构
+    // -------------------------------------------------------------------------
+    // 2. 常态内容流
+    // -------------------------------------------------------------------------
     CompactCapsuleView {
         id: compactCapsuleView
         anchors.fill: parent
         anchors.leftMargin: 2; anchors.rightMargin: 2
         height: capsuleRoot.isExpanded ? 34 : parent.height
-        clip: false
+        clip: true
         z: 5
 
-        visible: !capsuleRoot.isExpanded && (opacity > 0.01)
-        opacity: !capsuleRoot.isExpanded ? 1.0 : 0.0
+        visible: !capsuleRoot.isExpanded
+        opacity: capsuleRoot.isExpanded ? 0.0 : (capsuleRoot.isActuallyTucked ? 0.0 : 1.0)
+        Behavior on opacity { NumberAnimation { duration: capsuleRoot.isActuallyTucked ? 90 : 160 } }
 
         showNetSpeed: Config.showNetSpeed
         chosenFont: capsuleRoot.effectiveFont
@@ -246,11 +337,43 @@ Item {
         continuousSitMinutes: capsuleRoot.continuousSitMinutes
         onSedentaryRested: capsuleRoot.sedentaryRested()
         onSedentarySnooze: capsuleRoot.sedentarySnooze()
-
-        Behavior on opacity { NumberAnimation { duration: capsuleRoot.isExpanded ? 0 : Theme.animInstant; easing.type: Theme.curveFluid } }
     }
 
-    // 3. 展开卡片内构 (z: 10)
+    // -------------------------------------------------------------------------
+    // 3. 回巢微标
+    // -------------------------------------------------------------------------
+    Rectangle {
+        id: returnHomePill
+        z: 15
+        width: 18; height: 18; radius: 9
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.left: capsuleRoot.islandOffsetX > 0 ? parent.left : undefined
+        anchors.right: capsuleRoot.islandOffsetX < 0 ? parent.right : undefined
+        anchors.leftMargin: 6; anchors.rightMargin: 6
+
+        visible: !capsuleRoot.isExpanded && !capsuleRoot.isActuallyTucked && capsuleRoot.isAtMotel && (opacity > 0.001)
+        opacity: (!capsuleRoot.isExpanded && !capsuleRoot.isActuallyTucked && capsuleRoot.isAtMotel) ? (homeHover.hovered ? 0.95 : 0.45) : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        color: homeHover.hovered ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.35) : Qt.rgba(255, 255, 255, 0.12)
+        border.color: homeHover.hovered ? "#38bdf8" : Qt.rgba(255, 255, 255, 0.25)
+        border.width: 1
+
+        Text {
+            anchors.centerIn: parent
+            text: "⌂"
+            font.pixelSize: 10
+            font.weight: Font.Bold
+            color: "white"
+        }
+
+        HoverHandler { id: homeHover; cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: capsuleRoot.goHome() }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. 展开卡片
+    // -------------------------------------------------------------------------
     Item {
         anchors.fill: parent
         clip: false
@@ -301,9 +424,9 @@ Item {
         }
     }
 
-    // 4. 🚀【核心设计】：交互感知层置于最顶层 (z: 20)
-    // 展开时它的点击层已通过 enabled: false 完全穿透，绝不阻碍卡片内的按钮点击；
-    // 它的 HoverHandler 处于最高优先级，能够完整覆盖整个 430x240 范围，进出状态绝对准确！
+    // -------------------------------------------------------------------------
+    // 5. 交互感知层 (负责右键隐藏、左键钉住恢复与悬停离开退回)
+    // -------------------------------------------------------------------------
     CapsuleSensorArea {
         id: sensorArea
         z: 20
@@ -313,13 +436,39 @@ Item {
         isNoticeActive: capsuleRoot.isNoticeActive
         activeTransient: capsuleRoot.activeTransient
         subBubbleInteracting: capsuleRoot.subBubbleInteracting
+        isTucked: capsuleRoot.isActuallyTucked
+
+        // 右键直接隐藏吸顶
+        onRequestTuck: {
+            capsuleRoot.isPeeking = false
+            capsuleRoot.isTucked = true
+        }
+
+        // 🚀【点击永久固定 Pin】：在展开或 Peek 状态下左键点击主岛，取消隐藏模式，永久钉住！
+        onPinnedRestoreRequested: {
+            capsuleRoot.isPeeking = false
+            capsuleRoot.isTucked = false
+        }
+
+        // 🚀【悬停离开退回】：如果当前只是 Peek 偷瞄状态，鼠标移开后自动缩回顶端
+        onPointerExitedCapsule: {
+            if (capsuleRoot.isTucked && capsuleRoot.isPeeking) {
+                peekRetractTimer.restart()
+            }
+        }
+        onPointerEnteredCapsule: {
+            peekRetractTimer.stop()
+        }
 
         onRequestExpand: (tab) => capsuleRoot.requestExpand(tab)
-        onRequestHideIsland: () => capsuleRoot.requestHideIsland()
+        onMoveOffsetRequested: (deltaX) => capsuleRoot.applyDragDelta(deltaX)
+        onDragFinished: (vX) => capsuleRoot.finishDrag(vX)
+        onGoHomeRequested: capsuleRoot.goHome()
 
         onStartCollapse: {
             capsuleRoot.isCollapsing = true
             capsuleRoot.isExpanded = false
+            collapseWatchdog.restart()
             if (capsuleRoot.activeTransient === "ALERT") capsuleRoot.activeTransient = ""
         }
 
@@ -352,5 +501,72 @@ Item {
         }
 
         onScrubCanceled: capsuleRoot.maskCommitRequested()
+    }
+
+    // Peek 离开缓冲定时器：离开胶囊 220ms 自动像水滴弹簧一样收回
+    Timer {
+        id: peekRetractTimer
+        interval: 220
+        repeat: false
+        onTriggered: {
+            if (capsuleRoot.isTucked && !sensorArea.isPointerHovered && !capsuleRoot.anySubBubbleHovered) {
+                capsuleRoot.isPeeking = false
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // 6. 顶端露弧感应唤醒区 (悬停只是偷瞄 Peek，点击则是永久固定 Pin)
+    // -------------------------------------------------------------------------
+    MouseArea {
+        id: tuckSensor
+        z: 30
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: parent.width
+        height: 14
+        enabled: capsuleRoot.isActuallyTucked
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+
+        Timer {
+            id: tuckPeekDwellTimer
+            interval: 140
+            onTriggered: {
+                if (capsuleRoot.isActuallyTucked) {
+                    capsuleRoot.isPeeking = true // 悬停：触发临时探出 Peek
+                }
+            }
+        }
+
+        onEntered: {
+            peekRetractTimer.stop()
+            tuckPeekDwellTimer.restart()
+        }
+        onExited: {
+            tuckPeekDwellTimer.stop()
+        }
+
+        // 🚀【核心交互】：在顶弧上直接点击左键，直接永久固定展开，不缩回！
+        onClicked: {
+            tuckPeekDwellTimer.stop()
+            peekRetractTimer.stop()
+            capsuleRoot.isPeeking = false
+            capsuleRoot.isTucked = false // 永久固定
+        }
+    }
+
+    CapsuleTuckGesture {
+        id: tuckGesture
+        z: 25
+        isTucked: capsuleRoot.isActuallyTucked
+        onRequestRestore: {
+            capsuleRoot.isPeeking = false
+            capsuleRoot.isTucked = false
+        }
+        onRequestTuck: {
+            capsuleRoot.isPeeking = false
+            capsuleRoot.isTucked = true
+        }
     }
 }

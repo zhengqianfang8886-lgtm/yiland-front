@@ -1,0 +1,212 @@
+# ==========================================
+# 📄 File: modules/notifications.py
+# 🌟 Teams 专属过滤 · 零磁盘落盘 · 隐私调试安全版
+# ==========================================
+import os
+import re
+import json
+import asyncio
+import shutil
+from typing import Dict, Any, Optional
+try:
+    from loguru import logger
+except ImportError:
+    from logger import app_logger as logger
+
+from dbus_next.aio import MessageBus
+from dbus_next.constants import BusType
+from dbus_next import Message, MessageType
+from core.state import IslandState
+
+
+def is_debug_mode() -> bool:
+    return os.getenv("DEBUG") in ("1", "true", "True") or os.getenv("ISLAND_DEBUG") in ("1", "true", "True")
+
+
+class TeamsFilterConfig:
+    TEAMS_DOMAINS = ["teams.live.com", "teams.microsoft.com", "teams.cloud.microsoft", "teams.office.com"]
+    TEAMS_APPS = ["teams", "teams-for-linux", "microsoft-teams", "ms-teams"]
+    CALL_KEYWORDS = ["正在呼叫", "来电", "邀请您加入通话", "邀请你加入通话", "视频通话", "语音通话", "calling", "incoming call"]
+    CALL_END_KEYWORDS = ["未接来电", "已取消呼叫", "通话已结束", "通话结束", "missed call", "call ended"]
+
+
+class NotificationModule:
+    """利用 D-Bus BecomeMonitor 原生嗅探 Teams 消息与来电（不抢占系统通知服务）"""
+
+    def __init__(self, state: IslandState, dispatcher):
+        self.state = state
+        self.dispatcher = dispatcher
+        self.log = logger.bind(module="TEAMS_NOTIFY")
+
+        self.monitor_bus: Optional[MessageBus] = None
+        self.action_bus: Optional[MessageBus] = None
+        self.current_call_id: Optional[int] = None
+        self.is_calling: bool = False
+        self._call_timeout_task: Optional[asyncio.Task] = None
+
+    def _unwrap_variant(self, variant: Any) -> Any:
+        if hasattr(variant, 'value'): return self._unwrap_variant(variant.value)
+        if isinstance(variant, list): return [self._unwrap_variant(item) for item in variant]
+        if isinstance(variant, dict): return {k: self._unwrap_variant(v) for k, v in variant.items()}
+        return variant
+
+    async def init(self):
+        try:
+            self.action_bus = await MessageBus(bus_type=BusType.SESSION).connect()
+        except Exception:
+            pass
+        asyncio.create_task(self._monitor_lifecycle_loop())
+
+    async def close(self):
+        if self._call_timeout_task and not self._call_timeout_task.done():
+            self._call_timeout_task.cancel()
+
+    async def _monitor_lifecycle_loop(self):
+        while True:
+            try:
+                self.monitor_bus = await MessageBus(bus_type=BusType.SESSION).connect()
+                rule_notify = "type='method_call',interface='org.freedesktop.Notifications',member='Notify'"
+                rule_closed = "type='signal',interface='org.freedesktop.Notifications',member='NotificationClosed'"
+
+                await self.monitor_bus.call(
+                    Message(
+                        destination="org.freedesktop.DBus",
+                        path="/org/freedesktop/DBus",
+                        interface="org.freedesktop.DBus.Monitoring",
+                        member="BecomeMonitor",
+                        signature="asu",
+                        body=[[rule_notify, rule_closed], 0]
+                    )
+                )
+
+                self.monitor_bus.send = lambda *args, **kwargs: None
+                self.monitor_bus.add_message_handler(self._on_dbus_message)
+                if is_debug_mode():
+                    self.log.success("✅ Teams 专属嗅探器已挂载 (BecomeMonitor 成功)")
+
+                await self.monitor_bus.wait_for_disconnect()
+            except Exception as e:
+                if is_debug_mode():
+                    self.log.error(f"通知监听断开: {e}，将在 3 秒后重试...")
+                await asyncio.sleep(3)
+
+    def _on_dbus_message(self, msg: Message) -> bool:
+        if msg.member == "Notify":
+            asyncio.create_task(self._handle_notify_async(msg))
+        elif msg.member == "NotificationClosed" and self.is_calling:
+            self._stop_call("系统挂断信号")
+        return True
+
+    async def _handle_notify_async(self, msg: Message):
+        try:
+            app_name = str(msg.body[0] if len(msg.body) > 0 else "").lower()
+            replaces_id = int(msg.body[1] if len(msg.body) > 1 else 0)
+            raw_summary = str(msg.body[3] if len(msg.body) > 3 else "").strip()
+            raw_body = str(msg.body[4] if len(msg.body) > 4 else "").strip()
+            raw_hints = msg.body[6] if len(msg.body) > 6 else {}
+            hints = self._unwrap_variant(raw_hints)
+
+            # 1. 严格白名单过滤：只拦截 Teams 消息
+            origin_name = str(hints.get("x-kde-origin-name", "")).lower()
+            desktop_entry = str(hints.get("desktop-entry", "")).lower()
+
+            is_teams_web = any(domain in origin_name for domain in TeamsFilterConfig.TEAMS_DOMAINS)
+            is_teams_app = any(app in app_name or app in desktop_entry for app in TeamsFilterConfig.TEAMS_APPS)
+
+            if not (is_teams_web or is_teams_app):
+                return
+
+            if not raw_summary and not raw_body:
+                return
+
+            # 2. 提取联系人头像路径
+            avatar_path = ""
+            for key in ["image-path", "image_path", "image-uri"]:
+                p = hints.get(key)
+                if p and os.path.exists(str(p)):
+                    avatar_path = f"file://{os.path.abspath(str(p))}"
+                    break
+
+            if not avatar_path:
+                app_icon = str(msg.body[2] if len(msg.body) > 2 else "")
+                if app_icon.startswith("file://") and os.path.exists(app_icon[7:]):
+                    avatar_path = app_icon
+
+            self.state.last_notify_title = raw_summary
+            self.state.last_notify_content = raw_body
+            self.state.last_notify_avatar = avatar_path
+
+            combined = f"{raw_summary} {raw_body}".lower()
+
+            # 3. 来电挂断/通话结束
+            if any(kw in combined for kw in TeamsFilterConfig.CALL_END_KEYWORDS):
+                self._stop_call(raw_body)
+                return
+
+            # 4. 来电响铃模式
+            if any(kw in combined for kw in TeamsFilterConfig.CALL_KEYWORDS):
+                self.is_calling = True
+                self.current_call_id = replaces_id if replaces_id != 0 else msg.serial
+                self.state.last_notify_icon = "📞"
+                self.dispatcher.broadcast("TEAMS_CALL_INCOMING")
+
+                if self._call_timeout_task and not self._call_timeout_task.done():
+                    self._call_timeout_task.cancel()
+                self._call_timeout_task = asyncio.create_task(self._auto_call_watchdog(45))
+                return
+
+            # 5. 普通文字消息
+            self.state.last_notify_icon = "💬"
+            self.dispatcher.broadcast("TEAMS_NOTIFICATION")
+
+        except Exception as e:
+            if is_debug_mode():
+                self.log.error(f"处理 Teams 消息异常: {e}")
+
+    def _stop_call(self, reason: str):
+        if not self.is_calling: return
+        self.is_calling = False
+        self.current_call_id = None
+        if self._call_timeout_task and not self._call_timeout_task.done():
+            self._call_timeout_task.cancel()
+        self.dispatcher.broadcast("TEAMS_CALL_ENDED")
+
+    async def _auto_call_watchdog(self, timeout_sec: int):
+        await asyncio.sleep(timeout_sec)
+        if self.is_calling:
+            self._stop_call("超时无应答挂断")
+
+    async def focus_teams(self) -> bool:
+        """靶向置顶 Teams 窗口"""
+        if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            cmd = 'hyprctl dispatch focuswindow "class:^(.*teams.*)$" || hyprctl dispatch focuswindow "title:^(.*Teams.*)$"'
+            proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            await proc.communicate()
+            return proc.returncode == 0
+        if shutil.which("wmctrl"):
+            cmd = 'wmctrl -a "Microsoft Teams" 2>/dev/null || wmctrl -a "teams.live.com" 2>/dev/null'
+            proc = await asyncio.create_subprocess_shell(cmd)
+            await proc.communicate()
+            return proc.returncode == 0
+        return False
+
+    async def answer_call(self) -> bool:
+        """快捷安全接听"""
+        if not self.is_calling: return False
+        await self.focus_teams()
+        await asyncio.sleep(0.12)
+        cmd = "wtype -M ctrl -M shift -k s 2>/dev/null || xdotool key --clearmodifiers ctrl+shift+s 2>/dev/null"
+        proc = await asyncio.create_subprocess_shell(cmd)
+        await proc.communicate()
+        return True
+
+    async def reject_call(self) -> bool:
+        """快捷安全拒接"""
+        if not self.is_calling: return False
+        await self.focus_teams()
+        await asyncio.sleep(0.12)
+        cmd = "wtype -M ctrl -M shift -k d 2>/dev/null || xdotool key --clearmodifiers ctrl+shift+d 2>/dev/null"
+        proc = await asyncio.create_subprocess_shell(cmd)
+        await proc.communicate()
+        self._stop_call("主动拒接")
+        return True

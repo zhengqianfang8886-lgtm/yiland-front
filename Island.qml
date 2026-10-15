@@ -1,5 +1,6 @@
 // ==========================================
 // 📄 File: Island.qml
+// 🌟 悬停偷瞄(Peek)自动缩回 · 点击左键固定常驻(Pin)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -12,49 +13,11 @@ Item {
     readonly property string chosenFont: Theme.activeFont
     readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    property bool isIslandHidden: false
+    // 阻塞状态：胶囊实际上处于隐藏吸顶状态（非 Peek 偷瞄中）时才阻断副岛
+    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || capsule.isActuallyTucked)
 
-    readonly property int effectiveHideDurationMs: {
-        var sec = 5
-        if (typeof Config !== "undefined" && Config.autoHideDurationSeconds !== undefined) {
-            sec = Number(Config.autoHideDurationSeconds)
-        }
-        return Math.max(1000, sec * 1000)
-    }
-
-    Timer {
-        id: autoRestoreTimer
-        interval: root.effectiveHideDurationMs
-        repeat: false
-        onTriggered: {
-            root.wakeIsland()
-        }
-    }
-
-    function triggerHideIsland() {
-        if (capsule.isExpanded) {
-            capsule.isExpanded = false
-            capsule.isCollapsing = false
-        }
-        autoRestoreTimer.stop()
-        root.isIslandHidden = true
-
-        if (typeof Bridge !== "undefined" && Bridge.setPassthrough) {
-            Bridge.setPassthrough()
-        }
-
-        autoRestoreTimer.interval = root.effectiveHideDurationMs
-        autoRestoreTimer.restart()
-        maskController.commit()
-    }
-
-    function wakeIsland() {
-        autoRestoreTimer.stop()
-        root.isIslandHidden = false
-        maskController.commit()
-    }
-
-    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || root.isIslandHidden)
+    // 副岛展示门控：主岛稳定着陆且非吸顶中（Peek 偷瞄探出时也允许副岛展示）
+    readonly property bool subIslandsAllowed: capsule.isCapsuleSettled && !root.isBlockingTransient
 
     readonly property real effectiveCapsuleX: capsule.isExpanded ? 
         Math.round((root.width - capsule.currentNormalWidth) / 2 + (typeof Config !== "undefined" ? Config.offsetX : 0)) : 
@@ -64,41 +27,38 @@ Item {
         capsule.currentNormalWidth : 
         capsule.width
 
-    property bool musicRetained: relay.status === "Playing"
+    // -------------------------------------------------------------------------
+    // 媒体音乐状态管理
+    // -------------------------------------------------------------------------
+    property bool musicRetained: Boolean(relay && relay.status === "Playing")
 
     Timer {
         id: musicRetainTimer
         interval: 5000
         repeat: false
         onTriggered: {
-            if (relay.status !== "Playing") {
-                root.musicRetained = false
-            }
+            if (!relay || relay.status !== "Playing") root.musicRetained = false
         }
     }
 
     Connections {
         target: relay
+        ignoreUnknownSignals: true
         function onStatusChanged() {
-            if (relay.status === "Playing") {
+            if (relay && relay.status === "Playing") {
                 musicRetainTimer.stop()
                 root.musicRetained = true
-            } else {
-                if (root.musicRetained) {
-                    musicRetainTimer.restart()
-                }
+            } else if (root.musicRetained) {
+                musicRetainTimer.restart()
             }
         }
     }
 
-    readonly property bool hasMusicIsland: (relay.status === "Playing" || musicRetained) && !isBlockingTransient
-    readonly property bool hasTypingIsland: !root.isBlockingTransient &&
-                                            (typeof Config === "undefined" || Config.showHardwareBubble !== false) &&
-                                            (typeof Config === "undefined" || Config.typingVisualizerEnabled !== false)
+    readonly property bool hasMusicIsland: Boolean(relay && (relay.status === "Playing" || root.musicRetained))
 
-    readonly property bool hasTimerIsland: capsule.timerActive && !isBlockingTransient
-    readonly property bool hasNotifIsland: (relay.unreadCount > 0) && !isBlockingTransient
-
+    // -------------------------------------------------------------------------
+    // 展开卡片与导航标签
+    // -------------------------------------------------------------------------
     readonly property var allTabsMeta: ({
         "time": { key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) },
         "hardware": { key: "hardware", name: "控制", color: "#f59e0b", activeColor: Qt.rgba(245 / 255, 158 / 255, 11 / 255, 0.22) },
@@ -109,8 +69,7 @@ Item {
         "clock": { key: "clock", name: "时钟", color: Theme.clock, activeColor: Qt.rgba(Theme.clock.r, Theme.clock.g, Theme.clock.b, 0.22) },
         "network": { key: "network", name: "网络", color: Theme.network, activeColor: Qt.rgba(Theme.network.r, Theme.network.g, Theme.network.b, 0.22) },
         "bluetooth": { key: "bluetooth", name: "蓝牙", color: Theme.bluetooth, activeColor: Qt.rgba(Theme.bluetooth.r, Theme.bluetooth.g, Theme.bluetooth.b, 0.22) },
-        "notification": { key: "notification", name: "通知", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) },
-        "process": { key: "process", name: "服务", color: "#a855f7", activeColor: Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.22) }
+        "notification": { key: "notification", name: "通知", color: Theme.notification, activeColor: Qt.rgba(Theme.notification.r, Theme.notification.g, Theme.notification.b, 0.22) }
     })
 
     function isTabEnabled(key) {
@@ -125,20 +84,17 @@ Item {
         if (key === "network") return Config.showNetworkTab !== false
         if (key === "bluetooth") return Config.showBluetoothTab !== false
         if (key === "notification") return Config.showNotificationTab !== false
-        if (key === "process") return Config.showProcessTab !== false
         return true
     }
 
     readonly property var enabledTabs: {
         var order = (typeof Config !== "undefined" && Config.tabOrder && Config.tabOrder.length > 0) ?
                     Config.tabOrder :
-                    ["time", "hardware", "workspace", "media", "calendar", "timer", "clock", "network", "bluetooth", "notification", "process"]
+                    ["time", "hardware", "workspace", "media", "calendar", "timer", "clock", "network", "bluetooth", "notification"]
         var list = []
         for (var i = 0; i < order.length; i++) {
             var k = order[i]
-            if (isTabEnabled(k) && allTabsMeta[k]) {
-                list.push(allTabsMeta[k])
-            }
+            if (isTabEnabled(k) && allTabsMeta[k]) list.push(allTabsMeta[k])
         }
         return list
     }
@@ -152,16 +108,20 @@ Item {
             triggerTransient("SEDENTARY", 0)
         }
         onDismissAlert: {
-            if (capsule.activeTransient === "SEDENTARY") {
-                capsule.activeTransient = ""
-            }
+            if (capsule.activeTransient === "SEDENTARY") capsule.activeTransient = ""
         }
     }
 
     IslandBridgeRelay {
         id: relay
         onTriggerOsd: (icon, label, val) => triggerTransient("OSD", 1500)
-        onTriggerWorkspace: (c, t, n) => { triggerTransient("WORKSPACE", 800); Bridge.forceRaise() }
+        
+        onTriggerWorkspace: (c, t, n) => {
+            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+            if (capsule.isAtMotel) capsule.goHome()
+            triggerTransient("WORKSPACE", 800)
+            Bridge.forceRaise()
+        }
 
         onTriggerAlert: (icon, t, sub, ms, avatar) => {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
@@ -171,6 +131,9 @@ Item {
             if (isDnd && !isCall) return
             if (isDnd && isCall && !allowCall) return
 
+            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+            if (capsule.isAtMotel) capsule.goHome()
+
             capsule.alertIcon = icon
             capsule.alertTitle = t
             capsule.alertSubtitle = sub
@@ -179,14 +142,13 @@ Item {
         }
 
         onTriggerClipboard: (icon, t, sub, ms) => {
-            if (!(typeof Config !== "undefined" && Config.dndEnabled)) {
-                capsule.triggerClipGlow()
-            }
+            if (!(typeof Config !== "undefined" && Config.dndEnabled) && !capsule.isTucked) capsule.triggerClipGlow()
         }
 
         onCallEnded: {
             if (capsule.isExpanded) capsule.startCollapse()
             if (!(typeof Config !== "undefined" && Config.dndEnabled && !Config.dndAllowCalls)) {
+                if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
                 capsule.alertIcon = "📞"
                 capsule.alertTitle = relay.callTitle || "Teams 通话"
                 capsule.alertSubtitle = "呼叫已完成"
@@ -215,7 +177,6 @@ Item {
     Timer { id: transientTimer; onTriggered: capsule.activeTransient = "" }
     function triggerTransient(mode, ms) {
         if (capsule.isExpanded) return
-
         capsule.activeTransient = mode
         if (ms > 0) {
             transientTimer.interval = ms; transientTimer.restart()
@@ -224,25 +185,8 @@ Item {
         }
     }
 
-    IslandMaskController {
-        id: maskController
-        rootItem: root
-        capsuleItem: capsule
-        lofiBubble: bubbleLofi
-        leftMemoryBubble: bubbleMemory
-        leftBubble: bubbleMusic
-        hwBubble: bubbleHardware
-        rightBubble: bubbleTimer
-        notifBubble: bubbleNotif
-        isExpanded: capsule.isExpanded
-        isCollapsing: capsule.isCollapsing
-        isMorphing: capsule.isMorphing
-        isIslandHidden: root.isIslandHidden
-        targetW: capsule.targetWidth
-        targetH: capsule.targetHeight
-    }
-
     function expandToTab(tabName) {
+        if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
         capsule.lockBriefMorph()
         if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
@@ -264,12 +208,37 @@ Item {
         subInteractingTimer.restart()
     }
 
+    // =========================================================================
+    // 挂载槽容器与胶囊
+    // =========================================================================
+
+    // 1. 左侧挂载槽 (音乐、内存)
+    IslandPluginBay {
+        id: leftBay
+        z: 1
+        side: "left"
+        capsuleX: root.effectiveCapsuleX
+        capsuleWidth: root.effectiveCapsuleWidth
+        capsuleY: capsule.y
+        capsuleHeight: capsule.height
+        splitGap: root.splitGap
+        isBlocked: !root.subIslandsAllowed
+        relay: relay
+        capsule: capsule
+        hasMusicIsland: root.hasMusicIsland
+        activeKeys: (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
+        onRequestExpand: (tab) => root.expandToTab(tab)
+        onInteracted: root.handleSubBubbleInteracted()
+        onMaskUpdateRequested: maskController.commit()
+    }
+
+    // 2. 核心主胶囊
     IslandCapsule {
         id: capsule
         chosenFont: root.chosenFont
         enabledTabs: root.enabledTabs
         dominantColor: relay.dominantColor
-        anySubBubbleHovered: bubbleLofi.isHovered || bubbleMemory.isHovered || bubbleMusic.isHovered || bubbleHardware.isHovered || bubbleTimer.isHovered || bubbleNotif.isHovered
+        anySubBubbleHovered: leftBay.isAnyHovered || rightBay.isAnyHovered
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -277,220 +246,60 @@ Item {
         displayDate: timeService.displayDate; displayTime: timeService.displayTime; displaySeconds: timeService.displaySeconds; displayPeriod: timeService.displayPeriod
         downCompact: relay.downSpeedCompact; upCompact: relay.upSpeedCompact; downSpeedStr: relay.downSpeedStr; upSpeedStr: relay.upSpeedStr; localIp: relay.localIp
 
-        isIslandHidden: root.isIslandHidden
-        onRequestHideIsland: root.triggerHideIsland()
-
         onSedentaryRested: sedentaryService.markRested()
         onSedentarySnooze: sedentaryService.snooze()
 
         onRequestExpand: (t) => root.expandToTab(t)
         onRequestSettings: root.openSettingsWindow()
         onMaskCommitRequested: maskController.commit()
-        onTimerAlert: (t, msg) => {
-            capsule.alertIcon = "⏰"; capsule.alertTitle = t; capsule.alertSubtitle = msg; triggerTransient("ALERT", 6000); Bridge.forceRaise()
+        onXChanged: maskController.commit()
+    }
+
+    // 3. 右侧挂载槽 (计时、通知)
+    IslandPluginBay {
+        id: rightBay
+        z: 1
+        side: "right"
+        capsuleX: root.effectiveCapsuleX
+        capsuleWidth: root.effectiveCapsuleWidth
+        capsuleY: capsule.y
+        capsuleHeight: capsule.height
+        splitGap: root.splitGap
+        isBlocked: !root.subIslandsAllowed
+        relay: relay
+        capsule: capsule
+        hasMusicIsland: root.hasMusicIsland
+        activeKeys: (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["timer", "notification"]
+        onRequestExpand: (tab) => root.expandToTab(tab)
+        onInteracted: root.handleSubBubbleInteracted()
+        onMaskUpdateRequested: maskController.commit()
+    }
+
+    Connections {
+        target: capsule
+        ignoreUnknownSignals: true
+        function onTimerAlert(t, msg) {
+            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+            capsule.alertIcon = "⏰"
+            capsule.alertTitle = t
+            capsule.alertSubtitle = msg
+            triggerTransient("ALERT", 6000)
+            if (typeof Bridge !== "undefined") Bridge.forceRaise()
         }
     }
 
-    readonly property var islandItemMap: ({
-        "lofi": bubbleLofi,
-        "memory": bubbleMemory,
-        "music": bubbleMusic,
-        "hardware": bubbleHardware,
-        "timer": bubbleTimer,
-        "notification": bubbleNotif
-    })
-
-    function getIslandSide(key) {
-        var left = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
-        return left.indexOf(key) !== -1 ? "left" : "right"
-    }
-
-    function getLeftIslandOffset(key, itemWidth) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["lofi", "memory", "music"]
-        var currentOffset = root.splitGap
-        for (var i = 0; i < list.length; i++) {
-            var k = list[i]
-            var item = islandItemMap[k]
-            if (!item) continue
-            if (k === key) {
-                return currentOffset + itemWidth
-            }
-            if (item.active) {
-                currentOffset += (item.width + root.splitGap)
-            }
-        }
-        return currentOffset + itemWidth
-    }
-
-    function getRightIslandOffset(key) {
-        var list = (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["hardware", "timer", "notification"]
-        var currentOffset = root.splitGap
-        for (var i = 0; i < list.length; i++) {
-            var k = list[i]
-            var item = islandItemMap[k]
-            if (!item) continue
-            if (k === key) {
-                return currentOffset
-            }
-            if (item.active) {
-                currentOffset += (item.width + root.splitGap)
-            }
-        }
-        return currentOffset
-    }
-
-    // 1. Lofi 动画副岛
-    LofiBubbleView {
-        id: bubbleLofi; z: 1
-        readonly property string side: root.getIslandSide("lofi")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("lofi", width) : root.getRightIslandOffset("lofi")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        active: !root.isBlockingTransient &&
-                (typeof Config === "undefined" || Config.showLofiBubble !== false)
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-    }
-
-    // 2. 内存监控副岛
-    MemoryBubbleView {
-        id: bubbleMemory; z: 1
-        readonly property string side: root.getIslandSide("memory")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("memory", width) : root.getRightIslandOffset("memory")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        readonly property bool meetsThreshold: {
-            if (typeof Config === "undefined" || Config.memoryThreshold === undefined || Config.memoryThreshold <= 0) return true
-            return relay.memoryPercent >= Config.memoryThreshold
-        }
-
-        active: !root.isBlockingTransient &&
-                (typeof Config === "undefined" || Config.showMemoryBubble !== false) &&
-                meetsThreshold
-
-        memoryPercent: relay.memoryPercent
-        memoryUsedGb: relay.memoryUsedGb
-        memoryTotalGb: relay.memoryTotalGb
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-        onClicked: if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) Bridge.openSystemMonitor()
-    }
-
-    // 3. 音乐律动副岛
-    MusicBubbleView {
-        id: bubbleMusic; z: 1
-        readonly property string side: root.getIslandSide("music")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("music", width) : root.getRightIslandOffset("music")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        active: !root.isBlockingTransient && root.hasMusicIsland
-
-        dominantColor: relay.dominantColor
-        spec1: relay.spec1
-        spec2: relay.spec2
-        spec3: relay.spec3
-        spec4: relay.spec4
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-        onClicked: root.expandToTab("media")
-        onWheelInteracted: root.handleSubBubbleInteracted()
-    }
-
-    // 4. 击键心流副岛
-    HardwareBubbleView {
-        id: bubbleHardware
-        z: 5
-        readonly property string side: root.getIslandSide("hardware")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("hardware", width) : root.getRightIslandOffset("hardware")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        activeMod: relay.typingMod
-        activeKey: relay.typingKey
-        strokeRevision: relay.strokeRevision
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        active: root.hasTypingIsland
-
-        isTyping: relay.typingActive
-        typingThemeColor: relay.typingColor
-        spec1: relay.typingSpec1
-        spec2: relay.typingSpec2
-        spec3: relay.typingSpec3
-        spec4: relay.typingSpec4
-        kps: relay.typingKps
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-    }
-
-    // 5. 专注计时副岛
-    TimerBubbleView {
-        id: bubbleTimer; z: 1
-        readonly property string side: root.getIslandSide("timer")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("timer", width) : root.getRightIslandOffset("timer")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        active: !root.isBlockingTransient && root.hasTimerIsland
-        timerText: capsule.timerFormattedText; hasHours: capsule.timerHasHours; chosenFont: root.chosenFont
-        isCountUp: capsule.timerIsCountUp; progress: capsule.timerProgress
-        remainingSeconds: capsule.timerRemaining; totalSeconds: capsule.timerTotal
-
-        isRunning: capsule.timerRunning
-        isPaused: capsule.timerIsPaused
-        isCompleted: capsule.timerIsCompleted
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-        onTogglePause: capsule.toggleTimerPause()
-        onDismissTimer: capsule.dismissTimer()
-    }
-
-    // 6. 消息通知副岛
-    NotificationBubbleView {
-        id: bubbleNotif; z: 1
-        readonly property string side: root.getIslandSide("notification")
-        readonly property real targetOffset: side === "left" ? root.getLeftIslandOffset("notification", width) : root.getRightIslandOffset("notification")
-        property real currentOffset: targetOffset
-        Behavior on currentOffset { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-        x: side === "left" ? Math.max(8, root.effectiveCapsuleX - currentOffset) : (root.effectiveCapsuleX + root.effectiveCapsuleWidth + currentOffset)
-        y: capsule.y + Math.round((capsule.height - height) / 2)
-        transformOrigin: side === "left" ? Item.Right : Item.Left
-
-        active: !root.isBlockingTransient && root.hasNotifIsland
-        unreadCount: relay.unreadCount; avatarUrl: relay.latestNotifAvatar; chosenFont: root.chosenFont
-
-        onActiveChanged: maskController.commit()
-        onXChanged: maskController.commit()
-        onClicked: root.expandToTab("notification")
-        onRightClicked: root.expandToTab("notification")
+    // 4. 自省式遮罩控制器
+    IslandMaskController {
+        id: maskController
+        rootItem: root
+        capsuleItem: capsule
+        leftBay: leftBay
+        rightBay: rightBay
+        isExpanded: capsule.isExpanded
+        isCollapsing: capsule.isCollapsing
+        isMorphing: capsule.isMorphing
+        targetW: capsule.targetWidth
+        targetH: capsule.targetHeight
     }
 
     Timer {

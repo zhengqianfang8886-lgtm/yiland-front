@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: settings/SettingsDisplayCard.qml (追加免打扰设置模块)
+// 📄 File: settings/SettingsDisplayCard.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -19,7 +19,6 @@ Column {
         if (key === "network") return { name: "网络监控", icon: "📶", color: "#34d399" }
         if (key === "bluetooth") return { name: "蓝牙外设", icon: "🎧", color: "#60a5fa" }
         if (key === "notification") return { name: "消息归档", icon: "💬", color: "#818cf8" }
-        if (key === "process") return { name: "进程服务", icon: "⚡", color: "#c084fc" }
         return { name: key, icon: "📌", color: "white" }
     }
 
@@ -35,7 +34,6 @@ Column {
         if (key === "network") return Config.showNetworkTab !== false
         if (key === "bluetooth") return Config.showBluetoothTab !== false
         if (key === "notification") return Config.showNotificationTab !== false
-        if (key === "process") return Config.showProcessTab !== false
         return true
     }
 
@@ -50,7 +48,6 @@ Column {
         else if (key === "network") Config.showNetworkTab = enabled
         else if (key === "bluetooth") Config.showBluetoothTab = enabled
         else if (key === "notification") Config.showNotificationTab = enabled
-        else if (key === "process") Config.showProcessTab = enabled
     }
 
     function moveTabUp(index) {
@@ -178,7 +175,7 @@ Column {
     }
 
     // =========================================================================
-    // 🚀 2. 消息通知与勿扰模式 (DND & Call Bypass)
+    // 2. 消息通知与勿扰模式
     // =========================================================================
     Rectangle {
         width: parent.width

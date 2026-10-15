@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: settings/SettingsHealthCard.qml (键盘心流副岛开关)
+// 📄 File: settings/SettingsHealthCard.qml
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -18,24 +18,9 @@ Rectangle {
         anchors.margins: 12
         spacing: 8
 
-        Text { text: "🌿 健康关怀与输入心流"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
+        Text { text: "🌿 健康关怀与系统监控"; color: "#34d399"; font.pixelSize: 12; font.bold: true }
 
-        // 1. 🚀 键盘击键心流岛总开关
-        Item {
-            width: parent.width; height: 30
-            Row {
-                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
-                Text { text: "⌨️"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "键盘击键心流律动小岛 (打字时苏醒起伏，闲置隐退)"; color: "white"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
-            }
-            Switch {
-                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                checked: (typeof Config !== "undefined" && Config.showHardwareBubble !== undefined) ? Config.showHardwareBubble : true
-                onToggled: if (typeof Config !== "undefined") Config.showHardwareBubble = checked
-            }
-        }
-
-        // 2. 内存监控小岛
+        // 1. 内存监控小岛
         Item {
             width: parent.width; height: 30
             Row {
@@ -85,7 +70,7 @@ Rectangle {
 
         Item { height: 2 }
 
-        // 3. 久坐提醒
+        // 2. 久坐提醒
         Item {
             width: parent.width; height: 30
             Row {
@@ -128,7 +113,7 @@ Rectangle {
 
         Item { height: 4 }
 
-        // 4. 音量调节步长
+        // 3. 音量调节步长
         Column {
             width: parent.width; spacing: 6
 

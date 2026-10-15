@@ -1,44 +1,24 @@
 # ==========================================
 # 📄 File: main.py
+# 🌟 单进程二合一主入口：Qt 界面与 Asyncio D-Bus 引擎协同运行
 # ==========================================
 import sys
 import os
 import signal
 import gc
 import ctypes
+import threading
+import asyncio
 
 from logger import app_logger
 from config import ConfigManager
 from bridge import IslandBridge
-from ws_client import WebSocketDaemonClient
+from core.backend import DirectIslandBackend
 from theme import theme
-from PySide6 import QtSql
+
 from PySide6.QtCore import QUrl, QTimer, Qt
 from PySide6.QtGui import QPixmapCache, QGuiApplication
 from PySide6.QtQuick import QQuickView
-
-import shutil
-import subprocess
-
-def ensure_compiled_shaders():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    frag_src = os.path.join(base_dir, "liquid_glass.frag")
-    qsb_dst = os.path.join(base_dir, "liquid_glass.frag.qsb")
-
-    # 如果源码存在且 qsb 文件不存在或源码更新
-    if os.path.exists(frag_src):
-        should_compile = not os.path.exists(qsb_dst) or (os.path.getmtime(frag_src) > os.path.getmtime(qsb_dst))
-        if should_compile:
-            qsb_tool = shutil.which("pyside6-qsb") or shutil.which("qsb")
-            if qsb_tool:
-                try:
-                    app_logger.info(f"🎨 正在利用 GPU 编译器构建流体玻璃着色器: {qsb_dst}")
-                    subprocess.run(
-                        [qsb_tool, "--glsl", "100 es,120,150", "--hlsl", "50", "--msl", "12", "-o", qsb_dst, frag_src],
-                        check=True, stdout=subprocess.DEVNULL
-                    )
-                except Exception as e:
-                    app_logger.warning(f"编译着色器失败: {e}")
 
 
 def trim_memory():
@@ -51,13 +31,29 @@ def trim_memory():
         pass
 
 
+def start_backend_event_loop(bridge: IslandBridge):
+    """在后台独立线程驱动 Asyncio D-Bus 后端引擎，并直通连接 Bridge"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    backend = DirectIslandBackend(bridge)
+    bridge.set_backend(backend, loop)
+
+    def _thread_target():
+        app_logger.info("⚡ 进程内后台 D-Bus 异步引擎启动中...")
+        loop.run_until_complete(backend.initialize())
+        loop.run_forever()
+
+    t = threading.Thread(target=_thread_target, daemon=True, name="AsyncDbusEngine")
+    t.start()
+    return backend, loop
+
+
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    app_logger.info("Alcove Island 渲染架构启动中...")
+    app_logger.info("Alcove Island [单进程二合一架构] 启动中...")
 
     app = QGuiApplication(sys.argv)
     config = ConfigManager()
-    # ✅ 绑定 config 到全局 theme，启动字体和主题全局联动
     theme.set_config(config)
 
     QPixmapCache.setCacheLimit(16 * 1024)
@@ -71,12 +67,14 @@ def main():
     view.setFlags(
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 
-        Qt.WindowType.Tool #|
-        # Qt.WindowType.BypassWindowManagerHint
+        Qt.WindowType.Tool
     )
 
     bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
+
+    # 🚀 核心合体：直接在进程内部拉起后台引擎，告别 WebSocket 通信
+    backend, backend_loop = start_backend_event_loop(bridge)
 
     window_width, window_height = 860, 270
 
@@ -103,12 +101,12 @@ def main():
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     qml_path = os.path.join(base_dir, "Island.qml")
-    app_logger.info(f"正在加载灵动岛 QML 主视图: {qml_path}")
+    app_logger.info(f"正在装载灵动岛主视图: {qml_path}")
 
     view.setSource(QUrl.fromLocalFile(qml_path))
 
     if view.status() == QQuickView.Status.Error:
-        app_logger.critical("❌ QML 主视图编译失败清单：")
+        app_logger.critical("❌ QML 编译失败清单：")
         for err in view.errors():
             print(f"\033[31;1m[QML 错误] {err.toString()}\033[0m")
         sys.exit(1)
@@ -116,10 +114,7 @@ def main():
     view.show()
     trim_memory()
 
-    ws_client = WebSocketDaemonClient(bridge)
-    ws_client.start()
-
-    app_logger.info("✨ 核心渲染系统与线程安全消息总线已就绪，进入主事件循环")
+    app_logger.info("✨ 单进程内存直通架构就绪，进入 GUI 主事件循环")
     sys.exit(app.exec())
 
 

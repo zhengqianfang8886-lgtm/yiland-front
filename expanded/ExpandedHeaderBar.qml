@@ -12,7 +12,6 @@ Item {
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
 
     property string expandedTab: "workspace"
-    property string previousTab: "workspace"
     property bool isCalling: false
     property var enabledTabs: []
     property var tabMeta: ({})
@@ -49,29 +48,11 @@ Item {
             height: parent.height
             width: Math.max(40, outerCapsule.width - rightControlsRow.width - 24)
 
-            readonly property bool isPowerPage: (barRoot.expandedTab === "power" && !barRoot.isCalling)
-
-            Row {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 5
-                visible: leftContentArea.isPowerPage
-
-                Text { text: "‹"; color: "#ef4444"; font.pixelSize: 14; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
-                Text { text: "返回工作台"; color: powerBackHover.hovered ? "#ef4444" : "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: barRoot.effectiveFont; anchors.verticalCenter: parent.verticalCenter }
-
-                HoverHandler { id: powerBackHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    onTapped: barRoot.switchRoute(barRoot.previousTab || "workspace")
-                }
-            }
-
             Row {
                 id: titleRow
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
-                visible: !leftContentArea.isPowerPage
                 width: parent.width
 
                 Rectangle {
@@ -118,7 +99,7 @@ Item {
         Row {
             id: rightControlsRow
             anchors.right: parent.right
-            anchors.rightMargin: 6
+            anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             spacing: 6
 
@@ -160,55 +141,6 @@ Item {
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                             onClicked: barRoot.switchRoute(modelData.key)
                             onWheel: (wheel) => barRoot.tabWheel(wheel)
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                width: 1
-                height: 10
-                radius: 0.5
-                color: Qt.rgba(1, 1, 1, 0.12)
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !barRoot.isCalling && barRoot.enabledTabs && barRoot.enabledTabs.length > 1
-            }
-
-            Rectangle {
-                id: powerBtn
-                width: 20
-                height: 20
-                radius: 10
-                anchors.verticalCenter: parent.verticalCenter
-                visible: !barRoot.isCalling
-
-                readonly property bool isPowerActive: (barRoot.expandedTab === "power")
-                color: isPowerActive ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.28) :
-                       (powerHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.18) : Qt.rgba(1, 1, 1, 0.05))
-                border.color: (isPowerActive || powerHover.hovered) ? "#ef4444" : "transparent"
-                border.width: 1
-
-                scale: powerTap.pressed ? 0.90 : (powerHover.hovered ? 1.05 : 1.0)
-                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
-                Behavior on color { ColorAnimation { duration: Theme.animFast } }
-                Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "⏻"
-                    font.pixelSize: 10
-                    font.weight: Font.Black
-                    color: (powerBtn.isPowerActive || powerHover.hovered) ? "#ef4444" : Qt.rgba(1, 1, 1, 0.70)
-                }
-
-                HoverHandler { id: powerHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    id: powerTap
-                    onTapped: {
-                        if (barRoot.expandedTab === "power") {
-                            barRoot.switchRoute(barRoot.previousTab || "workspace")
-                        } else {
-                            barRoot.switchRoute("power")
                         }
                     }
                 }
