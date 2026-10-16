@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (视口保护与动画链同步版)
+// 📄 File: IslandCapsule.qml (修复隐藏动画自激振荡版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -61,6 +61,7 @@ Item {
         var capX = Math.round((parent.width - capW) / 2 + islandOffsetX)
         var safePad = 6
 
+        // 保持原样：吸顶微露弧交互
         if (capsuleRoot.isPhysicallyDeepTucked) {
             Bridge.applySettledMask(Math.max(0, capX - safePad), 0, capW + safePad * 2, 8)
             return
@@ -82,8 +83,6 @@ Item {
         return (stage.activeOverlayKey === "ALERT") && ((t.length + sub.length) > 24 || sub.indexOf("\n") !== -1)
     }
 
-    // 🚀【核心修复点 1】：只有当动画完全平息静止（isSettled）且坐标真正退入天花板时，才算作真正的深潜！
-    // 在动画链播放的过程中，绝不提前置为 true，保证视口 100% 完整可见！
     readonly property bool isPhysicallyDeepTucked: (stage.currentBaseTier === stage.tierTUCKED) && 
                                                   (stage.submergedSubTier === stage.subTierDEEP) &&
                                                   coordinator.isSettled
@@ -117,7 +116,7 @@ Item {
             tR = 17
         }
 
-        // 如果目标是吸顶隐藏，终点 Y 轴计算为 -29.5
+        // 保持原样：终点计算为 -29.5 露微弧
         if ((stage.currentBaseTier === stage.tierTUCKED) && (stage.submergedSubTier === stage.subTierDEEP)) {
             tY = -(tH - 4.5)
         }
@@ -125,8 +124,11 @@ Item {
         coordinator.syncAndAnimate(tY, tW, tH, tR, isModeSwitch === true)
     }
 
+    // 🚀【核心修复 1】：深潜隐藏时彻底关闭连接器！
+    // 隐藏状态下音乐和时钟改变绝对不准唤醒动画，彻底杜绝 CPU 占用！
     Connections {
         target: compactCapsuleView
+        enabled: !capsuleRoot.isPhysicallyDeepTucked
         function onImplicitCompactWidthChanged() {
             capsuleRoot.resolveAndApplyGeometry(false)
         }
@@ -155,7 +157,6 @@ Item {
     }
 
     // 2. 光学视口容器
-    // 🚀【核心修复点 2】：只要位移动画还在跑（isTuckingInProgress），内容绝对不消失！
     Item {
         id: opticalAperture
         anchors.fill: parent
@@ -166,7 +167,8 @@ Item {
             id: compactCapsuleView
             anchors.fill: parent
 
-            visible: opacity > 0.001
+            // 🚀【核心修复 2】：隐藏后将 visible 设为 false，停止 Scene Graph 节点的遍历与绘制
+            visible: capsuleRoot.isCompactContentVisible
             opacity: capsuleRoot.isCompactContentVisible ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 130 } }
 
@@ -217,7 +219,7 @@ Item {
             anchors.fill: parent
             anchors.margins: 12
             z: 20
-            visible: opacity > 0.01
+            visible: capsuleRoot.isExpandedState
             opacity: capsuleRoot.isExpandedState ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 150 } }
 
@@ -253,15 +255,9 @@ Item {
             Connections {
                 target: expandedCardView
                 ignoreUnknownSignals: true
-                function onStartCollapse() {
-                    stage.requestCollapse()
-                }
-                function onRequestSettings() {
-                    capsuleRoot.requestSettings()
-                }
-                function onTimerCompleted(title, message) {
-                    capsuleRoot.timerAlert(title, message)
-                }
+                function onStartCollapse() { stage.requestCollapse() }
+                function onRequestSettings() { capsuleRoot.requestSettings() }
+                function onTimerCompleted(title, message) { capsuleRoot.timerAlert(title, message) }
             }
         }
     }

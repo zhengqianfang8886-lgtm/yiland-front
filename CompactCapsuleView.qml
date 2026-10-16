@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: CompactCapsuleView.qml (抗挤压·目标宽度即时生效版)
+// 📄 File: CompactCapsuleView.qml (极致低能耗·抗挤压版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -139,9 +139,9 @@ Item {
     signal requestExpandTab(string tabName)
     signal toggleTimer()
 
-    // 🚀【绝对稳定预测宽度】：从第一毫秒起直接产出目标尺寸，杜绝父子嵌套动画滞后
+    // 绝对稳定预测宽度：纯算术计算，杜绝几何重排
     readonly property int implicitCompactWidth: {
-        var base = clockView.implicitWidth + 36 // 36px 绝对两端弧度安全垫
+        var base = clockView.implicitWidth + 36
         if (internalMemPill.shouldShow) base += 22
         if (waveVisible) base += (fullWaveWidth + 14)
         if (timerActive) base += (lockedTimerPillWidth + 14)
@@ -243,7 +243,7 @@ Item {
                                                !compactRoot.isScrubbing)
 
     // =========================================================================
-    // 常态内容行（🚀 内部空间绝对锁定，严禁中间过渡帧挤压文字和波形）
+    // 常态内容行
     // =========================================================================
     Row {
         id: innerContentRow
@@ -283,7 +283,7 @@ Item {
         }
 
         // =====================================================================
-        // 【左翼 2】：纯粹音乐律动声谱 (🚀 与外壳一步到位，彻底拔除延迟)
+        // 【左翼 2】：纯粹音乐律动声谱 (🚀 彻底移除 Behavior on yScale，终结 CPU 满载)
         // =====================================================================
         Item {
             id: waveWrapper
@@ -291,7 +291,6 @@ Item {
 
             readonly property bool shouldShow: compactRoot.waveVisible
             visible: width > 0.1
-            // 🚀 核心：直接指定完整宽度，不在子组件内部再跑一遍 260ms 的慢缩放
             width: shouldShow ? compactRoot.fullWaveWidth : 0
             height: parent.height
             clip: true
@@ -306,7 +305,8 @@ Item {
                 height: compactRoot.barMaxH
 
                 Repeater {
-                    model: compactRoot.barsCount
+                    // 🚀 性能关键：不可见时模型为 0，彻底从场景树剥离，不占用渲染管线
+                    model: compactRoot.waveVisible ? compactRoot.barsCount : 0
 
                     Rectangle {
                         id: barSingle
@@ -316,17 +316,10 @@ Item {
                         color: compactRoot.dominantColor
                         anchors.verticalCenter: parent.verticalCenter
 
-                        readonly property real targetScale: compactRoot.getBarScale(index, compactRoot.barsCount)
-
+                        // 🚀 核心优化：直接应用 Scale 变换，坚决移除内部的 Behavior 动画打断冲突！
                         transform: Scale {
                             origin.y: compactRoot.barMaxH / 2
-                            yScale: barSingle.targetScale
-                            Behavior on yScale {
-                                NumberAnimation {
-                                    duration: compactRoot.isActivelyPlaying ? 60 : 180
-                                    easing.type: Easing.OutQuad
-                                }
-                            }
+                            yScale: compactRoot.getBarScale(index, compactRoot.barsCount)
                         }
                     }
                 }
@@ -342,7 +335,7 @@ Item {
             }
         }
 
-        // 微刻线 1：音乐声谱与中央时钟之间
+        // 微刻线 1
         Rectangle {
             id: sepMusicToClock
             anchors.verticalCenter: parent.verticalCenter
@@ -352,11 +345,10 @@ Item {
             radius: 0.5
             color: Qt.rgba(1, 1, 1, 0.16)
             opacity: shouldShow ? 1.0 : 0.0
-
             Behavior on opacity { NumberAnimation { duration: 140 } }
         }
 
-        // 【中央核心】：基准时钟 + 桌面微标 + 键盘锁
+        // 【中央核心】：基准时钟
         CompactClockView {
             id: clockView
             anchors.verticalCenter: parent.verticalCenter
@@ -373,7 +365,7 @@ Item {
             isClockActive: true
         }
 
-        // 微刻线 2：中央时钟与专注计时器之间
+        // 微刻线 2
         Rectangle {
             id: sepClockToTimer
             anchors.verticalCenter: parent.verticalCenter
@@ -410,8 +402,6 @@ Item {
 
                     Shape {
                         anchors.fill: parent
-                        layer.enabled: true
-                        layer.samples: 4
                         ShapePath {
                             strokeWidth: 1.8; strokeColor: Qt.rgba(1, 1, 1, 0.18); fillColor: "transparent"
                             capStyle: ShapePath.RoundCap
@@ -455,7 +445,7 @@ Item {
             }
         }
 
-        // 微刻线 3：计时器与未读通知之间
+        // 微刻线 3
         Rectangle {
             id: sepTimerToNotif
             anchors.verticalCenter: parent.verticalCenter

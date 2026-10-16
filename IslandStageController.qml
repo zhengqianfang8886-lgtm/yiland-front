@@ -1,24 +1,21 @@
 // ==========================================
-// 📄 File: IslandStageController.qml (零延时·纯物理意图接管版)
+// 📄 File: IslandStageController.qml (零抽搐·瞬时物理走廊打通版)
 // ==========================================
 import QtQuick
 
 Item {
     id: stageCtrl
 
-    // --- 1. 底态枚举 (Base Tier) ---
     readonly property int tierNORMAL: 0
     readonly property int tierEXPANDED: 1
     readonly property int tierTUCKED: 2
     property int currentBaseTier: tierNORMAL
 
-    // --- 2. 潜航隐藏态下的三级子状态 ---
-    readonly property int subTierDEEP: 0     // 完全潜航吸顶（露微弧）
-    readonly property int subTierUSER: 1     // 用户鼠标主动探出/操作中
-    readonly property int subTierPASSIVE: 2  // 事件临时出水展示中
+    readonly property int subTierDEEP: 0
+    readonly property int subTierUSER: 1
+    readonly property int subTierPASSIVE: 2
     property int submergedSubTier: subTierDEEP
 
-    // 挂载瞬态调度中枢
     IslandTransientHub {
         id: transientHub
         onGeometryInvalidated: stageCtrl.stageGeometryRequested(false)
@@ -28,16 +25,12 @@ Item {
     readonly property alias activeOverlayKey: transientHub.activeKey
     readonly property alias activePayload: transientHub.activePayload
 
-    // 🚀【核心设计】：彻底废除 700ms 倒计时锁！采用纯物理位移“武装标志”
-    // 刚右键收起时为 false，鼠标不移走绝不误弹；移走后物理武装，随时探头
+    // 武装标志：初始与常态下为 true
     property bool tuckArmed: true
 
     signal stageGeometryRequested(bool isModeSwitch)
     signal modeSwitchTriggered(bool isAnchored)
 
-    // =========================================================================
-    // 瞬态触发接口
-    // =========================================================================
     function pushTransient(key, customDurationMs, payload) {
         if (currentBaseTier === tierEXPANDED && key !== "CALL") return false
 
@@ -71,13 +64,18 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 🚀【真正的物理鼠标意图交互】：0延迟判定，完全不卡手
-    // =========================================================================
+    // 🚀【核心修复点 1】：探头第 0 毫秒立刻解除物理裁剪，鼠标往下走绝不穿透
     function userHoverEnter() {
-        // 如果未武装（鼠标收起后还没移开），坚决不自碰自弹！
         if (currentBaseTier !== tierTUCKED || !tuckArmed) return
+        if (submergedSubTier === subTierUSER) return
+
         userLeaveTimer.stop()
+
+        // 立即向后端开启全域走廊，彻底杜绝 8px Mask 导致的虚假 Exited 抽搐
+        if (typeof Bridge !== "undefined") {
+            Bridge.openFullCorridorForMotion()
+        }
+
         submergedSubTier = subTierUSER
         stageGeometryRequested(false)
     }
@@ -89,28 +87,27 @@ Item {
 
     function userHoverLeave() {
         if (currentBaseTier !== tierTUCKED) return
-        // 鼠标一旦离开过感应区，立即自动武装完毕，随时等候下一次意图靠近
+        // 移出感应区后自动充能武装，准备迎接下一次移入
         tuckArmed = true
         userLeaveTimer.restart()
     }
 
-    // 鼠标真正离开天花板感应区后的退潜防抖（60ms 极轻微手势防虚抖）
+    // 🚀【核心修复点 2】：140ms 人体工学迟滞滤波，消除边缘微抖动
     Timer {
         id: userLeaveTimer
-        interval: 60
+        interval: 140
         repeat: false
         onTriggered: {
             if (stageCtrl.currentBaseTier === stageCtrl.tierTUCKED) {
-                stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
-                stageCtrl.hub.dismiss()
-                stageCtrl.stageGeometryRequested(false)
+                if (stageCtrl.submergedSubTier !== stageCtrl.subTierDEEP) {
+                    stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
+                    stageCtrl.hub.dismiss()
+                    stageCtrl.stageGeometryRequested(false)
+                }
             }
         }
     }
 
-    // =========================================================================
-    // 底态流转控制（0ms 极速响应）
-    // =========================================================================
     function requestExpand() {
         if (currentBaseTier === tierTUCKED) return
         popTransient()
@@ -124,7 +121,6 @@ Item {
         stageGeometryRequested(false)
     }
 
-    // 🚀【瞬间切换】：用户点击右键的瞬间，0 延迟切换，同时进入“原位休眠”状态
     function toggleTuck() {
         popTransient()
         userLeaveTimer.stop()
@@ -138,7 +134,7 @@ Item {
         } else {
             currentBaseTier = tierTUCKED
             submergedSubTier = subTierDEEP
-            // 关键：刚收起时关闭武装，鼠标在原处停着绝不自弹！
+            // 右键隐藏瞬间关闭武装，防止光标停在原地自碰自弹
             tuckArmed = false
         }
 

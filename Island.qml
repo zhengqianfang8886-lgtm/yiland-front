@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml (已移除 time/network/bluetooth 纯净版)
+// 📄 File: Island.qml (平滑单向迟滞天花板感应版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -11,7 +11,6 @@ Item {
 
     readonly property string chosenFont: Theme.activeFont
 
-    // 🚀【核心修复】：仅保留现有模块的元数据
     readonly property var allTabsMeta: ({
         "hardware": { key: "hardware", name: "控制", color: "#f59e0b" },
         "workspace": { key: "workspace", name: "桌面", color: Theme.workspace },
@@ -48,7 +47,6 @@ Item {
 
     IslandTimeService { id: timeService }
 
-    // 1. 久坐服务
     IslandSedentaryService {
         id: sedentaryService
         onRequestAlert: (mins) => {
@@ -59,7 +57,6 @@ Item {
         }
     }
 
-    // 2. 桥接事件监听
     IslandBridgeRelay {
         id: relay
 
@@ -88,7 +85,6 @@ Item {
         }
     }
 
-    // 3. 媒体被动出水监听
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         ignoreUnknownSignals: true
@@ -101,7 +97,6 @@ Item {
         }
     }
 
-    // 4. 偏好设置窗口 Loader
     Loader {
         id: settingsLoader
         active: false; source: "SettingsWindow.qml"
@@ -116,7 +111,7 @@ Item {
         }
     }
 
-    // 5. 核心胶囊
+    // 核心胶囊
     IslandCapsule {
         id: capsule
         anchors.horizontalCenter: parent.horizontalCenter
@@ -134,18 +129,21 @@ Item {
         onRequestSettings: root.openSettingsWindow()
     }
 
-    // 6. 天花板全域鼠标感应网
+    // =========================================================================
+    // 6. 🚀【全新】：零抽搐·单向迟滞天花板鼠标感应网
+    // =========================================================================
     MouseArea {
         id: ceilingHoverNet
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        width: Math.max(160, capsule.width + 24)
+        width: Math.max(180, capsule.width + 32)
         z: 99
 
         readonly property bool isTuckedMode: capsule.stageEngine.currentBaseTier === capsule.stageEngine.tierTUCKED
+        readonly property bool isUserPeeking: capsule.stageEngine.submergedSubTier === capsule.stageEngine.subTierUSER
 
-        height: isTuckedMode ? 
-                (capsule.stageEngine.submergedSubTier === capsule.stageEngine.subTierUSER ? Math.max(48, capsule.y + capsule.height + 8) : 14) : 0
+        // 迟滞感应高度：常态深潜时只占顶端 14px，一旦用户探出，无缝覆盖至胶囊底部，杜绝脱靶
+        height: isTuckedMode ? (isUserPeeking ? Math.max(52, capsule.y + capsule.height + 12) : 14) : 0
 
         enabled: isTuckedMode
         hoverEnabled: true
@@ -161,10 +159,15 @@ Item {
         }
 
         onPositionChanged: (mouse) => {
-            if (isTuckedMode && !capsule.stageEngine.tuckArmed) {
-                if (Math.abs(mouse.y - lastMoveY) > 8) {
-                    capsule.stageEngine.tuckArmed = true
+            if (isTuckedMode) {
+                // 如果鼠标已经开始大范围移动（说明已经离开原位右键位置），强制充满武装
+                if (!capsule.stageEngine.tuckArmed) {
+                    if (Math.abs(mouse.y - lastMoveY) > 6) {
+                        capsule.stageEngine.tuckArmed = true
+                        capsule.stageEngine.userHoverEnter()
+                    }
                 }
+                capsule.stageEngine.userHoverKeep()
             }
             lastMoveY = mouse.y
         }

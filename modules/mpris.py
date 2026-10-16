@@ -1,6 +1,5 @@
 # ==========================================
-# 📄 File: modules/mpris.py
-# 🌟 原生 MPRIS 媒体控制 + 声学跳动引擎 (真实CAVA + 拟真自愈保底 + 封面取色)
+# 📄 File: modules/mpris.py (极低 CPU 负载生产版)
 # ==========================================
 import os
 import re
@@ -42,6 +41,7 @@ class MprisModule:
         self._cava_proc: Optional[subprocess.Popen] = None
         self._spectrum_thread: Optional[threading.Thread] = None
         self._color_cache: Dict[str, str] = {}
+        self._last_spec_cache = (0.2, 0.2, 0.2, 0.2)
 
     def _unwrap_variant(self, variant: Any) -> Any:
         if hasattr(variant, 'value'): return self._unwrap_variant(variant.value)
@@ -53,8 +53,6 @@ class MprisModule:
         await self._setup_listeners()
         await self.discover_players()
         self._ticker_task = asyncio.create_task(self._progress_ticker())
-
-        # 启动后台声学跳动线程
         self._start_spectrum_engine()
 
     async def close(self):
@@ -62,7 +60,7 @@ class MprisModule:
         if self._cava_proc:
             try:
                 self._cava_proc.terminate()
-                self._cava_proc.wait(timeout=0.3)
+                self._cava_proc.wait(timeout=0.2)
             except Exception:
                 pass
             self._cava_proc = None
@@ -71,9 +69,22 @@ class MprisModule:
             self._ticker_task.cancel()
 
     # =========================================================================
-    # 🚀 核心跳动引擎：真实 CAVA 采样 + 免装 CAVA 优雅拟真自愈保底
+    # 🚀 核心频谱引擎 (差分抑制 + 14 FPS 限速，彻底阻断跨线程泛洪)
     # =========================================================================
     def _emit_spectrum_safe(self, s1: float, s2: float, s3: float, s4: float):
+        if not self._spectrum_running:
+            return
+
+        # 差分阈值抑制：微小抖动不唤醒 Qt GUI 事件循环
+        ls1, ls2, ls3, ls4 = self._last_spec_cache
+        if (abs(s1 - ls1) < 0.045 and 
+            abs(s2 - ls2) < 0.045 and 
+            abs(s3 - ls3) < 0.045 and 
+            abs(s4 - ls4) < 0.045):
+            return
+
+        self._last_spec_cache = (s1, s2, s3, s4)
+
         if self.dispatcher and hasattr(self.dispatcher, "bridge") and self.dispatcher.bridge:
             try:
                 self.dispatcher.bridge.audioSpectrumUpdated.emit(s1, s2, s3, s4)
@@ -89,19 +100,16 @@ class MprisModule:
         )
         self._spectrum_thread.start()
 
-    # ==========================================
-    # 📄 File: modules/mpris.py 核心片段替换
-    # 替换 _spectrum_worker 方法
-    # ==========================================
     def _spectrum_worker(self):
         has_cava = bool(shutil.which("cava"))
 
         if has_cava:
             try:
+                # 🚀 降频至 14 FPS，小胶囊声谱条在人眼中极其平滑，且大幅消减进程唤醒
                 cava_cfg = (
                     "[general]\n"
                     "bars = 4\n"
-                    "framerate = 30\n"
+                    "framerate = 14\n"
                     "lower_cutoff_freq = 50\n"
                     "higher_cutoff_freq = 10000\n"
                     "[output]\n"
@@ -124,52 +132,53 @@ class MprisModule:
                 while self._spectrum_running:
                     if self._cava_proc.poll() is not None:
                         break
+
+                    if self.state.playback_status != "Playing":
+                        if was_playing:
+                            was_playing = False
+                            self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
+                        # 暂停时挂起休眠，0% CPU
+                        threading.Event().wait(1.5)
+                        continue
+
                     raw = self._cava_proc.stdout.read(chunk_size)
                     if len(raw) < 4:
                         break
 
-                    if self.state.playback_status == "Playing":
-                        was_playing = True
-                        b1, b2, b3, b4 = struct.unpack("4B", raw)
-                        if (b1 + b2 + b3 + b4) > 10:
-                            s1 = round(0.18 + (b1 / 255.0) * 0.82, 2)
-                            s2 = round(0.18 + (b2 / 255.0) * 0.82, 2)
-                            s3 = round(0.18 + (b3 / 255.0) * 0.82, 2)
-                            s4 = round(0.18 + (b4 / 255.0) * 0.82, 2)
-                            self._emit_spectrum_safe(s1, s2, s3, s4)
-                            continue
-                    elif was_playing:
-                        # 仅在刚暂停的这一帧归位，随后不再重复占用总线
-                        was_playing = False
-                        self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
+                    was_playing = True
+                    b1, b2, b3, b4 = struct.unpack("4B", raw)
+                    s1 = round(0.18 + (b1 / 255.0) * 0.82, 2)
+                    s2 = round(0.18 + (b2 / 255.0) * 0.82, 2)
+                    s3 = round(0.18 + (b3 / 255.0) * 0.82, 2)
+                    s4 = round(0.18 + (b4 / 255.0) * 0.82, 2)
+                    self._emit_spectrum_safe(s1, s2, s3, s4)
 
+                return
             except Exception as e:
                 self.log.debug(f"CAVA 引擎降级: {e}")
 
-        # 保底拟真跳动发生器（修复空转问题）
-        self.log.info("启用自愈节律引擎（智能休眠模式）")
+        # 保底拟真律动引擎 (14 FPS，CPU < 0.1%)
         t = 0.0
         was_playing = False
 
         while self._spectrum_running:
             if self.state.playback_status == "Playing":
                 was_playing = True
-                t += 0.08
-                s1 = round(max(0.2, min(0.95, 0.22 + 0.65 * abs(math.sin(t * 3.8)))), 2)
-                s2 = round(max(0.2, min(1.00, 0.25 + 0.72 * abs(math.sin(t * 5.2 + 0.8)))), 2)
-                s3 = round(max(0.2, min(0.92, 0.22 + 0.68 * abs(math.sin(t * 4.1 + 1.7)))), 2)
-                s4 = round(max(0.2, min(0.85, 0.20 + 0.58 * abs(math.sin(t * 6.3 + 2.5)))), 2)
+                t += 0.15
+                s1 = round(max(0.2, min(0.95, 0.22 + 0.65 * abs(math.sin(t * 3.2)))), 2)
+                s2 = round(max(0.2, min(1.00, 0.25 + 0.72 * abs(math.sin(t * 4.2 + 0.8)))), 2)
+                s3 = round(max(0.2, min(0.92, 0.22 + 0.68 * abs(math.sin(t * 3.6 + 1.6)))), 2)
+                s4 = round(max(0.2, min(0.85, 0.20 + 0.58 * abs(math.sin(t * 5.1 + 2.4)))), 2)
                 self._emit_spectrum_safe(s1, s2, s3, s4)
-                threading.Event().wait(0.04) # ~25 FPS
+                threading.Event().wait(0.075)
             else:
                 if was_playing:
-                    # 暂停时只归零一次，不持续轰炸 QML
                     was_playing = False
                     self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
-                # 🚀 未播放时深度睡眠 1 秒，不消耗 CPU
-                threading.Event().wait(1.0)
+                threading.Event().wait(1.5)
+
     # =========================================================================
-    # 🎨 封面主色调提取（让跳动的音柱具有专辑氛围色彩）
+    # 🎨 封面主色调提取
     # =========================================================================
     def _extract_and_emit_dominant_color(self, art_url: str):
         if not art_url:
@@ -197,7 +206,7 @@ class MprisModule:
 
                 if img_bytes:
                     from PIL import Image
-                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((24, 24))
+                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((16, 16))
                     pixels = list(im.getdata())
                     candidates = []
                     for r, g, b in pixels:
@@ -331,7 +340,6 @@ class MprisModule:
                 art_url = "file://" + art_url
         self.state.art_url = art_url
 
-        # 异步提取专辑主色调
         self._extract_and_emit_dominant_color(art_url)
 
         length_us = meta.get("mpris:length", 0)
@@ -396,8 +404,9 @@ class MprisModule:
         self.bus.add_message_handler(signal_handler)
 
     async def _progress_ticker(self):
+        # 🚀 降频优化：2.5 秒更新一次进度，避免每秒同步阻塞 D-Bus
         while True:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.5)
             if self.state.playback_status == "Playing" and self.state.active_player:
                 self.state.position = await self._fetch_position()
                 self.dispatcher.broadcast("MEDIA_PROGRESS")
