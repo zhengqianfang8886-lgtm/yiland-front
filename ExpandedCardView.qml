@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ExpandedCardView.qml
+// 📄 File: ExpandedCardView.qml (类型安全与零报错加固版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -10,7 +10,7 @@ Item {
     id: cardRoot
 
     property string chosenFont: ""
-    property string expandedTab: "workspace"
+    property string expandedTab: "time"
     property var enabledTabs: []
 
     property bool isCalling: false
@@ -33,136 +33,55 @@ Item {
     property string downSpeedStr: ""
     property string upSpeedStr: ""
     property string localIp: ""
-    property string activeTransient: ""
 
-    readonly property alias timerPageRef: persistentTimerPage
+    // 专注计时器常驻数据代理接口
+    readonly property bool timerActive: persistentTimerPage.isRunning || persistentTimerPage.isPaused || persistentTimerPage.isCompleted
+    readonly property bool timerIsPaused: persistentTimerPage.isPaused
+    readonly property bool timerIsCompleted: persistentTimerPage.isCompleted
+    readonly property string timerFormattedText: persistentTimerPage.formattedTime
+    readonly property real timerProgress: persistentTimerPage.progress
 
-    signal cancelCollapse()
-    signal requestCollapse()
+    function toggleTimerPause() { persistentTimerPage.togglePause() }
+
     signal startCollapse()
     signal timerCompleted(string title, string message)
     signal requestSettings()
 
-    readonly property int viewportWidth: width
-    readonly property int viewportHeight: height - 36
-    readonly property int slotGap: 16
-    readonly property int slotPitch: viewportWidth + slotGap
-
-    property string currentKey: "time"
-    property string departingKey: ""
-    property int slideDir: 1
-    property real transitionProgress: 1.0
-    property bool isFastWheeling: false
-
-    function getRingSlotIndex(key) {
-        if (!cardRoot.enabledTabs) return -1
-        for (var i = 0; i < cardRoot.enabledTabs.length; i++) {
-            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === key) return i
-        }
-        return -1
-    }
-
-    function getPanelX(key) {
-        var S = cardRoot.slotPitch
-        if (key === cardRoot.currentKey) {
-            if (cardRoot.departingKey === "" || !conveyorAnim.running) return 0
-            return cardRoot.slideDir > 0 ? (S * (1.0 - cardRoot.transitionProgress)) : (-S * (1.0 - cardRoot.transitionProgress))
-        }
-
-        if (key === cardRoot.departingKey && conveyorAnim.running) {
-            return cardRoot.slideDir > 0 ? (-S * cardRoot.transitionProgress) : (S * cardRoot.transitionProgress)
-        }
-        return S
-    }
-
-    function isPanelVisible(key) {
-        if (key === cardRoot.currentKey) return true
-        if (key === cardRoot.departingKey && conveyorAnim.running) return true
-        return false
-    }
-
-    function triggerConveyorTransition(newKey, forcedDir) {
-        if (newKey === cardRoot.currentKey && cardRoot.departingKey === "") return
-
-        if (forcedDir !== undefined && forcedDir !== 0) {
-            cardRoot.slideDir = forcedDir
-        } else {
-            var oldIdx = getRingSlotIndex(cardRoot.currentKey)
-            var newIdx = getRingSlotIndex(newKey)
-            var N = cardRoot.enabledTabs ? cardRoot.enabledTabs.length : 1
-
-            if (oldIdx >= 0 && newIdx >= 0 && N > 1) {
-                var diff = newIdx - oldIdx
-                if (diff > (N / 2)) diff -= N
-                else if (diff < -(N / 2)) diff += N
-                cardRoot.slideDir = (diff >= 0) ? 1 : -1
-            } else {
-                cardRoot.slideDir = 1
+    // =========================================================================
+    // 卡片独立鼠标生命周期管理器（防穿透 + 从容折叠）
+    // =========================================================================
+    Timer {
+        id: cardLeaveGraceTimer
+        interval: 500
+        repeat: false
+        onTriggered: {
+            if (!cardHoverHandler.hovered) {
+                cardRoot.startCollapse()
             }
         }
+    }
 
-        var startProgress = 0.0
-        if (conveyorAnim.running) {
-            conveyorAnim.stop()
-            startProgress = 0.0
+    HoverHandler {
+        id: cardHoverHandler
+        onHoveredChanged: {
+            if (hovered) {
+                cardLeaveGraceTimer.stop()
+            } else {
+                cardLeaveGraceTimer.restart()
+            }
         }
-
-        cardRoot.departingKey = cardRoot.currentKey
-        cardRoot.currentKey = newKey
-
-        conveyorAnim.duration = cardRoot.isFastWheeling ? Theme.animFast : Theme.animSlow
-        conveyorAnim.easing.type = cardRoot.isFastWheeling ? Theme.curveDecel : Theme.curveSpring
-        conveyorAnim.easing.overshoot = cardRoot.isFastWheeling ? 1.0 : Theme.springOvershootSubtle
-        cardRoot.transitionProgress = startProgress
-        conveyorAnim.start()
     }
 
-    NumberAnimation {
-        id: conveyorAnim
-        target: cardRoot
-        property: "transitionProgress"
-        from: 0.0; to: 1.0
-        onFinished: { cardRoot.departingKey = "" }
+    // 底层点击拦截盾牌：防止点击卡片内部空白区域穿透
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: (mouse) => mouse.accepted = true
+        onClicked: (mouse) => mouse.accepted = true
     }
 
-    property bool timeLoaded: true
-    property bool hardwareLoaded: false
-    property bool workspaceLoaded: false
-    property bool mediaLoaded: false
-    property bool calendarLoaded: false
-    property bool clockLoaded: false
-    property bool networkLoaded: false
-    property bool bluetoothLoaded: false
-    property bool notificationLoaded: false
-
-    onExpandedTabChanged: {
-        if (expandedTab === "time") timeLoaded = true
-        else if (expandedTab === "hardware") hardwareLoaded = true
-        else if (expandedTab === "workspace") workspaceLoaded = true
-        else if (expandedTab === "media") mediaLoaded = true
-        else if (expandedTab === "calendar") calendarLoaded = true
-        else if (expandedTab === "clock") clockLoaded = true
-        else if (expandedTab === "network") networkLoaded = true
-        else if (expandedTab === "bluetooth") bluetoothLoaded = true
-        else if (expandedTab === "notification") notificationLoaded = true
-
-        if (expandedTab !== currentKey) triggerConveyorTransition(expandedTab, 0)
-    }
-
-    function switchRoute(targetTab, explicitDir) {
-        cardRoot.cancelCollapse()
-        triggerConveyorTransition(targetTab, explicitDir)
-        cardRoot.expandedTab = targetTab
-    }
-
-    readonly property int activeTabIndex: {
-        if (!cardRoot.enabledTabs || !cardRoot.enabledTabs.length) return 0
-        for (var i = 0; i < cardRoot.enabledTabs.length; i++) {
-            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === cardRoot.expandedTab) return i
-        }
-        return 0
-    }
-
+    // 顶栏元数据解析
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
         if (cardRoot.expandedTab === "time") return { title: "LOCAL TIME", sub: "时间与节律", color: Theme.calendar }
@@ -178,9 +97,36 @@ Item {
         return { title: "ALCOVE ISLAND", sub: "", color: Theme.textSecondary }
     }
 
+    function getRingSlotIndex(key) {
+        if (!cardRoot.enabledTabs) return -1
+        for (var i = 0; i < cardRoot.enabledTabs.length; i++) {
+            if (cardRoot.enabledTabs[i] && cardRoot.enabledTabs[i].key === key) return i
+        }
+        return -1
+    }
+
+    function switchRoute(targetTab, explicitDir) {
+        var dir = explicitDir
+        if (dir === undefined || dir === 0) {
+            var oldIdx = getRingSlotIndex(cardRoot.expandedTab)
+            var newIdx = getRingSlotIndex(targetTab)
+            var N = cardRoot.enabledTabs ? cardRoot.enabledTabs.length : 1
+            if (oldIdx >= 0 && newIdx >= 0 && N > 1) {
+                var diff = newIdx - oldIdx
+                if (diff > (N / 2)) diff -= N
+                else if (diff < -(N / 2)) diff += N
+                dir = (diff >= 0) ? 1 : -1
+            } else {
+                dir = 1
+            }
+        }
+        cardRoot.expandedTab = targetTab
+        conveyor.switchTo(targetTab, dir)
+    }
+
+    // 滚轮切页支持
     property real tabWheelAccum: 0
     Timer { id: tabWheelResetTimer; interval: Theme.animSlow; onTriggered: cardRoot.tabWheelAccum = 0 }
-    Timer { id: fastWheelResetTimer; interval: Theme.animSlow; onTriggered: cardRoot.isFastWheeling = false }
 
     function handleTabWheel(wheel) {
         wheel.accepted = true
@@ -191,19 +137,12 @@ Item {
         if (Math.abs(cardRoot.tabWheelAccum) >= 48) {
             if (!cardRoot.enabledTabs || cardRoot.enabledTabs.length <= 1) return
             var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1
-            var nextIndex = (cardRoot.activeTabIndex + dir + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
+            var currIdx = getRingSlotIndex(cardRoot.expandedTab)
+            var nextIndex = (currIdx + dir + cardRoot.enabledTabs.length) % cardRoot.enabledTabs.length
 
-            cardRoot.isFastWheeling = true
-            fastWheelResetTimer.restart()
             cardRoot.switchRoute(cardRoot.enabledTabs[nextIndex].key, dir)
             cardRoot.tabWheelAccum = 0
         }
-    }
-
-    MouseArea {
-        anchors.fill: parent; z: -1
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        onClicked: (mouse) => mouse.accepted = true
     }
 
     Column {
@@ -218,197 +157,103 @@ Item {
             tabMeta: cardRoot.currentTabMeta
             onTabWheel: (wheel) => cardRoot.handleTabWheel(wheel)
             onSwitchRoute: (targetTab) => cardRoot.switchRoute(targetTab)
-            // 🚀 连接顶栏齿轮到全局偏好设置信号
             onRequestSettings: cardRoot.requestSettings()
         }
 
         Item {
-            id: conveyorViewport
-            width: cardRoot.viewportWidth
-            height: cardRoot.viewportHeight
+            id: viewport
+            width: parent.width
+            height: parent.height - 36
             clip: true
 
             ExpandedCallCard {
                 z: 100
                 chosenFont: cardRoot.chosenFont
-                callTitle: cardRoot.callTitle
-                callSubtitle: cardRoot.callSubtitle
-                callAvatar: cardRoot.callAvatar
+                callTitle: cardRoot.callTitle; callSubtitle: cardRoot.callSubtitle; callAvatar: cardRoot.callAvatar
                 isCalling: cardRoot.isCalling
                 visible: cardRoot.isCalling
                 onCollapseRequested: cardRoot.startCollapse()
             }
 
-            Item {
-                id: conveyorBeltCanvas
+            // 可打断主传送带
+            InterruptibleConveyor {
+                id: conveyor
                 anchors.fill: parent
+                currentKey: cardRoot.expandedTab
 
-                // 1. 本地时间页
-                Item {
-                    id: panelTime
-                    x: cardRoot.getPanelX("time")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("time")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.timeLoaded
-                        sourceComponent: Component { TimeDetailPage { chosenFont: cardRoot.chosenFont } }
-                    }
-                }
+                keyToComponentMap: ({
+                    "time": compTime,
+                    "hardware": compHardware,
+                    "workspace": compWorkspace,
+                    "media": compMedia,
+                    "calendar": compCalendar,
+                    "timer": null,
+                    "clock": compClock,
+                    "network": compNetwork,
+                    "bluetooth": compBluetooth,
+                    "notification": compNotification
+                })
+            }
 
-                // 2. 硬件控制页
-                Item {
-                    id: panelHardware
-                    x: cardRoot.getPanelX("hardware")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("hardware")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.hardwareLoaded
-                        sourceComponent: Component {
-                            HardwarePage {
-                                chosenFont: cardRoot.chosenFont
-                                onRequestSettings: cardRoot.requestSettings()
-                            }
-                        }
+            // 常驻计时器视口联动
+            TimerPage {
+                id: persistentTimerPage
+                width: parent.width
+                height: parent.height
+                chosenFont: cardRoot.chosenFont
+                z: 10
+                visible: conveyor.activeKey === "timer" || conveyor.departingKey === "timer"
+                x: {
+                    if (conveyor.activeKey === "timer") {
+                        return conveyor.slideOffset
                     }
-                }
-
-                // 3. 工作区页面
-                Item {
-                    id: panelWorkspace
-                    x: cardRoot.getPanelX("workspace")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("workspace")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.workspaceLoaded
-                        sourceComponent: Component {
-                            WorkspacePage {
-                                chosenFont: cardRoot.chosenFont
-                                currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal
-                                currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
-                            }
-                        }
+                    if (conveyor.departingKey === "timer") {
+                        return conveyor.slideOffset - (conveyor.slideDir > 0 ? conveyor.width : -conveyor.width)
                     }
+                    return conveyor.width
                 }
-
-                // 4. 媒体控制页
-                Item {
-                    id: panelMedia
-                    x: cardRoot.getPanelX("media")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("media")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.mediaLoaded
-                        sourceComponent: Component {
-                            MediaPage {
-                                chosenFont: cardRoot.chosenFont
-                                title: cardRoot.title; artist: cardRoot.artist
-                                status: cardRoot.status; artUrl: cardRoot.artUrl
-                                position: cardRoot.position; duration: cardRoot.duration
-                                dominantColor: cardRoot.dominantColor
-                                onCancelCollapse: cardRoot.cancelCollapse()
-                                onRequestCollapse: cardRoot.requestCollapse()
-                                onStartCollapse: cardRoot.startCollapse()
-                            }
-                        }
-                    }
-                }
-
-                // 5. 日历与日程页
-                Item {
-                    id: panelCalendar
-                    x: cardRoot.getPanelX("calendar")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("calendar")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.calendarLoaded
-                        sourceComponent: Component { CalendarPage { chosenFont: cardRoot.chosenFont } }
-                    }
-                }
-
-                // 6. 专注计时器页
-                Item {
-                    id: panelTimer
-                    x: cardRoot.getPanelX("timer")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("timer")
-                    TimerPage {
-                        id: persistentTimerPage
-                        anchors.fill: parent; chosenFont: cardRoot.chosenFont
-                        onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
-                    }
-                }
-
-                // 7. 世界时钟页
-                Item {
-                    id: panelClock
-                    x: cardRoot.getPanelX("clock")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("clock")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.clockLoaded
-                        sourceComponent: Component {
-                            WorldClockPage {
-                                chosenFont: cardRoot.chosenFont
-                                is24h: (typeof Config !== "undefined") ? (Config.timeFormat === "24h") : true
-                            }
-                        }
-                    }
-                }
-
-                // 8. 网络监控页
-                Item {
-                    id: panelNetwork
-                    x: cardRoot.getPanelX("network")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("network")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.networkLoaded
-                        sourceComponent: Component {
-                            NetworkPage {
-                                chosenFont: cardRoot.chosenFont
-                                downSpeed: cardRoot.downSpeedStr; upSpeed: cardRoot.upSpeedStr
-                                localIp: cardRoot.localIp
-                            }
-                        }
-                    }
-                }
-
-                // 9. 蓝牙外设页
-                Item {
-                    id: panelBluetooth
-                    x: cardRoot.getPanelX("bluetooth")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("bluetooth")
-                    Loader {
-                        anchors.fill: parent; active: cardRoot.bluetoothLoaded
-                        sourceComponent: Component { BluetoothPage { chosenFont: cardRoot.chosenFont } }
-                    }
-                }
-
-                // 10. 历史通知流页
-                Item {
-                    id: panelNotification
-                    x: cardRoot.getPanelX("notification")
-                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
-                    visible: cardRoot.isPanelVisible("notification")
-                    Loader {
-                        id: notifLoader
-                        anchors.fill: parent; active: cardRoot.notificationLoaded
-                        sourceComponent: Component { NotificationPage { chosenFont: cardRoot.chosenFont } }
-                        Connections {
-                            target: notifLoader.item
-                            ignoreUnknownSignals: true
-                            function onStartCollapse() { cardRoot.startCollapse() }
-                        }
-                    }
-                }
+                onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
             }
         }
     }
 
-    Component.onCompleted: {
-        cardRoot.currentKey = (cardRoot.expandedTab && cardRoot.expandedTab !== "") ? cardRoot.expandedTab : "time"
-        cardRoot.departingKey = ""
-        cardRoot.transitionProgress = 1.0
+    Component { id: compTime; TimeDetailPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compHardware; HardwarePage { chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() } }
+    Component {
+        id: compWorkspace
+        WorkspacePage {
+            chosenFont: cardRoot.chosenFont
+            currentWs: cardRoot.wsCurrent; totalWs: cardRoot.wsTotal
+            currentWsName: cardRoot.wsName; wsList: cardRoot.wsList
+        }
+    }
+    Component {
+        id: compMedia
+        MediaPage {
+            chosenFont: cardRoot.chosenFont
+            title: cardRoot.title; artist: cardRoot.artist
+            status: cardRoot.status; artUrl: cardRoot.artUrl
+            position: cardRoot.position; duration: cardRoot.duration
+            dominantColor: cardRoot.dominantColor
+            onStartCollapse: cardRoot.startCollapse()
+        }
+    }
+    Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compClock; WorldClockPage { chosenFont: cardRoot.chosenFont } }
+    Component { 
+        id: compNetwork
+        NetworkPage { 
+            chosenFont: cardRoot.chosenFont
+            downSpeed: cardRoot.downSpeedStr
+            upSpeed: cardRoot.upSpeedStr
+            localIp: cardRoot.localIp 
+        } 
+    }
+    Component { id: compBluetooth; BluetoothPage { chosenFont: cardRoot.chosenFont } }
+    Component {
+        id: compNotification
+        NotificationPage {
+            chosenFont: cardRoot.chosenFont
+        }
     }
 }

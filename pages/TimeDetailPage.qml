@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: TimeDetailPage.qml (统一 Token 瘦身版)
+// 📄 File: pages/TimeDetailPage.qml
+// 🌟 修复语法冲突与无休止能耗版
 // ==========================================
 import QtQuick
 
@@ -159,6 +160,7 @@ Item {
                     }
 
                     Column {
+                        id: colonDotsCol
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: 5
                         width: 5
@@ -166,10 +168,11 @@ Item {
                         Rectangle { width: 3.2; height: 3.2; radius: 1.6; color: Theme.calendar; anchors.horizontalCenter: parent.horizontalCenter }
                         Rectangle { width: 3.2; height: 3.2; radius: 1.6; color: Theme.calendar; anchors.horizontalCenter: parent.horizontalCenter }
 
-                        SequentialAnimation on opacity {
-                            loops: Animation.Infinite; running: true
-                            NumberAnimation { to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
-                            NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
+                        SequentialAnimation {
+                            running: timeDetailRoot.visible
+                            loops: Animation.Infinite
+                            NumberAnimation { target: colonDotsCol; property: "opacity"; to: 0.35; duration: 800; easing.type: Easing.InOutQuad }
+                            NumberAnimation { target: colonDotsCol; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
                         }
                     }
 

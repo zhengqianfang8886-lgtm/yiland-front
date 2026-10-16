@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: CompactCapsuleView.qml
-// 🌟 纯粹流体原生态 · 光学微刻线自适应分隔版
+// 📄 File: CompactCapsuleView.qml (抗挤压·目标宽度即时生效版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -19,7 +18,7 @@ Item {
     property bool isExpanded: false
     property bool isCollapsing: false
 
-    property bool showNetSpeed: true
+    property bool showNetSpeed: false
     property bool isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
     property bool isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
 
@@ -42,7 +41,6 @@ Item {
         if (wsView && wsView.snapToNearest) wsView.snapToNearest()
     }
 
-    // 瞬态模式属性
     property string osdIcon: "🔊"
     property int osdValue: 50
     property string alertTitle: ""
@@ -53,7 +51,6 @@ Item {
     property string callSubtitle: ""
     property string callAvatar: ""
 
-    // 时钟/网络属性
     property string displayDate: ""
     property string displayTime: "04:53"
     property string displaySeconds: ""
@@ -61,8 +58,33 @@ Item {
     property string downCompact: "0K"
     property string upCompact: "0K"
 
-    // 声谱参数
-    property bool hasMusic: status === "Playing"
+    readonly property bool isActivelyPlaying: status === "Playing"
+    property bool waveVisible: false
+    property bool hasEverPlayed: false
+
+    onIsActivelyPlayingChanged: {
+        if (isActivelyPlaying) {
+            hasEverPlayed = true
+            musicHideGraceTimer.stop()
+            waveVisible = true
+        } else {
+            if (hasEverPlayed && waveVisible) {
+                musicHideGraceTimer.restart()
+            }
+        }
+    }
+
+    Timer {
+        id: musicHideGraceTimer
+        interval: 4000
+        repeat: false
+        onTriggered: {
+            if (!compactRoot.isActivelyPlaying) {
+                compactRoot.waveVisible = false
+            }
+        }
+    }
+
     property color dominantColor: "#22c55e"
     property real spec1: 0.2
     property real spec2: 0.2
@@ -71,11 +93,14 @@ Item {
 
     readonly property int barsCount: (typeof Config !== "undefined" && Config.musicVisualizerBars !== undefined) ?
                                      Math.max(3, Math.min(8, Config.musicVisualizerBars)) : 5
-    readonly property real barW: 4.0
+    readonly property real barW: 3.8
     readonly property real barGap: 2.2
-    readonly property real barMaxH: 18.0
+    readonly property real barMaxH: 16.0
+
+    readonly property real fullWaveWidth: (barsCount * barW) + ((barsCount - 1) * barGap)
 
     function getBarScale(index, total) {
+        if (!isActivelyPlaying) return 0.22
         if (total <= 1) return Math.max(0.25, Math.min(1.0, spec1))
         var t = index / (total - 1)
         var pos = t * 3.0
@@ -89,7 +114,6 @@ Item {
         return Math.max(0.20, Math.min(1.0, baseVal * resonance))
     }
 
-    // 计时器属性与刚体定宽
     property bool timerActive: false
     property string timerFormattedText: "25:00"
     property bool timerIsPaused: false
@@ -105,7 +129,6 @@ Item {
         return 54
     }
 
-    // 通知与健康
     property int unreadNotifCount: 0
     property string latestNotifAvatar: ""
     property int memoryPercent: 0
@@ -116,7 +139,16 @@ Item {
     signal requestExpandTab(string tabName)
     signal toggleTimer()
 
-    readonly property int implicitCompactWidth: Math.ceil(innerContentRow.implicitWidth + 20)
+    // 🚀【绝对稳定预测宽度】：从第一毫秒起直接产出目标尺寸，杜绝父子嵌套动画滞后
+    readonly property int implicitCompactWidth: {
+        var base = clockView.implicitWidth + 36 // 36px 绝对两端弧度安全垫
+        if (internalMemPill.shouldShow) base += 22
+        if (waveVisible) base += (fullWaveWidth + 14)
+        if (timerActive) base += (lockedTimerPillWidth + 14)
+        if (unreadNotifCount > 0) base += 24
+        return Math.ceil(Math.max(160, base))
+    }
+
     readonly property int wsContentImplicitWidth: wsView.contentImplicitWidth
     readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
     readonly property bool isAlertActive: (activeTransient === "ALERT") && !isCalling
@@ -138,7 +170,6 @@ Item {
         return n
     }
 
-    // 1. 久坐打断弹窗
     CompactSedentaryView {
         id: sedentaryView
         chosenFont: compactRoot.effectiveFont
@@ -150,7 +181,6 @@ Item {
         onSedentarySnooze: compactRoot.sedentarySnooze()
     }
 
-    // 2. 来电专属模式条
     CompactCallView {
         id: callView
         chosenFont: compactRoot.effectiveFont
@@ -161,7 +191,6 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 150 } }
     }
 
-    // 3. 高斯绝对网格鱼眼工作区标尺
     CompactWorkspaceView {
         id: wsView
         anchors.centerIn: parent
@@ -180,7 +209,6 @@ Item {
         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
     }
 
-    // 4. 音量/静音 OSD
     CompactOsdView {
         id: osdView
         anchors.fill: parent
@@ -201,7 +229,6 @@ Item {
         }
     }
 
-    // 5. 通知弹窗横幅
     CompactAlertView {
         id: alertView
         chosenFont: compactRoot.effectiveFont
@@ -210,15 +237,18 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // =========================================================================
-    // 6. 🌟 胶囊内部常态融合状态流 (光学微刻线分隔版)
-    // =========================================================================
-    readonly property bool isNormalModeActive: (!compactRoot.isExpanded && compactRoot.activeTransient === "" && !compactRoot.isCalling && !compactRoot.isScrubbing)
+    readonly property bool isNormalModeActive: (!compactRoot.isExpanded && 
+                                               (compactRoot.activeTransient === "" || compactRoot.activeTransient === "MEDIA_PEEK") && 
+                                               !compactRoot.isCalling && 
+                                               !compactRoot.isScrubbing)
 
+    // =========================================================================
+    // 常态内容行（🚀 内部空间绝对锁定，严禁中间过渡帧挤压文字和波形）
+    // =========================================================================
     Row {
         id: innerContentRow
         anchors.centerIn: parent
-        spacing: 6
+        spacing: 7
         height: parent.height
 
         opacity: compactRoot.isNormalModeActive ? 1.0 : 0.0
@@ -228,9 +258,7 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutQuad } }
         Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-        // ---------------------------------------------------------------------
         // 【左翼 1】：高内存指示点
-        // ---------------------------------------------------------------------
         Item {
             id: internalMemPill
             anchors.verticalCenter: parent.verticalCenter
@@ -254,20 +282,22 @@ Item {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // 【左翼 2】：纯粹音乐律动声谱
-        // ---------------------------------------------------------------------
+        // =====================================================================
+        // 【左翼 2】：纯粹音乐律动声谱 (🚀 与外壳一步到位，彻底拔除延迟)
+        // =====================================================================
         Item {
             id: waveWrapper
             anchors.verticalCenter: parent.verticalCenter
-            readonly property bool shouldShow: compactRoot.hasMusic
-            readonly property real calculatedW: (compactRoot.barsCount * compactRoot.barW) + ((compactRoot.barsCount - 1) * compactRoot.barGap)
 
-            visible: width > 0
-            width: shouldShow ? calculatedW : 0
+            readonly property bool shouldShow: compactRoot.waveVisible
+            visible: width > 0.1
+            // 🚀 核心：直接指定完整宽度，不在子组件内部再跑一遍 260ms 的慢缩放
+            width: shouldShow ? compactRoot.fullWaveWidth : 0
             height: parent.height
+            clip: true
 
-            Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveSpring } }
+            opacity: shouldShow ? (compactRoot.isActivelyPlaying ? 1.0 : 0.6) : 0.0
+            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
 
             Row {
                 id: waveRow
@@ -291,7 +321,12 @@ Item {
                         transform: Scale {
                             origin.y: compactRoot.barMaxH / 2
                             yScale: barSingle.targetScale
-                            Behavior on yScale { NumberAnimation { duration: 65; easing.type: Easing.OutQuad } }
+                            Behavior on yScale {
+                                NumberAnimation {
+                                    duration: compactRoot.isActivelyPlaying ? 60 : 180
+                                    easing.type: Easing.OutQuad
+                                }
+                            }
                         }
                     }
                 }
@@ -307,33 +342,28 @@ Item {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // 🚀【光学微刻线 1】：音乐声谱与中央时钟之间（仅在播放音乐时自适应显现）
-        // ---------------------------------------------------------------------
+        // 微刻线 1：音乐声谱与中央时钟之间
         Rectangle {
             id: sepMusicToClock
             anchors.verticalCenter: parent.verticalCenter
-            readonly property bool shouldShow: compactRoot.hasMusic
+            readonly property bool shouldShow: compactRoot.waveVisible
             width: shouldShow ? 1 : 0
             height: 11
             radius: 0.5
             color: Qt.rgba(1, 1, 1, 0.16)
             opacity: shouldShow ? 1.0 : 0.0
 
-            Behavior on width { NumberAnimation { duration: Theme.animNormal; easing.type: Theme.curveSpring } }
-            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
         }
 
-        // ---------------------------------------------------------------------
-        // 【中央核心】：基准时钟 + 桌面微标 + 实时网速 + 键盘锁
-        // ---------------------------------------------------------------------
+        // 【中央核心】：基准时钟 + 桌面微标 + 键盘锁
         CompactClockView {
             id: clockView
             anchors.verticalCenter: parent.verticalCenter
             chosenFont: compactRoot.effectiveFont
             isCapsLock: compactRoot.isCapsLock
             isNumLock: compactRoot.isNumLock
-            showNetSpeed: compactRoot.showNetSpeed
+            showNetSpeed: false
             downCompact: compactRoot.downCompact; upCompact: compactRoot.upCompact
             displayDate: compactRoot.displayDate; displayTime: compactRoot.displayTime; displaySeconds: compactRoot.displaySeconds; displayPeriod: compactRoot.displayPeriod
 
@@ -343,9 +373,7 @@ Item {
             isClockActive: true
         }
 
-        // ---------------------------------------------------------------------
-        // 🚀【光学微刻线 2】：中央时钟与专注计时器之间（仅在开启计时器时自适应显现）
-        // ---------------------------------------------------------------------
+        // 微刻线 2：中央时钟与专注计时器之间
         Rectangle {
             id: sepClockToTimer
             anchors.verticalCenter: parent.verticalCenter
@@ -360,9 +388,7 @@ Item {
             Behavior on opacity { NumberAnimation { duration: 150 } }
         }
 
-        // ---------------------------------------------------------------------
-        // 【右翼 1】：绝对定宽 · 零跳动专注计时器
-        // ---------------------------------------------------------------------
+        // 【右翼 1】：专注计时器
         Item {
             id: internalTimerPill
             anchors.verticalCenter: parent.verticalCenter
@@ -378,7 +404,6 @@ Item {
                 anchors.centerIn: parent
                 spacing: 5
 
-                // 物理尺寸固定为 13x13 的精准进度环
                 Item {
                     width: 13; height: 13
                     anchors.verticalCenter: parent.verticalCenter
@@ -404,7 +429,6 @@ Item {
                     }
                 }
 
-                // 定宽文本容器，开启等宽特性
                 Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: compactRoot.lockedTimerPillWidth - 13 - 5
@@ -431,9 +455,7 @@ Item {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // 🚀【光学微刻线 3】：计时器与未读通知之间（两者同时存在时显现）
-        // ---------------------------------------------------------------------
+        // 微刻线 3：计时器与未读通知之间
         Rectangle {
             id: sepTimerToNotif
             anchors.verticalCenter: parent.verticalCenter
@@ -448,9 +470,7 @@ Item {
             Behavior on opacity { NumberAnimation { duration: 150 } }
         }
 
-        // ---------------------------------------------------------------------
-        // 【右翼 2】：未读消息通知（水滴微胶囊）
-        // ---------------------------------------------------------------------
+        // 【右翼 2】：未读消息通知
         Rectangle {
             id: internalNotifPill
             anchors.verticalCenter: parent.verticalCenter

@@ -1,7 +1,7 @@
 # ==========================================
-# 📄 File: theme.py (中央动效物理引擎与统一定义)
+# 📄 File: theme.py (修复枚举 .value 版)
 # ==========================================
-from PySide6.QtCore import QObject, Property, Signal
+from PySide6.QtCore import QObject, Property, Signal, QEasingCurve
 from PySide6.QtGui import QColor
 
 
@@ -23,7 +23,7 @@ class ThemeManager(QObject):
                 self._config.animStyleChanged.connect(self.motionChanged)
 
     # =========================================================================
-    # 1. 字体排版系统 Token
+    # 1. 字体排版系统 Tokens
     # =========================================================================
     @Property(str, notify=fontChanged)
     def activeFont(self):
@@ -112,46 +112,43 @@ class ThemeManager(QObject):
     def textMuted(self): return QColor(255, 255, 255, int(0.45 * 255))
 
     # =========================================================================
-    # 4. 中央物理动效引擎核心 (Motion Engine)
+    # 4. 物理动力学规格
     # =========================================================================
     @Property(bool, notify=motionChanged)
     def isJellyMode(self):
-        if self._config and hasattr(self._config, "animStyle"):
-            return self._config.animStyle == "jelly"
-        return False
+        return bool(self._config and getattr(self._config, "animStyle", "") == "jelly")
 
     @Property(int, notify=motionChanged)
     def animInstant(self): return 90 if not self.isJellyMode else 110
 
     @Property(int, notify=motionChanged)
-    def animFast(self): return 140 if not self.isJellyMode else 170
+    def animFast(self): return 140 if not self.isJellyMode else 160
 
     @Property(int, notify=motionChanged)
-    def animNormal(self): return 200 if not self.isJellyMode else 240
+    def animNormal(self): return 220 if not self.isJellyMode else 260
 
     @Property(int, notify=motionChanged)
-    def animSpring(self): return 220 if not self.isJellyMode else 280
+    def animSpring(self): return 250 if not self.isJellyMode else 300
 
     @Property(int, notify=motionChanged)
     def animSlow(self): return 280 if not self.isJellyMode else 340
 
     @Property(float, notify=motionChanged)
-    def springOvershootSubtle(self): return 1.04 if not self.isJellyMode else 1.08
+    def springOvershootFirm(self): return 1.10 if not self.isJellyMode else 1.22
 
-    @Property(float, notify=motionChanged)
-    def springOvershootNormal(self): return 1.08 if not self.isJellyMode else 1.18
-
-    @Property(float, notify=motionChanged)
-    def springOvershootFirm(self): return 1.14 if not self.isJellyMode else 1.28
+    # 🚀 使用 .value 取出整数
+    @Property(int, notify=motionChanged)
+    def curveDecel(self):
+        return QEasingCurve.Type.OutCubic.value
 
     @Property(int, notify=motionChanged)
-    def curveDecel(self): return 6  # Easing.OutCubic
+    def curveFluid(self):
+        return QEasingCurve.Type.OutQuad.value
 
     @Property(int, notify=motionChanged)
-    def curveFluid(self): return 2  # Easing.OutQuad
-
-    @Property(int, notify=motionChanged)
-    def curveSpring(self): return 9 if self.isJellyMode else 6
+    def curveSpring(self):
+        curve_type = QEasingCurve.Type.OutBack if self.isJellyMode else QEasingCurve.Type.OutCubic
+        return curve_type.value
 
     # =========================================================================
     # 5. 几何规格

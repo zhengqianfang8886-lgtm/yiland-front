@@ -1,8 +1,7 @@
 # ==========================================
 # 📄 File: core/backend.py
-# 🌟 极简单进程挂载中枢（仅保留核心 5 模块：桌面/MPRIS/亮度/音频/Teams）
+# 🌟 单一异步事实源控制中枢
 # ==========================================
-import sys
 import asyncio
 from typing import Optional
 try:
@@ -14,20 +13,21 @@ from dbus_next.aio import MessageBus
 from dbus_next.constants import BusType
 
 from core.state import IslandState
+from modules.workspace import WorkspaceModule
 from modules.mpris import MprisModule
 from modules.brightness import BrightnessModule
 from modules.audio import AudioModule
 from modules.notifications import NotificationModule
-from modules.workspace import WorkspaceModule
+from modules.system import SystemModule
 
 
 class DirectIslandBackend:
-    """运行在后台 Asyncio 线程的直通中枢，直接与 Qt Bridge 内存直连"""
+    """后台 Asyncio 单事实源驱动核心"""
 
     def __init__(self, bridge):
         self.bridge = bridge
         self.state = IslandState()
-        self.log = logger.bind(module="INPROC_BACKEND")
+        self.log = logger.bind(module="BACKEND_CORE")
 
         self.session_bus: Optional[MessageBus] = None
         self.workspace: Optional[WorkspaceModule] = None
@@ -35,50 +35,54 @@ class DirectIslandBackend:
         self.brightness: Optional[BrightnessModule] = None
         self.audio: Optional[AudioModule] = None
         self.notifications: Optional[NotificationModule] = None
+        self.system: Optional[SystemModule] = None
 
     def broadcast(self, event_type: str = "UPDATE"):
-        """内存直通调度：直接通过 Bridge 信号将状态推向 Qt 主线程"""
+        """内存管道：投递事件至 Qt 主线程"""
         if self.bridge:
             self.bridge.post_inproc_event(event_type, self.state)
 
     async def initialize(self):
-        self.log.info("正在建立 D-Bus 进程内异步连接...")
+        self.log.info("正在启动底层 D-Bus 与系统监听引擎...")
         try:
             self.session_bus = await MessageBus(bus_type=BusType.SESSION).connect()
-            self.log.success("Session Bus 连接成功。")
+            self.log.success("Session Bus 建立成功。")
         except Exception as e:
             self.log.critical(f"Session Bus 连接失败: {e}")
             return
 
-        # 1. 虚拟桌面模块 (KWin / Hyprland / X11)
+        # 1. 虚拟桌面 (KWin / Hyprland / X11)
         self.workspace = WorkspaceModule(self.session_bus, self.state, self)
         await self.workspace.init()
 
-        # 2. 原生 MPRIS 媒体模块 (播放/切歌/进度/置顶)
+        # 2. 媒体中心 (MPRIS + 频谱跳动 + 调色盘)
         self.mpris = MprisModule(self.session_bus, self.state, self)
         await self.mpris.init()
 
-        # 3. 屏幕亮度模块 (KDE Solid / brightnessctl)
+        # 3. 屏幕亮度
         self.brightness = BrightnessModule(self.session_bus, self.state, self)
         await self.brightness.init()
 
-        # 4. 音频模块 (WirePlumber / wpctl 原生)
+        # 4. 音频/麦克风
         self.audio = AudioModule(self.state, self)
         await self.audio.init()
 
-        # 5. Teams 通知与通话嗅探模块
+        # 5. Teams 通话与通知
         self.notifications = NotificationModule(self.state, self)
         await self.notifications.init()
 
-        # 首次状态全量同步
+        # 6. 系统硬件、电池、网速、键盘锁
+        self.system = SystemModule(self.state, self)
+        await self.system.init()
+
         self.broadcast("FULL_SYNC")
-        self.log.success("✨ 进程内核心 5 模块已就绪，内存直通管道已建立！")
+        self.log.success("✨ 全量 6 大系统模块归一化完成，无冗余运行！")
 
     async def shutdown(self):
-        self.log.info("正在释放后台资源...")
-        if self.audio:
-            await self.audio.close()
-        if self.notifications:
-            await self.notifications.close()
-        if self.mpris:
-            await self.mpris.close()
+        self.log.info("正在关闭后端服务...")
+        for mod in [self.system, self.audio, self.notifications, self.mpris]:
+            if mod:
+                try:
+                    await mod.close()
+                except Exception:
+                    pass

@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml
-// 🌟 纯刚体潜航吸顶 · 动态安全包络线 · 零切边完整版
+// 📄 File: IslandCapsule.qml (自适应出水尺寸完整版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -9,12 +8,10 @@ import "capsule"
 Item {
     id: capsuleRoot
 
-    property var fsm: null
-
-    property bool isExpanded: fsm ? (fsm.stateName === "EXPANDED") : false
-    property bool isCollapsing: false
-    property bool isTucked: fsm ? (fsm.stateName === "TUCKED") : false
-    property bool isPeeking: fsm ? (fsm.stateName === "PEEKING") : false
+    property real capsuleRadius: 17
+    width: 160
+    height: 34
+    y: 8
 
     signal timerAlert(string title, string msg)
     signal sedentaryRested()
@@ -22,411 +19,271 @@ Item {
     signal requestExpand(string tabName)
     signal requestSettings()
 
-    function lockBriefMorph() {
-        if (sensorArea && sensorArea.lockBriefMorph) sensorArea.lockBriefMorph()
+    IslandStageController {
+        id: stage
+        onStageGeometryRequested: capsuleRoot.resolveAndApplyGeometry()
     }
-    function cancelCollapse() {
-        if (sensorArea && sensorArea.cancelCollapse) sensorArea.cancelCollapse()
+
+    IslandMotionCoordinator {
+        id: coordinator
+        targetHost: capsuleRoot
+        stageCtrl: stage
+        onMotionStarted: if (typeof Bridge !== "undefined") Bridge.openFullCorridorForMotion()
+        onMotionSettled: capsuleRoot.commitSettledMask()
     }
-    function requestCollapse() {
-        if (sensorArea && sensorArea.triggerRequestCollapse) sensorArea.triggerRequestCollapse()
-    }
-    function startCollapse() {
-        if (sensorArea && sensorArea.triggerImmediateCollapse) sensorArea.triggerImmediateCollapse()
-    }
-    function triggerClipGlow() {
-        if (capsuleBackground && capsuleBackground.triggerClipGlow) capsuleBackground.triggerClipGlow()
-    }
+
+    readonly property alias isSettled: coordinator.isSettled
+    readonly property alias stageEngine: stage
+
+    property var relay: null
+    property var timeService: null
+    property var enabledTabs: []
 
     property string chosenFont: ""
     readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
 
-    property var enabledTabs: []
-    property alias expandedTab: expandedCardView.expandedTab
+    function commitSettledMask() {
+        if (typeof Bridge === "undefined") return
+        if (!coordinator.isSettled) return
 
-    property string activeTransient: ""
-    property string status: "Paused"
-    property bool isCalling: false
-    property string callTitle: ""
-    property string callSubtitle: ""
-    property string callAvatar: ""
-    property string title: ""
-    property string artist: ""
-    property string artUrl: ""
-    property real position: 0
-    property real duration: 0
+        var capW = Math.round(capsuleRoot.width)
+        var capX = Math.round((parent.width - capW) / 2 + islandOffsetX)
+        var safePad = 6
 
-    property color dominantColor: "#22c55e"
-    property real spec1: 0.2
-    property real spec2: 0.2
-    property real spec3: 0.2
-    property real spec4: 0.2
+        if (capsuleRoot.isPhysicallyDeepTucked) {
+            Bridge.applySettledMask(Math.max(0, capX - safePad), 0, capW + safePad * 2, 8)
+            return
+        }
 
-    property int wsCurrent: 0
-    property int wsTotal: 4
-    property string wsName: ""
-    property var wsList: []
+        var targetH = Math.round(capsuleRoot.y + capsuleRoot.height)
+        Bridge.applySettledMask(
+            Math.max(0, capX - safePad),
+            0,
+            capW + safePad * 2,
+            targetH + safePad
+        )
+    }
 
-    property var lockedTargetId: 0
+    readonly property bool isLongAlert: {
+        if (!relay) return false
+        var t = relay.alertTitle || ""
+        var sub = relay.alertSubtitle || ""
+        return (stage.activeOverlayKey === "ALERT") && ((t.length + sub.length) > 24 || sub.indexOf("\n") !== -1)
+    }
 
-    property string osdIcon: "🔊"
-    property int osdValue: 50
-    property string alertTitle: ""
-    property string alertSubtitle: ""
-    property string alertAvatar: ""
-    property string alertIcon: "🔔"
+    // 判断是否处于完全深潜吸顶状态
+    readonly property bool isPhysicallyDeepTucked: (stage.currentBaseTier === stage.tierTUCKED) && 
+                                                  (stage.submergedSubTier === stage.subTierDEEP)
 
-    property string displayDate: ""
-    property string displayTime: ""
-    property string displaySeconds: ""
-    property string displayPeriod: ""
+    readonly property bool isCompactContentVisible: !isPhysicallyDeepTucked && (stage.currentBaseTier !== stage.tierEXPANDED)
+    readonly property bool isExpandedState: stage.currentBaseTier === stage.tierEXPANDED
 
-    property string downCompact: "0K"
-    property string upCompact: "0K"
-    property string downSpeedStr: ""
-    property string upSpeedStr: ""
-    property string localIp: ""
+    // =========================================================================
+    // 集中式几何解析（出水时直接按完整尺寸展开，绝不出现窄卡片切边）
+    // =========================================================================
+    function resolveAndApplyGeometry() {
+        var normalMargin = (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
+        var nW = Math.max(160, compactCapsuleView.implicitCompactWidth)
+        var tY = normalMargin
+        var tW = nW
+        var tH = 34
+        var tR = 17
 
-    property int unreadCount: 0
-    property string latestNotifAvatar: ""
-    property int memoryPercent: 0
+        if (capsuleRoot.isExpandedState) {
+            tW = 420; tH = 240; tR = 24; tY = normalMargin
+        } else if (stage.activeOverlayKey === "CALL") {
+            tW = 320; tH = 44; tR = 22
+        } else if (stage.activeOverlayKey === "SEDENTARY") {
+            tW = 420; tH = 108; tR = 26
+        } else if (stage.activeOverlayKey === "ALERT") {
+            tW = Math.round(Math.min(420, Math.max(160, compactCapsuleView.alertContentImplicitWidth + 28)))
+            tH = capsuleRoot.isLongAlert ? 64 : 48
+            tR = 24
+        } else if (stage.activeOverlayKey === "WORKSPACE") {
+            tW = Math.max(170, Math.min(260, compactCapsuleView.wsContentImplicitWidth + 28))
+        } else {
+            // 常态播放、切歌被动出水（MEDIA_PEEK）：无条件等于满额波形自适应宽度！
+            tW = nW
+            tH = 34
+            tR = 17
+        }
 
-    property int continuousSitMinutes: 45
+        // 若处于深潜状态，物理 Y 轴退回到天花板以上（仅露 4.5px 微弧）
+        if (capsuleRoot.isPhysicallyDeepTucked) {
+            tY = -(tH - 4.5)
+        }
+
+        coordinator.syncAndAnimate(tY, tW, tH, tR)
+    }
+
+    Connections {
+        target: compactCapsuleView
+        function onImplicitCompactWidthChanged() {
+            capsuleRoot.resolveAndApplyGeometry()
+        }
+    }
 
     property real islandOffsetX: 0
-    readonly property bool isAtMotel: Math.abs(islandOffsetX) > 8
-
+    Behavior on islandOffsetX {
+        NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.12 }
+    }
     function goHome() { islandOffsetX = 0 }
 
-    Behavior on islandOffsetX {
-        NumberAnimation {
-            duration: 260
-            easing.type: Easing.OutBack
-            easing.overshoot: 1.15
-        }
-    }
-
-    function applyDragDelta(deltaX) {
-        var next = islandOffsetX + deltaX
-        islandOffsetX = Math.max(-100, Math.min(100, next))
-    }
-
-    function finishDrag(velocityX) {
-        if (Math.abs(islandOffsetX) < 35 || (islandOffsetX > 0 && velocityX < -6) || (islandOffsetX < 0 && velocityX > 6)) {
-            goHome()
-        }
-    }
-
-    readonly property bool timerRunning: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isRunning : false
-    readonly property bool timerIsPaused: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isPaused : false
-    readonly property bool timerIsCompleted: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.isCompleted : false
-    readonly property bool timerActive: timerRunning || timerIsPaused || timerIsCompleted
-    readonly property string timerFormattedText: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.formattedTime : "25:00"
-    readonly property real timerProgress: expandedCardView.timerPageRef ? expandedCardView.timerPageRef.progress : 0.0
-
-    function toggleTimerPause() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.togglePause() }
-    function dismissTimer() { if (expandedCardView.timerPageRef) expandedCardView.timerPageRef.dismissTimer() }
-
-    readonly property bool isLongAlert: (activeTransient === "ALERT") && (((alertTitle || "").length + (alertSubtitle || "").length) > 24 || (alertSubtitle || "").indexOf("\n") !== -1)
-    
-    // 基础安全定界宽度
-    readonly property int currentNormalWidth: Math.max(140, compactCapsuleView.implicitCompactWidth)
-
-    // =========================================================================
-    // 1. 流体自适应目标宽度计算
-    // =========================================================================
-    readonly property int targetWidth: {
-        if (isExpanded) return 420
-        if (isCalling) return 320
-        if (activeTransient === "SEDENTARY") return 420
-        if (sensorArea.isScrubbing) return 300
-        if (activeTransient === "ALERT") return Math.round(Math.min(420, Math.max(160, compactCapsuleView.alertContentImplicitWidth + 28)))
-        if (activeTransient === "OSD") return currentNormalWidth
-        if (activeTransient === "WORKSPACE") return Math.max(168, Math.max(compactCapsuleView.wsContentImplicitWidth + 20, currentNormalWidth))
-        return currentNormalWidth
-    }
-
-    // =========================================================================
-    // 2. 纯刚体高度：吸顶时高度永远保持 34px，绝不压瘪成黑条
-    // =========================================================================
-    readonly property int targetHeight: {
-        if (isExpanded) return 240
-        if (activeTransient === "SEDENTARY") return 108
-        if (activeTransient === "ALERT") return isLongAlert ? 64 : 48
-        return isCalling ? 44 : 34
-    }
-
-    // 饱满跑道圆角
-    readonly property int radius: isExpanded ? 24 : (activeTransient === "SEDENTARY" ? 26 : (isCalling ? 22 : (activeTransient === "ALERT" ? 24 : 17)))
-
-    // 常态悬浮距离屏幕顶部的间距
-    readonly property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
-    
-    // 隐藏时在屏幕最顶端保留的圆润底弧露出高度（4.5px）
-    readonly property real peekHeight: 4.5
-
-    // =========================================================================
-    // 3. 刚体潜水艇式 Y 轴负偏移潜航
-    // =========================================================================
-    y: isTucked ? -(targetHeight - peekHeight) : normalTopMargin
-
-    Behavior on y {
-        NumberAnimation {
-            duration: capsuleRoot.isTucked ? 240 : 280
-            easing.type: capsuleRoot.isTucked ? Easing.OutCubic : Easing.OutBack
-            easing.overshoot: capsuleRoot.isTucked ? 1.0 : 1.15
-            onRunningChanged: {
-                if (fsm) {
-                    if (running) fsm.reportMotionStart()
-                    else fsm.reportMotionSettled()
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    // 4. 流水般丝滑的宽度弹簧动画（Apple Fluid Spring）
-    // =========================================================================
-    width: targetWidth
-    height: targetHeight
-
-    Behavior on width {
-        NumberAnimation {
-            duration: 250
-            easing.type: Easing.OutBack
-            easing.overshoot: 1.08
-            onRunningChanged: {
-                if (fsm) {
-                    if (running) fsm.reportMotionStart()
-                    else fsm.reportMotionSettled()
-                }
-            }
-        }
-    }
-
-    Behavior on height {
-        NumberAnimation {
-            duration: 240
-            easing.type: Easing.OutBack
-            easing.overshoot: 1.06
-            onRunningChanged: {
-                if (fsm) {
-                    if (running) fsm.reportMotionStart()
-                    else fsm.reportMotionSettled()
-                }
-            }
-        }
-    }
-
     readonly property color currentEffectiveAccent: {
-        if (isTucked) return Qt.rgba(255, 255, 255, 0.20)
-        if (isCalling) return Theme.media
-        if (activeTransient === "SEDENTARY") return Qt.rgba(52 / 255, 211 / 255, 153 / 255, 1.0)
-        if (activeTransient === "ALERT") return compactCapsuleView.alertThemeColor
-        if (activeTransient === "OSD" && compactCapsuleView.isHardwareMuted) return Theme.danger
-        if (sensorArea.isScrubbing) return sensorArea.isScrubCanceling ? Theme.danger : Theme.workspace
-        if (status === "Playing" && !isExpanded) return dominantColor
+        if (stage.activeOverlayKey === "CALL") return Theme.media
+        if (stage.activeOverlayKey === "SEDENTARY") return Qt.rgba(52/255, 211/255, 153/255, 1.0)
+        if (stage.activeOverlayKey === "ALERT") return compactCapsuleView.alertThemeColor
+        if (relay && relay.status === "Playing" && !capsuleRoot.isExpandedState) return relay.dominantColor
         return Qt.rgba(0, 0, 0, 0)
     }
 
-    // 1. 材质底板 (100% 遮光纯黑跑道圆)
+    // 1. 底板外框
     CapsuleBackground {
         id: capsuleBackground
-        capsuleRadius: capsuleRoot.radius
+        capsuleRadius: capsuleRoot.capsuleRadius
         accentColor: capsuleRoot.currentEffectiveAccent
-        isHovered: capsuleRoot.isHoverActive
+        isHovered: sensorArea.isPointerHovered
     }
 
-    // 2. 常态内容流 (🚀 彻底去除内部 clip: true，根除内部硬切边)
-    CompactCapsuleView {
-        id: compactCapsuleView
-        anchors.fill: parent
-        anchors.leftMargin: 2; anchors.rightMargin: 2
-        height: capsuleRoot.isExpanded ? 34 : parent.height
-        z: 5
-
-        visible: opacity > 0.001
-        opacity: (!capsuleRoot.isTucked && !capsuleRoot.isExpanded) ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-
-        showNetSpeed: (typeof Config !== "undefined") ? Config.showNetSpeed : true
-        chosenFont: capsuleRoot.effectiveFont
-        activeTransient: capsuleRoot.activeTransient
-        status: capsuleRoot.status
-        isCalling: capsuleRoot.isCalling
-        isExpanded: capsuleRoot.isExpanded
-        isCollapsing: capsuleRoot.isCollapsing
-        isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
-        isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
-
-        wsName: capsuleRoot.wsName
-        wsCurrent: capsuleRoot.wsCurrent
-        wsTotal: capsuleRoot.wsTotal
-        wsList: capsuleRoot.wsList
-
-        isScrubbing: sensorArea.isScrubbing
-        isScrubCanceling: sensorArea.isScrubCanceling
-
-        osdIcon: capsuleRoot.osdIcon
-        osdValue: capsuleRoot.osdValue
-        alertTitle: capsuleRoot.alertTitle
-        alertSubtitle: capsuleRoot.alertSubtitle
-        alertAvatar: capsuleRoot.alertAvatar
-        alertIcon: capsuleRoot.alertIcon
-        callTitle: capsuleRoot.callTitle
-        callSubtitle: capsuleRoot.callSubtitle
-        callAvatar: capsuleRoot.callAvatar
-        displayDate: capsuleRoot.displayDate
-        displayTime: capsuleRoot.displayTime
-        displaySeconds: capsuleRoot.displaySeconds
-        displayPeriod: capsuleRoot.displayPeriod
-        downCompact: capsuleRoot.downCompact
-        upCompact: capsuleRoot.upCompact
-
-        hasMusic: capsuleRoot.status === "Playing"
-        dominantColor: capsuleRoot.dominantColor
-        spec1: capsuleRoot.spec1
-        spec2: capsuleRoot.spec2
-        spec3: capsuleRoot.spec3
-        spec4: capsuleRoot.spec4
-
-        timerActive: capsuleRoot.timerActive
-        timerFormattedText: capsuleRoot.timerFormattedText
-        timerIsPaused: capsuleRoot.timerIsPaused
-        timerIsCompleted: capsuleRoot.timerIsCompleted
-        timerProgress: capsuleRoot.timerProgress
-
-        unreadNotifCount: capsuleRoot.unreadCount
-        latestNotifAvatar: capsuleRoot.latestNotifAvatar
-        memoryPercent: capsuleRoot.memoryPercent
-
-        continuousSitMinutes: capsuleRoot.continuousSitMinutes
-        onSedentaryRested: capsuleRoot.sedentaryRested()
-        onSedentarySnooze: capsuleRoot.sedentarySnooze()
-        onRequestExpandTab: (tab) => capsuleRoot.requestExpand(tab)
-        onToggleTimer: capsuleRoot.toggleTimerPause()
-    }
-
-    // 3. 展开大卡片
+    // 2. 光学视口容器
     Item {
+        id: opticalAperture
         anchors.fill: parent
-        anchors.margins: 12
         clip: true
-        z: 10
+        visible: !capsuleRoot.isPhysicallyDeepTucked
 
-        ExpandedCardView {
-            id: expandedCardView
+        CompactCapsuleView {
+            id: compactCapsuleView
             anchors.fill: parent
 
-            visible: opacity > 0.01
-            opacity: capsuleRoot.isExpanded ? 1.0 : 0.0
-            scale: capsuleRoot.isExpanded ? 1.0 : 0.95
+            visible: opacity > 0.001
+            opacity: capsuleRoot.isCompactContentVisible ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 130 } }
+
+            showNetSpeed: false
             chosenFont: capsuleRoot.effectiveFont
+            activeTransient: stage.activeOverlayKey
+            isCalling: stage.activeOverlayKey === "CALL"
 
-            enabledTabs: capsuleRoot.enabledTabs
-            dominantColor: capsuleRoot.dominantColor
+            dominantColor: relay ? relay.dominantColor : "#22c55e"
+            spec1: relay ? relay.spec1 : 0.2
+            spec2: relay ? relay.spec2 : 0.2
+            spec3: relay ? relay.spec3 : 0.2
+            spec4: relay ? relay.spec4 : 0.2
+            status: relay ? relay.status : "Paused"
 
-            isCalling: capsuleRoot.isCalling
-            callTitle: capsuleRoot.callTitle
-            callSubtitle: capsuleRoot.callSubtitle
-            callAvatar: capsuleRoot.callAvatar
-            title: capsuleRoot.title
-            artist: capsuleRoot.artist
-            status: capsuleRoot.status
-            artUrl: capsuleRoot.artUrl
-            position: capsuleRoot.position
-            duration: capsuleRoot.duration
-            wsCurrent: capsuleRoot.wsCurrent
-            wsTotal: capsuleRoot.wsTotal
-            wsName: capsuleRoot.wsName
-            wsList: capsuleRoot.wsList
-            downSpeedStr: capsuleRoot.downSpeedStr
-            upSpeedStr: capsuleRoot.upSpeedStr
-            localIp: capsuleRoot.localIp
-            activeTransient: capsuleRoot.activeTransient
+            wsName: relay ? relay.wsName : ""
+            wsCurrent: relay ? relay.wsCurrent : 1
+            wsTotal: relay ? relay.wsTotal : 4
+            wsList: relay ? relay.wsList : []
 
-            onCancelCollapse: sensorArea.cancelCollapse()
-            onRequestCollapse: sensorArea.triggerRequestCollapse()
-            onStartCollapse: { if (fsm) fsm.evCollapseCard() }
-            onTimerCompleted: (t, msg) => capsuleRoot.timerAlert(t, msg)
-            onRequestSettings: capsuleRoot.requestSettings()
+            displayDate: timeService ? timeService.displayDate : ""
+            displayTime: timeService ? timeService.displayTime : "12:00"
+            displaySeconds: timeService ? timeService.displaySeconds : ""
+            displayPeriod: timeService ? timeService.displayPeriod : ""
 
-            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
-            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutQuad } }
+            unreadNotifCount: relay ? relay.unreadCount : 0
+            latestNotifAvatar: relay ? relay.latestNotifAvatar : ""
+            memoryPercent: relay ? relay.memoryPercent : 0
+
+            timerActive: (expandedCardView && expandedCardView.timerActive !== undefined) ? expandedCardView.timerActive : false
+            timerFormattedText: (expandedCardView && expandedCardView.timerFormattedText !== undefined) ? expandedCardView.timerFormattedText : "25:00"
+            timerIsPaused: (expandedCardView && expandedCardView.timerIsPaused !== undefined) ? expandedCardView.timerIsPaused : false
+            timerIsCompleted: (expandedCardView && expandedCardView.timerIsCompleted !== undefined) ? expandedCardView.timerIsCompleted : false
+            timerProgress: (expandedCardView && expandedCardView.timerProgress !== undefined) ? expandedCardView.timerProgress : 1.0
+
+            continuousSitMinutes: 45
+            onSedentaryRested: capsuleRoot.sedentaryRested()
+            onSedentarySnooze: capsuleRoot.sedentarySnooze()
+            onRequestExpandTab: (tab) => capsuleRoot.requestExpand(tab)
+            onToggleTimer: {
+                if (expandedCardView && expandedCardView.toggleTimerPause) {
+                    expandedCardView.toggleTimerPause()
+                }
+            }
+        }
+
+        Item {
+            anchors.fill: parent
+            anchors.margins: 12
+            z: 20
+            visible: opacity > 0.01
+            opacity: capsuleRoot.isExpandedState ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+
+            ExpandedCardView {
+                id: expandedCardView
+                anchors.fill: parent
+                chosenFont: capsuleRoot.effectiveFont
+                enabledTabs: capsuleRoot.enabledTabs
+
+                dominantColor: relay ? relay.dominantColor : "#22c55e"
+                isCalling: stage.activeOverlayKey === "CALL"
+                callTitle: relay ? relay.callTitle : ""
+                callSubtitle: relay ? relay.callSubtitle : ""
+                callAvatar: relay ? relay.callAvatar : ""
+
+                title: relay ? relay.title : ""
+                artist: relay ? relay.artist : ""
+                status: relay ? relay.status : "Paused"
+                artUrl: relay ? relay.artUrl : ""
+                position: relay ? relay.position : 0
+                duration: relay ? relay.duration : 0
+
+                wsCurrent: relay ? relay.wsCurrent : 1
+                wsTotal: relay ? relay.wsTotal : 4
+                wsName: relay ? relay.wsName : ""
+                wsList: relay ? relay.wsList : []
+
+                downSpeedStr: relay ? relay.downSpeedStr : ""
+                upSpeedStr: relay ? relay.upSpeedStr : ""
+                localIp: relay ? relay.localIp : ""
+            }
+
+            Connections {
+                target: expandedCardView
+                ignoreUnknownSignals: true
+                function onStartCollapse() {
+                    stage.requestCollapse()
+                }
+                function onRequestSettings() {
+                    capsuleRoot.requestSettings()
+                }
+                function onTimerCompleted(title, message) {
+                    capsuleRoot.timerAlert(title, message)
+                }
+            }
         }
     }
 
-    // 4. 交互感知层
+    // 3. 紧凑态手势层
     CapsuleSensorArea {
         id: sensorArea
         anchors.fill: parent
-        z: 20
-        isExpanded: capsuleRoot.isExpanded
-        isCollapsing: false
-        isCalling: capsuleRoot.isCalling
-        activeTransient: capsuleRoot.activeTransient
-        isTucked: capsuleRoot.isTucked
-        isPeeking: capsuleRoot.isPeeking
+        z: 10
+        enabled: !capsuleRoot.isExpandedState
+        isExpanded: capsuleRoot.isExpandedState
+        isTucked: capsuleRoot.isPhysicallyDeepTucked
+        isCalling: stage.activeOverlayKey === "CALL"
+        activeTransient: stage.activeOverlayKey
 
-        onRequestTuck: { if (fsm) fsm.evRightClickHide() }
-        onPinnedRestoreRequested: { if (fsm) fsm.evLeftClickPin() }
+        onRequestTuckToggle: stage.toggleTuck()
         onRequestSettingsWindow: capsuleRoot.requestSettings()
         onRequestExpand: (tab) => {
-            if (fsm) fsm.evExpandCard()
-            capsuleRoot.requestExpand(tab)
+            if (expandedCardView) {
+                expandedCardView.expandedTab = tab
+            }
+            stage.requestExpand()
         }
-        onMoveOffsetRequested: (deltaX) => capsuleRoot.applyDragDelta(deltaX)
-        onDragFinished: (vX) => capsuleRoot.finishDrag(vX)
-        onGoHomeRequested: capsuleRoot.goHome()
-        onStartCollapse: { if (fsm) fsm.evCollapseCard() }
+        onStartCollapse: stage.requestCollapse()
+        onMoveOffsetRequested: (deltaX) => islandOffsetX = Math.max(-100, Math.min(100, islandOffsetX + deltaX))
+        onDragFinished: (velocityX) => { if (Math.abs(islandOffsetX) < 35) goHome() }
+        onGoHomeRequested: goHome()
         onWheelScrolled: (deltaY) => {
-            if (typeof Bridge !== "undefined" && (!capsuleRoot.isExpanded || capsuleRoot.expandedTab === "workspace")) {
+            if (typeof Bridge !== "undefined") {
                 if (deltaY > 0) Bridge.switchWorkspacePrev()
-                else if (deltaY < 0) Bridge.switchWorkspaceNext()
+                else Bridge.switchWorkspaceNext()
             }
-        }
-        onScrubStarted: compactCapsuleView.updateCursorByMouseX(sensorArea.pressStartX)
-        onScrubMoved: (mx, my) => {
-            compactCapsuleView.updateCursorByMouseX(mx)
-            var targetIdx = compactCapsuleView.scrubHoverIndex
-            var items = compactCapsuleView.workspaceItems
-            var tId = targetIdx
-            if (items && items.length > targetIdx && targetIdx >= 0) {
-                var it = items[targetIdx]
-                if (it && it.id !== undefined) tId = it.id
-            }
-            capsuleRoot.lockedTargetId = tId
-        }
-        onScrubCommitted: {
-            compactCapsuleView.snapToNearest()
-            var finalTarget = capsuleRoot.lockedTargetId
-            if (typeof Bridge !== "undefined" && Bridge.switchWorkspace) Bridge.switchWorkspace(finalTarget)
-        }
-    }
-
-    // 5. 顶端微弧唤醒区 (紧密贴合露出的 4.5px 优雅圆弧)
-    MouseArea {
-        id: tuckSensor
-        z: 30
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: Math.max(14, capsuleRoot.peekHeight + 6)
-        enabled: capsuleRoot.isTucked
-        visible: capsuleRoot.isTucked
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onEntered: { if (fsm) fsm.evHoverPeek() }
-        onClicked: { if (fsm) fsm.evLeftClickPin() }
-    }
-
-    readonly property bool isHoverActive: sensorArea.isPointerHovered || (tuckSensor.enabled && tuckSensor.containsMouse)
-
-    onIsHoverActiveChanged: {
-        if (!isHoverActive) {
-            if (fsm && fsm.stateName === "PEEKING") fsm.evHoverLeave()
-        } else {
-            if (fsm && fsm.stateName === "PEEKING") fsm.evHoverKeep()
         }
     }
 }

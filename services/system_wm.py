@@ -1,14 +1,12 @@
 # ==========================================
 # 📄 File: services/system_wm.py
-# 🌟 静态着陆单次穿透引擎 (零动画争抢版)
+# 🌟 窗口安全掩码 (Masking) 与桌面管理器交互
 # ==========================================
-import os
 import shutil
 import hashlib
 import subprocess
 from PySide6.QtCore import QObject, Signal, QRect
 from PySide6.QtGui import QRegion, QGuiApplication
-from logger import app_logger
 from services.utils import CONCEAL_MIME_TYPES
 
 
@@ -24,8 +22,8 @@ class WindowManagerService(QObject):
         self._last_clip_hash = ""
         self._setup_clipboard_listener()
 
-    # 🚀【核心机制】：仅在动画完全静止后由 QML 单次调用，设置纯矩形精准穿透
     def set_precise_bounding_mask(self, x: int, y: int, w: int, h: int):
+        """精准建立单矩形安全交互窗口，其余透明区域放行鼠标穿透"""
         sig = f"{x},{y},{w},{h}"
         if sig == self._last_applied_sig:
             return
@@ -35,19 +33,18 @@ class WindowManagerService(QObject):
             self.set_passthrough()
             return
 
-        # 使用硬件消耗最小的单矩形 Region，绝不破坏 OpenGL Framebuffer
         mask_region = QRegion(QRect(x, y, w, h))
         self.view.setMask(mask_region)
 
     def set_passthrough(self):
-        """完全穿透（用于吸顶隐藏）"""
+        """完全穿透（吸顶隐藏）"""
         if self._last_applied_sig == "PASS":
             return
         self._last_applied_sig = "PASS"
         self.view.setMask(QRegion(0, 0, 1, 1))
 
     def clear_mask(self):
-        """恢复全窗口可交互"""
+        """动画期间全开交互"""
         if self._last_applied_sig == "FULL":
             return
         self._last_applied_sig = "FULL"
@@ -89,25 +86,7 @@ class WindowManagerService(QObject):
             preview = clean_text.replace("\n", " ").replace("\r", " ").strip()
             if len(preview) > 16:
                 preview = preview[:14] + "..."
-            detail_str = f"已复制 {count} 字符 · \"{preview}\""
-            self.clipboardTriggered.emit("📋", "剪贴板", detail_str, 1300)
-
-    def focus_teams_window(self):
-        def _focus():
-            candidates = ["teams-for-linux", "Microsoft Teams", "crx_cifhbcnohmdccbgoicgdjpfamggdegmo"]
-            for kw in candidates:
-                try:
-                    if shutil.which("wmctrl") and subprocess.run(["wmctrl", "-x", "-a", kw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
-                        return
-                    if shutil.which("hyprctl") and subprocess.run(["hyprctl", "dispatch", "focuswindow", f"class:(.*{kw}.*)"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
-                        return
-                    if shutil.which("swaymsg") and subprocess.run(["swaymsg", f'[class="(?i).*{kw}.*"] focus'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
-                        return
-                    if shutil.which("xdotool") and subprocess.run(["xdotool", "search", "--onlyvisible", "--class", kw, "windowactivate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0).returncode == 0:
-                        return
-                except subprocess.TimeoutExpired:
-                    continue
-        self._pool.submit(_focus)
+            self.clipboardTriggered.emit("📋", "剪贴板", f"已复制 {count} 字符 · \"{preview}\"", 1300)
 
     def open_system_monitor(self):
         def _open():
@@ -144,21 +123,3 @@ class WindowManagerService(QObject):
                     except Exception:
                         pass
         self._pool.submit(_open)
-
-    def connect_bluetooth(self, mac: str):
-        def _con():
-            if shutil.which("bluetoothctl"):
-                try:
-                    subprocess.run(["bluetoothctl", "connect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3.0)
-                except Exception:
-                    pass
-        self._pool.submit(_con)
-
-    def disconnect_bluetooth(self, mac: str):
-        def _dis():
-            if shutil.which("bluetoothctl"):
-                try:
-                    subprocess.run(["bluetoothctl", "disconnect", mac], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3.0)
-                except Exception:
-                    pass
-        self._pool.submit(_dis)

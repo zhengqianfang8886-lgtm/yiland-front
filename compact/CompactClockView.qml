@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: compact/CompactClockView.qml
-// 🌟 核心时钟流 · 去框高集成版
+// 📄 File: compact/CompactClockView.qml (无网速纯粹版)
 // ==========================================
 import QtQuick
 
@@ -15,7 +14,10 @@ Row {
 
     property bool isCapsLock: false
     property bool isNumLock: false
-    property bool showNetSpeed: true
+
+    // 🚀【彻底关闭胶囊网速】：默认为 false，不再渲染网速
+    property bool showNetSpeed: false
+
     property string downCompact: "0K"
     property string upCompact: "0K"
     property string displayDate: ""
@@ -60,9 +62,7 @@ Row {
         visible: false
     }
 
-    // =========================================================================
-    // 0. 当前工作区微徽标（🚀 彻底去框，纯文字轻量融入）
-    // =========================================================================
+    // 0. 当前工作区微徽标
     Item {
         id: wsBadge
         height: parent.height
@@ -108,7 +108,7 @@ Row {
         }
     }
 
-    // 1. CAPS LOCK (去外框，留纯提示)
+    // 1. CAPS LOCK
     Item {
         id: capsLockBadge
         height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
@@ -123,7 +123,7 @@ Row {
         }
     }
 
-    // 2. NUM LOCK (去外框)
+    // 2. NUM LOCK
     Item {
         id: numLockBadge
         height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
@@ -140,26 +140,13 @@ Row {
         }
     }
 
-    // 3. 实时网速 (彻底无框，直接悬浮)
+    // 3. 实时网速：由于 showNetSpeed 为 false，此处宽度为 0 且绝不占用任何布局像素
     Item {
         id: netSpeedItem
         height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
-        visible: width > 0; width: clockRoot.showNetSpeed ? 40 : 0
+        visible: clockRoot.showNetSpeed && width > 0
+        width: clockRoot.showNetSpeed ? 40 : 0
         opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
-
-        Column {
-            anchors.centerIn: parent; spacing: 0.5
-            Row {
-                spacing: 2; anchors.horizontalCenter: parent.horizontalCenter
-                Text { text: "↓"; font.pixelSize: 8; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.45); anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.downCompact; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
-            }
-            Row {
-                spacing: 2; anchors.horizontalCenter: parent.horizontalCenter
-                Text { text: "↑"; font.pixelSize: 8; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.45); anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.upCompact; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
-            }
-        }
     }
 
     // 4. 当前日期
@@ -174,7 +161,7 @@ Row {
         }
     }
 
-    // 5. 分隔点
+    // 5. 分隔圆点
     Rectangle {
         id: dateDot
         width: 3; height: 3; radius: 1.5; color: Qt.rgba(1, 1, 1, 0.22); anchors.verticalCenter: parent.verticalCenter
@@ -182,7 +169,7 @@ Row {
         opacity: dateItem.opacity
     }
 
-    // 6. 核心时间行
+    // 6. 核心时间
     Row {
         id: timeRow
         spacing: 2; anchors.verticalCenter: parent.verticalCenter

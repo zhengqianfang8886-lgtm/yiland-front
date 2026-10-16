@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: core/state.py
-# 🌟 全量系统信息内存数据结构（单进程共享模型）
+# 🌟 全量系统信息内存数据结构（单进程单一事实源）
 # ==========================================
 from typing import Dict, Any, Optional, List
 
@@ -29,27 +29,29 @@ class IslandState:
         self.mic_volume: int = 80
         self.is_mic_muted: bool = False
 
-        # 4. 蓝牙设备
+        # 4. 键盘锁状态
+        self.is_caps_lock: bool = False
+        self.is_num_lock: bool = False
+
+        # 5. 电池与电源状态
+        self.battery_pct: int = 100
+        self.battery_charging: bool = False
+
+        # 6. 系统性能与网络
+        self.memory_percent: int = 0
+        self.memory_used_gb: str = "0.0G"
+        self.memory_total_gb: str = "0.0G"
+        self.net_down_speed: str = "0.0 B/s"
+        self.net_up_speed: str = "0.0 B/s"
+        self.net_down_compact: str = "0K"
+        self.net_up_compact: str = "0K"
+        self.local_ip: str = "127.0.0.1"
+
+        # 7. 蓝牙设备
         self.bt_powered: bool = True
         self.bt_devices: List[Dict[str, Any]] = []
 
-        # 5. 电池与电源状态 (UPower 原生)
-        self.battery_pct: int = 100
-        self.battery_charging: bool = False
-        self.power_profile: str = "balanced"
-
-        # 6. 网络与 VPN
-        self.net_connected: bool = False
-        self.net_type: str = "none"
-        self.net_name: str = "Disconnected"
-        self.net_strength: int = 0
-        self.net_rx_speed: str = "0.0 B/s"
-        self.net_tx_speed: str = "0.0 B/s"
-        self.vpn_active: bool = False
-        self.vpn_name: str = ""
-        self.vpn_type: str = ""
-
-        # 7. 通知模块
+        # 8. 通知与呼叫
         self.last_notify_title: str = ""
         self.last_notify_content: str = ""
         self.last_notify_icon: str = "💬"

@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: capsule/CapsuleSensorArea.qml
-// 🌟 毫秒级输入层 (新增常态双击右键直达设置中心)
+// 📄 File: capsule/CapsuleSensorArea.qml (右键干脆响应版)
 // ==========================================
 import QtQuick
 
@@ -15,6 +14,7 @@ Item {
     property string activeTransient: ""
     property bool isTucked: false
     property bool isPeeking: false
+    property bool isPassive5S: false
 
     property bool isScrubbing: false
     property bool isScrubCanceling: false
@@ -35,11 +35,10 @@ Item {
     signal dragFinished(real velocityX)
     signal goHomeRequested()
 
-    signal requestTuck()             // 单击右键隐藏
-    signal pinnedRestoreRequested()  // 固定恢复常态
+    signal requestTuckToggle()
     signal pointerExitedCapsule()
     signal pointerEnteredCapsule()
-    signal requestSettingsWindow()   // 🚀 呼叫偏好设置窗口
+    signal requestSettingsWindow()
 
     property bool isPointerPressed: false
     property real pressStartX: 0
@@ -50,20 +49,7 @@ Item {
     property bool scrollSessionLocked: false
     property bool wasScrubbingJustNow: false
 
-    // 🚀 右键双击检测定时器
     property int rightClickCount: 0
-    Timer {
-        id: rightClickTimer
-        interval: 300
-        repeat: false
-        onTriggered: {
-            if (sensorRoot.rightClickCount === 1) {
-                // 单击右键：如果未在探头态，则执行吸顶隐藏
-                if (!sensorRoot.isPeeking) sensorRoot.requestTuck()
-            }
-            sensorRoot.rightClickCount = 0
-        }
-    }
 
     Timer {
         id: hoverDwellTimer
@@ -71,7 +57,7 @@ Item {
         repeat: false
         onTriggered: {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
-            if (sensorRoot.isPointerPressed || sensorRoot.isScrubbing || sensorRoot.wasScrubbingJustNow || sensorRoot.isMovingIsland || sensorRoot.isTucked) return
+            if (sensorRoot.isPointerPressed || sensorRoot.isScrubbing || sensorRoot.wasScrubbingJustNow || sensorRoot.isMovingIsland || sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return
 
             if (!sensorRoot.scrollSessionLocked && !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
                 if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
@@ -96,21 +82,10 @@ Item {
     Timer { id: resetWasScrubbingTimer; interval: 100; onTriggered: sensorRoot.wasScrubbingJustNow = false }
     Timer {
         id: longPressTimer; interval: 180; onTriggered: {
-            if (sensorRoot.isPointerPressed && !sensorRoot.isExpanded && !sensorRoot.isCalling && !sensorRoot.isMovingIsland && !sensorRoot.isTucked) {
+            if (sensorRoot.isPointerPressed && !sensorRoot.isExpanded && !sensorRoot.isCalling && !sensorRoot.isMovingIsland && !sensorRoot.isTucked && !sensorRoot.isPeeking && !sensorRoot.isPassive5S) {
                 sensorRoot.activateScrubbing()
             }
         }
-    }
-
-    function lockBriefMorph() { leaveGraceTimer.stop() }
-    function cancelCollapse() { leaveGraceTimer.stop() }
-    function triggerRequestCollapse() {
-        if (sensorRoot.isExpanded && !sensorRoot.isPointerHovered) leaveGraceTimer.restart()
-    }
-    function triggerImmediateCollapse() {
-        if (!sensorRoot.isExpanded) return
-        hoverDwellTimer.stop(); leaveGraceTimer.stop()
-        sensorRoot.startCollapse()
     }
 
     function activateScrubbing() {
@@ -130,7 +105,7 @@ Item {
                 leaveGraceTimer.stop()
                 sensorRoot.pointerEnteredCapsule()
                 if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && 
-                    !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed && !sensorRoot.isTucked) {
+                    !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed && !sensorRoot.isTucked && !sensorRoot.isPeeking && !sensorRoot.isPassive5S) {
                     if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
                         hoverDwellTimer.restart()
                     }
@@ -157,26 +132,8 @@ Item {
         onExited: sensorRoot.pointerExitedCapsule()
 
         onPressed: (mouse) => {
-            // 🚀【右键多击与还原判定】
             if (mouse.button === Qt.RightButton) {
                 mouse.accepted = true
-                hoverDwellTimer.stop()
-                leaveGraceTimer.stop()
-
-                if (sensorRoot.isPeeking) {
-                    sensorRoot.pinnedRestoreRequested()
-                    return
-                }
-
-                sensorRoot.rightClickCount++
-                if (sensorRoot.rightClickCount === 1) {
-                    rightClickTimer.restart()
-                } else if (sensorRoot.rightClickCount >= 2) {
-                    rightClickTimer.stop()
-                    sensorRoot.rightClickCount = 0
-                    // 🚀 双击右键直接打开设置窗口！
-                    sensorRoot.requestSettingsWindow()
-                }
                 return
             }
 
@@ -269,10 +226,17 @@ Item {
             }
         }
 
+        // 🚀【核心机制】：右键点击立即处理，不再等待迟钝的 220ms 延时
         onClicked: (mouse) => {
-            if (mouse.button === Qt.RightButton) return
+            if (mouse.button === Qt.RightButton) {
+                mouse.accepted = true
+                hoverDwellTimer.stop()
+                leaveGraceTimer.stop()
+                sensorRoot.requestTuckToggle()
+                return
+            }
 
-            sensorRoot.pinnedRestoreRequested()
+            if (sensorRoot.isPeeking || sensorRoot.isPassive5S) return
 
             if (sensorRoot.wasScrubbingJustNow || sensorRoot.isScrubbing || sensorRoot.isMovingIsland || sensorRoot.activeTransient === "SEDENTARY") {
                 sensorRoot.wasScrubbingJustNow = false

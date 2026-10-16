@@ -89,10 +89,13 @@ class MprisModule:
         )
         self._spectrum_thread.start()
 
+    # ==========================================
+    # 📄 File: modules/mpris.py 核心片段替换
+    # 替换 _spectrum_worker 方法
+    # ==========================================
     def _spectrum_worker(self):
         has_cava = bool(shutil.which("cava"))
 
-        # 1. 尝试使用真实 CAVA 管道
         if has_cava:
             try:
                 cava_cfg = (
@@ -117,6 +120,7 @@ class MprisModule:
                 )
 
                 chunk_size = 4
+                was_playing = False
                 while self._spectrum_running:
                     if self._cava_proc.poll() is not None:
                         break
@@ -125,8 +129,8 @@ class MprisModule:
                         break
 
                     if self.state.playback_status == "Playing":
+                        was_playing = True
                         b1, b2, b3, b4 = struct.unpack("4B", raw)
-                        # 如果 cava 真实获取到声音
                         if (b1 + b2 + b3 + b4) > 10:
                             s1 = round(0.18 + (b1 / 255.0) * 0.82, 2)
                             s2 = round(0.18 + (b2 / 255.0) * 0.82, 2)
@@ -134,30 +138,36 @@ class MprisModule:
                             s4 = round(0.18 + (b4 / 255.0) * 0.82, 2)
                             self._emit_spectrum_safe(s1, s2, s3, s4)
                             continue
-
-                    # 未出声或暂停时，回落到 0.2
-                    self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
+                    elif was_playing:
+                        # 仅在刚暂停的这一帧归位，随后不再重复占用总线
+                        was_playing = False
+                        self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
 
             except Exception as e:
                 self.log.debug(f"CAVA 引擎降级: {e}")
 
-        # 2. 保底机制：若未装 CAVA 或 CAVA 异常，自动启动优雅拟真跳动发生器
-        self.log.info("启用自愈节律引擎（无依赖生动波形）")
+        # 保底拟真跳动发生器（修复空转问题）
+        self.log.info("启用自愈节律引擎（智能休眠模式）")
         t = 0.0
+        was_playing = False
+
         while self._spectrum_running:
             if self.state.playback_status == "Playing":
+                was_playing = True
                 t += 0.08
-                # 基于多频段正弦与相位的自然节律合成
                 s1 = round(max(0.2, min(0.95, 0.22 + 0.65 * abs(math.sin(t * 3.8)))), 2)
                 s2 = round(max(0.2, min(1.00, 0.25 + 0.72 * abs(math.sin(t * 5.2 + 0.8)))), 2)
                 s3 = round(max(0.2, min(0.92, 0.22 + 0.68 * abs(math.sin(t * 4.1 + 1.7)))), 2)
                 s4 = round(max(0.2, min(0.85, 0.20 + 0.58 * abs(math.sin(t * 6.3 + 2.5)))), 2)
                 self._emit_spectrum_safe(s1, s2, s3, s4)
-                threading.Event().wait(0.04)  # ~25 FPS 流畅帧率
+                threading.Event().wait(0.04) # ~25 FPS
             else:
-                self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
-                threading.Event().wait(0.25)
-
+                if was_playing:
+                    # 暂停时只归零一次，不持续轰炸 QML
+                    was_playing = False
+                    self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
+                # 🚀 未播放时深度睡眠 1 秒，不消耗 CPU
+                threading.Event().wait(1.0)
     # =========================================================================
     # 🎨 封面主色调提取（让跳动的音柱具有专辑氛围色彩）
     # =========================================================================
