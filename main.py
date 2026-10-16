@@ -82,7 +82,8 @@ def main():
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 
         Qt.WindowType.Tool |
-        Qt.WindowType.WindowDoesNotAcceptFocus
+        Qt.WindowType.WindowDoesNotAcceptFocus | 
+        Qt.WindowType.BypassWindowManagerHint
     )
 
     bridge = IslandBridge(view, config)

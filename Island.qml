@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: Island.qml (隐藏态切歌精准出水联动版)
+// 📄 File: Island.qml (已移除 time/network/bluetooth 纯净版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -11,38 +11,33 @@ Item {
 
     readonly property string chosenFont: Theme.activeFont
 
+    // 🚀【核心修复】：仅保留现有模块的元数据
     readonly property var allTabsMeta: ({
-        "time": { key: "time", name: "时间", color: Theme.calendar },
         "hardware": { key: "hardware", name: "控制", color: "#f59e0b" },
         "workspace": { key: "workspace", name: "桌面", color: Theme.workspace },
         "media": { key: "media", name: "媒体", color: Theme.textPrimary },
         "calendar": { key: "calendar", name: "日历", color: Theme.calendar },
         "timer": { key: "timer", name: "计时", color: Theme.timer },
         "clock": { key: "clock", name: "时钟", color: Theme.clock },
-        "network": { key: "network", name: "网络", color: Theme.network },
-        "bluetooth": { key: "bluetooth", name: "蓝牙", color: Theme.bluetooth },
         "notification": { key: "notification", name: "通知", color: Theme.notification }
     })
 
     function isTabEnabled(key) {
         if (typeof Config === "undefined") return true
-        if (key === "time") return true
         if (key === "hardware") return Config.showHardwareTab !== false
         if (key === "workspace") return Config.showWorkspaceTab !== false
         if (key === "media") return Config.showMediaTab !== false
         if (key === "calendar") return Config.showCalendarTab !== false
         if (key === "timer") return Config.showTimerTab !== false
         if (key === "clock") return Config.showClockTab !== false
-        if (key === "network") return Config.showNetworkTab !== false
-        if (key === "bluetooth") return Config.showBluetoothTab !== false
         if (key === "notification") return Config.showNotificationTab !== false
-        return true
+        return false
     }
 
     readonly property var enabledTabs: {
         var order = (typeof Config !== "undefined" && Config.tabOrder && Config.tabOrder.length > 0) ?
                     Config.tabOrder :
-                    ["time", "hardware", "workspace", "media", "calendar", "timer", "clock", "network", "bluetooth", "notification"]
+                    ["hardware", "workspace", "media", "calendar", "timer", "clock", "notification"]
         var list = []
         for (var i = 0; i < order.length; i++) {
             var k = order[i]
@@ -93,12 +88,11 @@ Item {
         }
     }
 
-    // 🚀【核心多状态支持】：在隐藏状态（TUCKED）下起播，触发 3.5 秒临时出水展示律动！
+    // 3. 媒体被动出水监听
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         ignoreUnknownSignals: true
         function onMediaUpdated(t, a, s, u, pos, dur) {
-            // 只有当音乐处于播放状态，且当前岛正处于隐藏态时，才需要被动出水展示
             if (s === "Playing") {
                 if (capsule.stageEngine.currentBaseTier === capsule.stageEngine.tierTUCKED) {
                     capsule.stageEngine.pushTransient("MEDIA_PEEK", 3500)
@@ -150,7 +144,6 @@ Item {
 
         readonly property bool isTuckedMode: capsule.stageEngine.currentBaseTier === capsule.stageEngine.tierTUCKED
 
-        // 仅在用户鼠标主动探头时高度覆盖胶囊，被动出水期间感知高度锁定为 14px，杜绝光标自撞截断倒计时
         height: isTuckedMode ? 
                 (capsule.stageEngine.submergedSubTier === capsule.stageEngine.subTierUSER ? Math.max(48, capsule.y + capsule.height + 8) : 14) : 0
 
@@ -159,10 +152,21 @@ Item {
         cursorShape: isTuckedMode ? Qt.PointingHandCursor : Qt.ArrowCursor
         acceptedButtons: Qt.RightButton
 
+        property real lastMoveY: 0
+
         onEntered: {
             if (isTuckedMode) {
                 capsule.stageEngine.userHoverEnter()
             }
+        }
+
+        onPositionChanged: (mouse) => {
+            if (isTuckedMode && !capsule.stageEngine.tuckArmed) {
+                if (Math.abs(mouse.y - lastMoveY) > 8) {
+                    capsule.stageEngine.tuckArmed = true
+                }
+            }
+            lastMoveY = mouse.y
         }
 
         onExited: {
@@ -173,6 +177,7 @@ Item {
 
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
+                lastMoveY = mouse.y
                 capsule.stageEngine.toggleTuck()
             }
         }

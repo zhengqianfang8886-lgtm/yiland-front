@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('*.qml', '.'), ('calendar', 'calendar'), ('capsule', 'capsule'), ('compact', 'compact'), ('control', 'control'), ('expanded', 'expanded'), ('power', 'power'), ('process', 'process'), ('settings', 'settings'), ('timer', 'timer'), ('liquid_glass.frag.qsb', '.'), ('world_cities.json', '.')]
+datas = [('*.qml', '.'), ('calendar', 'calendar'), ('capsule', 'capsule'), ('compact', 'compact'), ('expanded', 'expanded'), ('pages', 'pages'), ('settings', 'settings'), ('timer', 'timer'), ('liquid_glass.frag.qsb', '.'), ('world_cities.json', '.')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('PySide6.QtSql')

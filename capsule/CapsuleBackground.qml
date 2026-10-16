@@ -1,6 +1,5 @@
 // ==========================================
-// 📄 File: capsule/CapsuleBackground.qml
-// 🌟 100% 不透光纯黑实体底板 (完整圆弧防裁切版)
+// 📄 File: capsule/CapsuleBackground.qml (触感呼吸动效完整版)
 // ==========================================
 import QtQuick
 
@@ -14,19 +13,28 @@ Item {
     property bool isHovered: false
 
     readonly property bool hasAccent: accentColor.a > 0.001
-    property real clipGlowOpacity: 0.0
+
+    // 🚀【专属触觉微反馈】：切换固定/隐藏时，边框产生一次极其通透自然的微光流动，纯物理材质反馈，无任何杂标
+    property real modePulseOpacity: 0.0
+    property color modePulseColor: "#ffffff"
 
     SequentialAnimation {
-        id: clipGlowAnim
-        NumberAnimation { target: bgRoot; property: "clipGlowOpacity"; to: 0.95; duration: Theme.animInstant; easing.type: Easing.OutQuad }
-        NumberAnimation { target: bgRoot; property: "clipGlowOpacity"; to: 0.0; duration: Theme.animSlow; easing.type: Easing.InOutQuad }
+        id: modePulseAnim
+        ParallelAnimation {
+            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.85; duration: 120; easing.type: Easing.OutQuad }
+        }
+        ParallelAnimation {
+            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.0; duration: 320; easing.type: Easing.InOutQuad }
+        }
     }
 
-    function triggerClipGlow() {
-        clipGlowAnim.restart()
+    // 对外触发切换动画的接口
+    function triggerModeHaptic(isAnchored) {
+        modePulseColor = isAnchored ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.6)
+        modePulseAnim.restart()
     }
 
-    // 🚀【核心修复】：留出 1px 安全内缩边距，确保 1px 描边与抗锯齿弧度 100% 完整，永不被边界硬切！
+    // 1. 底板实体黑底
     Rectangle {
         anchors.fill: parent
         anchors.margins: 1
@@ -38,15 +46,15 @@ Item {
         smooth: true
     }
 
-    // 剪贴板高光外发光边缘
+    // 2. 物理触感外边缘光环（零图标，仅凭光影告知用户状态）
     Rectangle {
         anchors.fill: parent
         anchors.margins: 1
         radius: Math.max(0, bgRoot.capsuleRadius - 1)
         color: "transparent"
-        border.color: "#38bdf8"
+        border.color: bgRoot.modePulseColor
         border.width: 1.5
-        opacity: bgRoot.clipGlowOpacity
+        opacity: bgRoot.modePulseOpacity
         visible: opacity > 0.01
         antialiasing: true
         smooth: true

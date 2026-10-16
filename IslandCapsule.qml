@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandCapsule.qml (自适应出水尺寸完整版)
+// 📄 File: IslandCapsule.qml (视口保护与动画链同步版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -13,6 +13,16 @@ Item {
     height: 34
     y: 8
 
+    property real capsuleScaleX: 1.0
+    property real capsuleScaleY: 1.0
+
+    transform: Scale {
+        origin.x: capsuleRoot.width / 2
+        origin.y: capsuleRoot.height / 2
+        xScale: capsuleRoot.capsuleScaleX
+        yScale: capsuleRoot.capsuleScaleY
+    }
+
     signal timerAlert(string title, string msg)
     signal sedentaryRested()
     signal sedentarySnooze()
@@ -21,7 +31,8 @@ Item {
 
     IslandStageController {
         id: stage
-        onStageGeometryRequested: capsuleRoot.resolveAndApplyGeometry()
+        onStageGeometryRequested: (isModeSwitch) => capsuleRoot.resolveAndApplyGeometry(isModeSwitch)
+        onModeSwitchTriggered: (isAnchored) => capsuleBackground.triggerModeHaptic(isAnchored)
     }
 
     IslandMotionCoordinator {
@@ -71,17 +82,16 @@ Item {
         return (stage.activeOverlayKey === "ALERT") && ((t.length + sub.length) > 24 || sub.indexOf("\n") !== -1)
     }
 
-    // 判断是否处于完全深潜吸顶状态
+    // 🚀【核心修复点 1】：只有当动画完全平息静止（isSettled）且坐标真正退入天花板时，才算作真正的深潜！
+    // 在动画链播放的过程中，绝不提前置为 true，保证视口 100% 完整可见！
     readonly property bool isPhysicallyDeepTucked: (stage.currentBaseTier === stage.tierTUCKED) && 
-                                                  (stage.submergedSubTier === stage.subTierDEEP)
+                                                  (stage.submergedSubTier === stage.subTierDEEP) &&
+                                                  coordinator.isSettled
 
     readonly property bool isCompactContentVisible: !isPhysicallyDeepTucked && (stage.currentBaseTier !== stage.tierEXPANDED)
     readonly property bool isExpandedState: stage.currentBaseTier === stage.tierEXPANDED
 
-    // =========================================================================
-    // 集中式几何解析（出水时直接按完整尺寸展开，绝不出现窄卡片切边）
-    // =========================================================================
-    function resolveAndApplyGeometry() {
+    function resolveAndApplyGeometry(isModeSwitch) {
         var normalMargin = (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
         var nW = Math.max(160, compactCapsuleView.implicitCompactWidth)
         var tY = normalMargin
@@ -102,24 +112,23 @@ Item {
         } else if (stage.activeOverlayKey === "WORKSPACE") {
             tW = Math.max(170, Math.min(260, compactCapsuleView.wsContentImplicitWidth + 28))
         } else {
-            // 常态播放、切歌被动出水（MEDIA_PEEK）：无条件等于满额波形自适应宽度！
             tW = nW
             tH = 34
             tR = 17
         }
 
-        // 若处于深潜状态，物理 Y 轴退回到天花板以上（仅露 4.5px 微弧）
-        if (capsuleRoot.isPhysicallyDeepTucked) {
+        // 如果目标是吸顶隐藏，终点 Y 轴计算为 -29.5
+        if ((stage.currentBaseTier === stage.tierTUCKED) && (stage.submergedSubTier === stage.subTierDEEP)) {
             tY = -(tH - 4.5)
         }
 
-        coordinator.syncAndAnimate(tY, tW, tH, tR)
+        coordinator.syncAndAnimate(tY, tW, tH, tR, isModeSwitch === true)
     }
 
     Connections {
         target: compactCapsuleView
         function onImplicitCompactWidthChanged() {
-            capsuleRoot.resolveAndApplyGeometry()
+            capsuleRoot.resolveAndApplyGeometry(false)
         }
     }
 
@@ -146,11 +155,12 @@ Item {
     }
 
     // 2. 光学视口容器
+    // 🚀【核心修复点 2】：只要位移动画还在跑（isTuckingInProgress），内容绝对不消失！
     Item {
         id: opticalAperture
         anchors.fill: parent
         clip: true
-        visible: !capsuleRoot.isPhysicallyDeepTucked
+        visible: !capsuleRoot.isPhysicallyDeepTucked || coordinator.isTuckingInProgress
 
         CompactCapsuleView {
             id: compactCapsuleView

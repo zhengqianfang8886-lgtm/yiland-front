@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: ExpandedCardView.qml (类型安全与零报错加固版)
+// 📄 File: ExpandedCardView.qml (已移除 time/network/bluetooth 纯净版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -10,7 +10,7 @@ Item {
     id: cardRoot
 
     property string chosenFont: ""
-    property string expandedTab: "time"
+    property string expandedTab: "hardware"
     property var enabledTabs: []
 
     property bool isCalling: false
@@ -47,9 +47,6 @@ Item {
     signal timerCompleted(string title, string message)
     signal requestSettings()
 
-    // =========================================================================
-    // 卡片独立鼠标生命周期管理器（防穿透 + 从容折叠）
-    // =========================================================================
     Timer {
         id: cardLeaveGraceTimer
         interval: 500
@@ -72,7 +69,6 @@ Item {
         }
     }
 
-    // 底层点击拦截盾牌：防止点击卡片内部空白区域穿透
     MouseArea {
         anchors.fill: parent
         z: -1
@@ -81,20 +77,17 @@ Item {
         onClicked: (mouse) => mouse.accepted = true
     }
 
-    // 顶栏元数据解析
+    // 顶栏元数据解析（已彻底剔除 time / network / bluetooth）
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
-        if (cardRoot.expandedTab === "time") return { title: "LOCAL TIME", sub: "时间与节律", color: Theme.calendar }
         if (cardRoot.expandedTab === "hardware") return { title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" }
         if (cardRoot.expandedTab === "workspace") return { title: "WORKSPACE", sub: cardRoot.wsName ? cardRoot.wsName : ("桌面 " + cardRoot.wsCurrent), color: Theme.workspace }
         if (cardRoot.expandedTab === "media") return { title: "MEDIA", sub: cardRoot.status === "Playing" ? (cardRoot.title || "正在播放") : "已暂停", color: cardRoot.status === "Playing" ? cardRoot.dominantColor : Theme.textMuted }
         if (cardRoot.expandedTab === "calendar") return { title: "CALENDAR", sub: "日历日程", color: Theme.calendar }
         if (cardRoot.expandedTab === "timer") return { title: "TIMER", sub: "专注计时", color: Theme.timer }
         if (cardRoot.expandedTab === "clock") return { title: "WORLD CLOCK", sub: "世界时钟", color: Theme.clock }
-        if (cardRoot.expandedTab === "network") return { title: "NETWORK", sub: "网络监控", color: Theme.network }
-        if (cardRoot.expandedTab === "bluetooth") return { title: "BLUETOOTH", sub: "蓝牙外设", color: Theme.bluetooth }
         if (cardRoot.expandedTab === "notification") return { title: "NOTIFICATIONS", sub: "消息归档", color: Theme.notification }
-        return { title: "ALCOVE ISLAND", sub: "", color: Theme.textSecondary }
+        return { title: "CONTROL CENTER", sub: "", color: Theme.textSecondary }
     }
 
     function getRingSlotIndex(key) {
@@ -124,7 +117,6 @@ Item {
         conveyor.switchTo(targetTab, dir)
     }
 
-    // 滚轮切页支持
     property real tabWheelAccum: 0
     Timer { id: tabWheelResetTimer; interval: Theme.animSlow; onTriggered: cardRoot.tabWheelAccum = 0 }
 
@@ -175,27 +167,23 @@ Item {
                 onCollapseRequested: cardRoot.startCollapse()
             }
 
-            // 可打断主传送带
+            // 🚀【核心修复】：传送带映射彻底剔除 compTime, compNetwork, compBluetooth
             InterruptibleConveyor {
                 id: conveyor
                 anchors.fill: parent
                 currentKey: cardRoot.expandedTab
 
                 keyToComponentMap: ({
-                    "time": compTime,
                     "hardware": compHardware,
                     "workspace": compWorkspace,
                     "media": compMedia,
                     "calendar": compCalendar,
                     "timer": null,
                     "clock": compClock,
-                    "network": compNetwork,
-                    "bluetooth": compBluetooth,
                     "notification": compNotification
                 })
             }
 
-            // 常驻计时器视口联动
             TimerPage {
                 id: persistentTimerPage
                 width: parent.width
@@ -217,7 +205,7 @@ Item {
         }
     }
 
-    Component { id: compTime; TimeDetailPage { chosenFont: cardRoot.chosenFont } }
+    // 🚀【核心修复】：仅保留存续页面的组件声明
     Component { id: compHardware; HardwarePage { chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() } }
     Component {
         id: compWorkspace
@@ -240,16 +228,6 @@ Item {
     }
     Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }
     Component { id: compClock; WorldClockPage { chosenFont: cardRoot.chosenFont } }
-    Component { 
-        id: compNetwork
-        NetworkPage { 
-            chosenFont: cardRoot.chosenFont
-            downSpeed: cardRoot.downSpeedStr
-            upSpeed: cardRoot.upSpeedStr
-            localIp: cardRoot.localIp 
-        } 
-    }
-    Component { id: compBluetooth; BluetoothPage { chosenFont: cardRoot.chosenFont } }
     Component {
         id: compNotification
         NotificationPage {

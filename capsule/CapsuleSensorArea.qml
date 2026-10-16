@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: capsule/CapsuleSensorArea.qml (右键干脆响应版)
+// 📄 File: capsule/CapsuleSensorArea.qml (默认展开指向修正版)
 // ==========================================
 import QtQuick
 
@@ -226,7 +226,6 @@ Item {
             }
         }
 
-        // 🚀【核心机制】：右键点击立即处理，不再等待迟钝的 220ms 延时
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
                 mouse.accepted = true
@@ -249,7 +248,9 @@ Item {
             sensorRoot.scrollSessionLocked = false
             if (sensorRoot.isCalling) { sensorRoot.requestExpand("media"); return }
             if (sensorRoot.activeTransient === "ALERT") { sensorRoot.requestExpand("notification"); return }
-            sensorRoot.requestExpand("time")
+            
+            // 🚀【核心修改】：默认点击胶囊展开时，打开硬件控制中心（不再打开 time）
+            sensorRoot.requestExpand("hardware")
         }
     }
 }

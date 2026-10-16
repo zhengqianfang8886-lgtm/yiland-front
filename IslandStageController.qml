@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: IslandStageController.qml (多状态精准出水与回潜版)
+// 📄 File: IslandStageController.qml (零延时·纯物理意图接管版)
 // ==========================================
 import QtQuick
 
@@ -14,32 +14,33 @@ Item {
 
     // --- 2. 潜航隐藏态下的三级子状态 ---
     readonly property int subTierDEEP: 0     // 完全潜航吸顶（露微弧）
-    readonly property int subTierUSER: 1     // 用户鼠标主动探出/查看中
-    readonly property int subTierPASSIVE: 2  // 事件临时出水展示中（受租约控制，到期回潜）
+    readonly property int subTierUSER: 1     // 用户鼠标主动探出/操作中
+    readonly property int subTierPASSIVE: 2  // 事件临时出水展示中
     property int submergedSubTier: subTierDEEP
 
-    // 挂载抽象瞬态调度中枢
+    // 挂载瞬态调度中枢
     IslandTransientHub {
         id: transientHub
-        onGeometryInvalidated: stageCtrl.stageGeometryRequested()
+        onGeometryInvalidated: stageCtrl.stageGeometryRequested(false)
     }
 
     readonly property alias hub: transientHub
     readonly property alias activeOverlayKey: transientHub.activeKey
     readonly property alias activePayload: transientHub.activePayload
 
-    property bool tuckLockout: false
-    property bool tuckArmed: false
+    // 🚀【核心设计】：彻底废除 700ms 倒计时锁！采用纯物理位移“武装标志”
+    // 刚右键收起时为 false，鼠标不移走绝不误弹；移走后物理武装，随时探头
+    property bool tuckArmed: true
 
-    signal stageGeometryRequested()
+    signal stageGeometryRequested(bool isModeSwitch)
+    signal modeSwitchTriggered(bool isAnchored)
 
     // =========================================================================
-    // 瞬态触发接口（支持隐藏状态下出水展示）
+    // 瞬态触发接口
     // =========================================================================
     function pushTransient(key, customDurationMs, payload) {
         if (currentBaseTier === tierEXPANDED && key !== "CALL") return false
 
-        // 🚀【核心机制 1】：如果在隐藏潜航状态下收到事件，启动被动出水！
         if (currentBaseTier === tierTUCKED) {
             if (submergedSubTier !== subTierUSER) {
                 submergedSubTier = subTierPASSIVE
@@ -47,42 +48,38 @@ Item {
         }
 
         var ok = transientHub.push(key, customDurationMs, payload)
-        stageGeometryRequested()
+        stageGeometryRequested(false)
         return ok
     }
 
-    // 瞬态结束
     function popTransient(key) {
         transientHub.dismiss(key)
 
-        // 🚀【核心机制 2】：若在隐藏模式下被动展示结束（非鼠标主动接管），平滑缩回天花板隐藏！
         if (currentBaseTier === tierTUCKED && submergedSubTier === subTierPASSIVE) {
             submergedSubTier = subTierDEEP
         }
-        stageGeometryRequested()
+        stageGeometryRequested(false)
     }
 
-    // =========================================================================
-    // 租约倒计时器（到期自动结算）
-    // =========================================================================
     Connections {
         target: transientHub
         function onTransientDismissed(key) {
             if (stageCtrl.currentBaseTier === stageCtrl.tierTUCKED && stageCtrl.submergedSubTier === stageCtrl.subTierPASSIVE) {
                 stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
-                stageCtrl.stageGeometryRequested()
+                stageCtrl.stageGeometryRequested(false)
             }
         }
     }
 
     // =========================================================================
-    // 鼠标在天花板主动探头交互
+    // 🚀【真正的物理鼠标意图交互】：0延迟判定，完全不卡手
     // =========================================================================
     function userHoverEnter() {
-        if (currentBaseTier !== tierTUCKED || tuckLockout || !tuckArmed) return
+        // 如果未武装（鼠标收起后还没移开），坚决不自碰自弹！
+        if (currentBaseTier !== tierTUCKED || !tuckArmed) return
         userLeaveTimer.stop()
         submergedSubTier = subTierUSER
-        stageGeometryRequested()
+        stageGeometryRequested(false)
     }
 
     function userHoverKeep() {
@@ -92,57 +89,60 @@ Item {
 
     function userHoverLeave() {
         if (currentBaseTier !== tierTUCKED) return
+        // 鼠标一旦离开过感应区，立即自动武装完毕，随时等候下一次意图靠近
         tuckArmed = true
         userLeaveTimer.restart()
     }
 
-    // 鼠标离开天花板区域的隐藏防抖
+    // 鼠标真正离开天花板感应区后的退潜防抖（60ms 极轻微手势防虚抖）
     Timer {
         id: userLeaveTimer
-        interval: 100
+        interval: 60
         repeat: false
         onTriggered: {
             if (stageCtrl.currentBaseTier === stageCtrl.tierTUCKED) {
                 stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
                 stageCtrl.hub.dismiss()
-                stageCtrl.stageGeometryRequested()
+                stageCtrl.stageGeometryRequested(false)
             }
         }
     }
 
     // =========================================================================
-    // 底态流转控制
+    // 底态流转控制（0ms 极速响应）
     // =========================================================================
     function requestExpand() {
         if (currentBaseTier === tierTUCKED) return
         popTransient()
         currentBaseTier = tierEXPANDED
-        stageGeometryRequested()
+        stageGeometryRequested(false)
     }
 
     function requestCollapse() {
         popTransient()
         currentBaseTier = tierNORMAL
-        stageGeometryRequested()
+        stageGeometryRequested(false)
     }
 
+    // 🚀【瞬间切换】：用户点击右键的瞬间，0 延迟切换，同时进入“原位休眠”状态
     function toggleTuck() {
-        if (tuckLockout) return
-        tuckLockout = true
-        tuckLockTimer.restart()
         popTransient()
         userLeaveTimer.stop()
 
-        currentBaseTier = (currentBaseTier === tierTUCKED) ? tierNORMAL : tierTUCKED
-        submergedSubTier = subTierDEEP
-        tuckArmed = false
-        stageGeometryRequested()
-    }
+        var willBeAnchored = (currentBaseTier === tierTUCKED)
 
-    Timer {
-        id: tuckLockTimer
-        interval: 450
-        repeat: false
-        onTriggered: stageCtrl.tuckLockout = false
+        if (willBeAnchored) {
+            currentBaseTier = tierNORMAL
+            submergedSubTier = subTierDEEP
+            tuckArmed = true
+        } else {
+            currentBaseTier = tierTUCKED
+            submergedSubTier = subTierDEEP
+            // 关键：刚收起时关闭武装，鼠标在原处停着绝不自弹！
+            tuckArmed = false
+        }
+
+        modeSwitchTriggered(willBeAnchored)
+        stageGeometryRequested(true)
     }
 }

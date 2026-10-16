@@ -1,5 +1,5 @@
 # ==========================================
-# 📄 File: config.py
+# 📄 File: config.py (彻底剔除 time 选项卡版)
 # ==========================================
 import os
 import json
@@ -16,8 +16,9 @@ DEFAULT_SAVED_CLOCKS = [
     {"name": "东京", "en": "Tokyo", "country": "日本", "iso": "JP", "tz": "Asia/Tokyo"}
 ]
 
+# 🚀【核心移除】：默认选项卡列表彻底移除 "time"
 DEFAULT_TAB_ORDER = [
-    "time", "hardware", "workspace", "media", "calendar",
+    "hardware", "workspace", "media", "calendar",
     "timer", "clock", "network", "bluetooth", "notification"
 ]
 
@@ -135,6 +136,10 @@ class ConfigManager(QObject):
                     raw_val = data[key]
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
+
+            # 过滤持久化文件中残留的 "time"
+            if "time" in self._tabOrder:
+                self._tabOrder = [t for t in self._tabOrder if t != "time"]
 
             for item in DEFAULT_TAB_ORDER:
                 if item not in self._tabOrder:
