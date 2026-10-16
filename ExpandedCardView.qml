@@ -1,6 +1,5 @@
 // ==========================================
 // 📄 File: ExpandedCardView.qml
-// 🌟 传送带多卡片切换主控 (全系懒加载·精炼纯净版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -36,7 +35,6 @@ Item {
     property string localIp: ""
     property string activeTransient: ""
 
-    // 核心计时器保持常驻后台心跳，供胶囊与副岛读取
     readonly property alias timerPageRef: persistentTimerPage
 
     signal cancelCollapse()
@@ -46,13 +44,10 @@ Item {
     signal requestSettings()
 
     readonly property int viewportWidth: width
-    readonly property int viewportHeight: height - 38
+    readonly property int viewportHeight: height - 36
     readonly property int slotGap: 16
     readonly property int slotPitch: viewportWidth + slotGap
 
-    // =========================================================================
-    // 可重入多视图传送带状态机
-    // =========================================================================
     property string currentKey: "time"
     property string departingKey: ""
     property int slideDir: 1
@@ -126,15 +121,11 @@ Item {
         id: conveyorAnim
         target: cardRoot
         property: "transitionProgress"
-        from: 0.0
-        to: 1.0
-        onFinished: {
-            cardRoot.departingKey = ""
-        }
+        from: 0.0; to: 1.0
+        onFinished: { cardRoot.departingKey = "" }
     }
 
-    // 懒加载标志位：按需加载对应页面组件
-    property bool timeLoaded: true // 默认首页
+    property bool timeLoaded: true
     property bool hardwareLoaded: false
     property bool workspaceLoaded: false
     property bool mediaLoaded: false
@@ -155,9 +146,7 @@ Item {
         else if (expandedTab === "bluetooth") bluetoothLoaded = true
         else if (expandedTab === "notification") notificationLoaded = true
 
-        if (expandedTab !== currentKey) {
-            triggerConveyorTransition(expandedTab, 0)
-        }
+        if (expandedTab !== currentKey) triggerConveyorTransition(expandedTab, 0)
     }
 
     function switchRoute(targetTab, explicitDir) {
@@ -219,7 +208,7 @@ Item {
 
     Column {
         anchors.fill: parent
-        spacing: 12
+        spacing: 10
 
         ExpandedHeaderBar {
             chosenFont: cardRoot.chosenFont
@@ -229,6 +218,8 @@ Item {
             tabMeta: cardRoot.currentTabMeta
             onTabWheel: (wheel) => cardRoot.handleTabWheel(wheel)
             onSwitchRoute: (targetTab) => cardRoot.switchRoute(targetTab)
+            // 🚀 连接顶栏齿轮到全局偏好设置信号
+            onRequestSettings: cardRoot.requestSettings()
         }
 
         Item {
@@ -252,30 +243,26 @@ Item {
                 id: conveyorBeltCanvas
                 anchors.fill: parent
 
-                // 1. 本地时间页 (默认页)
+                // 1. 本地时间页
                 Item {
                     id: panelTime
                     x: cardRoot.getPanelX("time")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("time")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.timeLoaded
+                        anchors.fill: parent; active: cardRoot.timeLoaded
                         sourceComponent: Component { TimeDetailPage { chosenFont: cardRoot.chosenFont } }
                     }
                 }
 
-                // 2. 硬件控制页 (懒加载)
+                // 2. 硬件控制页
                 Item {
                     id: panelHardware
                     x: cardRoot.getPanelX("hardware")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("hardware")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.hardwareLoaded
+                        anchors.fill: parent; active: cardRoot.hardwareLoaded
                         sourceComponent: Component {
                             HardwarePage {
                                 chosenFont: cardRoot.chosenFont
@@ -285,16 +272,14 @@ Item {
                     }
                 }
 
-                // 3. 工作区页面 (懒加载)
+                // 3. 工作区页面
                 Item {
                     id: panelWorkspace
                     x: cardRoot.getPanelX("workspace")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("workspace")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.workspaceLoaded
+                        anchors.fill: parent; active: cardRoot.workspaceLoaded
                         sourceComponent: Component {
                             WorkspacePage {
                                 chosenFont: cardRoot.chosenFont
@@ -305,16 +290,14 @@ Item {
                     }
                 }
 
-                // 4. 媒体控制页 (懒加载)
+                // 4. 媒体控制页
                 Item {
                     id: panelMedia
                     x: cardRoot.getPanelX("media")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("media")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.mediaLoaded
+                        anchors.fill: parent; active: cardRoot.mediaLoaded
                         sourceComponent: Component {
                             MediaPage {
                                 chosenFont: cardRoot.chosenFont
@@ -330,26 +313,23 @@ Item {
                     }
                 }
 
-                // 5. 日历与日程页 (懒加载)
+                // 5. 日历与日程页
                 Item {
                     id: panelCalendar
                     x: cardRoot.getPanelX("calendar")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("calendar")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.calendarLoaded
+                        anchors.fill: parent; active: cardRoot.calendarLoaded
                         sourceComponent: Component { CalendarPage { chosenFont: cardRoot.chosenFont } }
                     }
                 }
 
-                // 6. 专注计时器页 (常驻后台心跳)
+                // 6. 专注计时器页
                 Item {
                     id: panelTimer
                     x: cardRoot.getPanelX("timer")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("timer")
                     TimerPage {
                         id: persistentTimerPage
@@ -358,16 +338,14 @@ Item {
                     }
                 }
 
-                // 7. 世界时钟页 (懒加载)
+                // 7. 世界时钟页
                 Item {
                     id: panelClock
                     x: cardRoot.getPanelX("clock")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("clock")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.clockLoaded
+                        anchors.fill: parent; active: cardRoot.clockLoaded
                         sourceComponent: Component {
                             WorldClockPage {
                                 chosenFont: cardRoot.chosenFont
@@ -377,16 +355,14 @@ Item {
                     }
                 }
 
-                // 8. 网络监控页 (懒加载)
+                // 8. 网络监控页
                 Item {
                     id: panelNetwork
                     x: cardRoot.getPanelX("network")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("network")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.networkLoaded
+                        anchors.fill: parent; active: cardRoot.networkLoaded
                         sourceComponent: Component {
                             NetworkPage {
                                 chosenFont: cardRoot.chosenFont
@@ -397,31 +373,27 @@ Item {
                     }
                 }
 
-                // 9. 蓝牙外设页 (懒加载)
+                // 9. 蓝牙外设页
                 Item {
                     id: panelBluetooth
                     x: cardRoot.getPanelX("bluetooth")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("bluetooth")
                     Loader {
-                        anchors.fill: parent
-                        active: cardRoot.bluetoothLoaded
+                        anchors.fill: parent; active: cardRoot.bluetoothLoaded
                         sourceComponent: Component { BluetoothPage { chosenFont: cardRoot.chosenFont } }
                     }
                 }
 
-                // 10. 历史通知流页 (懒加载)
+                // 10. 历史通知流页
                 Item {
                     id: panelNotification
                     x: cardRoot.getPanelX("notification")
-                    width: cardRoot.viewportWidth
-                    height: cardRoot.viewportHeight
+                    width: cardRoot.viewportWidth; height: cardRoot.viewportHeight
                     visible: cardRoot.isPanelVisible("notification")
                     Loader {
                         id: notifLoader
-                        anchors.fill: parent
-                        active: cardRoot.notificationLoaded
+                        anchors.fill: parent; active: cardRoot.notificationLoaded
                         sourceComponent: Component { NotificationPage { chosenFont: cardRoot.chosenFont } }
                         Connections {
                             target: notifLoader.item

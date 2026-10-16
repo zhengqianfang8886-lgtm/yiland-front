@@ -1,5 +1,5 @@
 // ==========================================
-// 📄 File: HardwarePage.qml (统一 Token 瘦身版)
+// 📄 File: pages/HardwarePage.qml
 // ==========================================
 import QtQuick
 
@@ -38,7 +38,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: 10
 
-        // 1. 顶部置顶快捷工具条
+        // 1. 顶部快捷工具条
         Item {
             width: parent.width
             height: 24

@@ -1,5 +1,6 @@
 // ==========================================
 // 📄 File: settings/SettingsDisplayCard.qml
+// 🌟 显示与偏好调控卡片（集成声谱条数设置）
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -70,7 +71,7 @@ Column {
     }
 
     // =========================================================================
-    // 1. 展开页面展示顺序与启闭调控卡片
+    // 1. 展开页面顺序与启闭调控卡片
     // =========================================================================
     Rectangle {
         width: parent.width
@@ -175,7 +176,87 @@ Column {
     }
 
     // =========================================================================
-    // 2. 消息通知与勿扰模式
+    // 2. 🚀【全新】：音乐声谱律动柱条数与质感调控
+    // =========================================================================
+    Rectangle {
+        width: parent.width
+        height: 88
+        radius: 12
+        color: Qt.rgba(1, 1, 1, 0.05)
+        border.color: Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.3)
+        border.width: 1
+
+        Column {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            Item {
+                width: parent.width; height: 20
+                Row {
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                    Text { text: "🎵"; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "音乐律动波形条数"; color: "#22c55e"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                // 预览区
+                Row {
+                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    spacing: 3
+                    Repeater {
+                        model: (typeof Config !== "undefined" && Config.musicVisualizerBars !== undefined) ? Config.musicVisualizerBars : 5
+                        Rectangle {
+                            width: 3.8; height: 12; radius: 1.9; color: "#22c55e"
+                            anchors.verticalCenter: parent.verticalCenter
+                            transform: Scale {
+                                origin.y: 6
+                                yScale: index % 2 === 0 ? 0.9 : 0.5
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row {
+                spacing: 8
+                Repeater {
+                    model: [
+                        { label: "3 条 (极简)", val: 3 },
+                        { label: "4 条 (紧凑)", val: 4 },
+                        { label: "5 条 (标准)", val: 5 },
+                        { label: "6 条 (丰满)", val: 6 },
+                        { label: "8 条 (全频)", val: 8 }
+                    ]
+                    Rectangle {
+                        width: (colRoot.width - 24 - 32) / 5
+                        height: 26
+                        radius: 13
+                        readonly property bool isSel: (typeof Config !== "undefined" && Config.musicVisualizerBars === modelData.val)
+                        color: isSel ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.28) : Qt.rgba(1, 1, 1, 0.06)
+                        border.color: isSel ? "#22c55e" : "transparent"
+                        border.width: 1
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData.val + " 条"
+                            color: parent.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5)
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: if (typeof Config !== "undefined") Config.musicVisualizerBars = modelData.val
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 3. 消息通知与专注勿扰
     // =========================================================================
     Rectangle {
         width: parent.width
@@ -197,12 +278,10 @@ Column {
                 Text { text: "消息通知与专注勿扰"; color: "#818cf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
             }
 
-            // 2.1 勿扰总开关
             Item {
                 width: parent.width; height: 36
                 Column {
-                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 2
                     Text { text: "开启勿扰模式 (Do Not Disturb)"; color: "white"; font.pixelSize: 12; font.bold: true }
                     Text { text: "静默归档消息，灵动岛不再弹出横幅打扰，仅主动查看时有效"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10 }
                 }
@@ -215,12 +294,10 @@ Column {
 
             Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
 
-            // 2.2 通话穿透开关
             Item {
                 width: parent.width; height: 36
                 Column {
-                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 2
                     Text { text: "允许通话通知穿透勿扰 (Call Bypass)"; color: "white"; font.pixelSize: 12; font.bold: true }
                     Text { text: "重要语音/视频来电（如 Teams）是否允许穿透勿扰并正常弹出接听卡片"; color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10 }
                 }
@@ -233,77 +310,27 @@ Column {
         }
     }
 
-    // 3. 动效物理质感
+    // =========================================================================
+    // 4. 胶囊常态显示项 (增加工作区名称开关)
+    // =========================================================================
     Rectangle {
-        width: parent.width; height: 96; radius: 12
-        color: Qt.rgba(1, 1, 1, 0.05); border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.3); border.width: 1
-
-        Column {
-            anchors.fill: parent; anchors.margins: 12; spacing: 8
-
-            Item {
-                width: parent.width; height: 16
-                Text { text: "🎭 灵动岛收放物理动效"; color: Theme.workspace; font.pixelSize: 12; font.bold: true; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
-                Text {
-                    text: (typeof Config !== "undefined" && Config.animStyle === "jelly") ? "有机果冻流" : "精密克制流"
-                    color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                }
-            }
-
-            Rectangle {
-                width: parent.width; height: 28; radius: 14; color: Qt.rgba(1, 1, 1, 0.08)
-
-                Row {
-                    anchors.fill: parent
-
-                    Rectangle {
-                        id: precBtn
-                        width: parent.width / 2; height: parent.height; radius: 14
-                        readonly property bool isSel: (typeof Config !== "undefined" && Config.animStyle !== "jelly")
-                        color: precBtn.isSel ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.28) : "transparent"
-                        border.color: precBtn.isSel ? Theme.workspace : "transparent"; border.width: 1
-
-                        Row {
-                            anchors.centerIn: parent; spacing: 4
-                            Text { text: "🎯"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: "精密克制 (阻尼沉稳)"; color: precBtn.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5); font.pixelSize: 10; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
-                        }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (typeof Config !== "undefined") Config.animStyle = "precision" }
-                    }
-
-                    Rectangle {
-                        id: jellyBtn
-                        width: parent.width / 2; height: parent.height; radius: 14
-                        readonly property bool isSel: (typeof Config !== "undefined" && Config.animStyle === "jelly")
-                        color: jellyBtn.isSel ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.28) : "transparent"
-                        border.color: jellyBtn.isSel ? Theme.workspace : "transparent"; border.width: 1
-
-                        Row {
-                            anchors.centerIn: parent; spacing: 4
-                            Text { text: "🍮"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: "有机果冻 (流体相位)"; color: jellyBtn.isSel ? "white" : Qt.rgba(1, 1, 1, 0.5); font.pixelSize: 10; font.weight: Font.Bold; anchors.verticalCenter: parent.verticalCenter }
-                        }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (typeof Config !== "undefined") Config.animStyle = "jelly" }
-                    }
-                }
-            }
-
-            Text {
-                text: (typeof Config !== "undefined" && Config.animStyle === "jelly") ? "✨ 高度先行下冲，宽度滞后 32ms 舒展，带丰满回弹。" : "✨ 极微弱超临界阻尼，单次微沉降，适合专注工作。"
-                color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 10; anchors.horizontalCenter: parent.horizontalCenter
-            }
-        }
-    }
-
-    // 4. 胶囊常态显示项
-    Rectangle {
-        width: parent.width; height: 172; radius: 12
+        width: parent.width; height: 204; radius: 12
         color: Qt.rgba(1, 1, 1, 0.05); border.color: Qt.rgba(1, 1, 1, 0.1)
 
         Column {
             anchors.fill: parent; anchors.margins: 12; spacing: 2
 
             Text { text: "胶囊常态显示项"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true }
+
+            Item {
+                width: parent.width; height: 32
+                Text { text: "显示当前桌面标识/名称"; color: "white"; font.pixelSize: 13; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter }
+                Switch {
+                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    checked: (typeof Config !== "undefined" && Config.showWorkspaceName !== undefined) ? Config.showWorkspaceName : true
+                    onToggled: if (typeof Config !== "undefined") Config.showWorkspaceName = checked
+                }
+            }
 
             Item {
                 width: parent.width; height: 32

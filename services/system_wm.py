@@ -1,13 +1,13 @@
 # ==========================================
 # 📄 File: services/system_wm.py
-# 🌟 修复圆角退化挖空漏洞 · 稳定复合遮罩与防误穿透
+# 🌟 静态着陆单次穿透引擎 (零动画争抢版)
 # ==========================================
 import os
 import shutil
 import hashlib
 import subprocess
-from PySide6.QtCore import QObject, QRect, Signal
-from PySide6.QtGui import QRegion, QPainterPath, QGuiApplication
+from PySide6.QtCore import QObject, Signal, QRect
+from PySide6.QtGui import QRegion, QGuiApplication
 from logger import app_logger
 from services.utils import CONCEAL_MIME_TYPES
 
@@ -20,80 +20,38 @@ class WindowManagerService(QObject):
         self.view = view
         self._pool = executor
         self.config = config
-        self._last_applied_mask = QRegion()
-        self._last_applied_rects_sig = ""
+        self._last_applied_sig = ""
         self._last_clip_hash = ""
         self._setup_clipboard_listener()
 
-    # 🚀【核心重构】：具备几何拓扑自愈保护的 1-bit 窗口遮罩合成器
-    def update_composite_mask(self, rects):
-        if not rects:
+    # 🚀【核心机制】：仅在动画完全静止后由 QML 单次调用，设置纯矩形精准穿透
+    def set_precise_bounding_mask(self, x: int, y: int, w: int, h: int):
+        sig = f"{x},{y},{w},{h}"
+        if sig == self._last_applied_sig:
+            return
+        self._last_applied_sig = sig
+
+        if w <= 0 or h <= 0:
             self.set_passthrough()
             return
 
-        vw = self.view.width()
-        vh = self.view.height()
-
-        sig_parts = []
-        valid_items = []
-
-        for r in rects:
-            rx = max(0, int(r.get("x", 0)))
-            ry = max(0, int(r.get("y", 0)))
-            rw = min(vw - rx, int(r.get("w", 0)))
-            rh = min(vh - ry, int(r.get("h", 0)))
-            rr = max(0, int(r.get("r", 0)))
-
-            if rw <= 2 or rh <= 2:
-                continue
-
-            # 🚀【关键数学约束】：圆角半径绝对不得超过短边的一半！彻底阻止自交退化导致的挖空消失！
-            max_r = max(0, int(min(rw, rh) / 2) - 1)
-            safe_r = min(rr, max_r)
-
-            sig_parts.append(f"{rx},{ry},{rw},{rh},{safe_r}")
-            valid_items.append((rx, ry, rw, rh, safe_r))
-
-        new_sig = "|".join(sig_parts)
-        if new_sig == self._last_applied_rects_sig:
-            return
-        self._last_applied_rects_sig = new_sig
-
-        composite = QRegion()
-        for rx, ry, rw, rh, safe_r in valid_items:
-            if safe_r <= 2:
-                composite = composite.united(QRegion(rx, ry, rw, rh))
-            else:
-                path = QPainterPath()
-                path.addRoundedRect(float(rx), float(ry), float(rw), float(rh), float(safe_r), float(safe_r))
-                poly = path.toFillPolygon().toPolygon()
-                if not poly.isEmpty():
-                    composite = composite.united(QRegion(poly))
-                else:
-                    # 兜底：若多边形异常，退化为实体矩形，绝不允许小岛消失
-                    composite = composite.united(QRegion(rx, ry, rw, rh))
-
-        if not composite.isEmpty():
-            if composite != self._last_applied_mask:
-                self._last_applied_mask = composite
-                self.view.setMask(composite)
-                self.view.requestUpdate()
-        else:
-            self.set_passthrough()
+        # 使用硬件消耗最小的单矩形 Region，绝不破坏 OpenGL Framebuffer
+        mask_region = QRegion(QRect(x, y, w, h))
+        self.view.setMask(mask_region)
 
     def set_passthrough(self):
-        passthrough_region = QRegion(-10, -10, 1, 1)
-        self._last_applied_rects_sig = "PASSTHROUGH"
-        if self._last_applied_mask != passthrough_region:
-            self._last_applied_mask = passthrough_region
-            self.view.setMask(passthrough_region)
-            self.view.requestUpdate()
+        """完全穿透（用于吸顶隐藏）"""
+        if self._last_applied_sig == "PASS":
+            return
+        self._last_applied_sig = "PASS"
+        self.view.setMask(QRegion(0, 0, 1, 1))
 
     def clear_mask(self):
-        self._last_applied_rects_sig = "CLEAR"
-        self._last_applied_mask = QRegion()
-        self.view.setMask(QRegion())
-        self.view.requestUpdate()
+        """恢复全窗口可交互"""
+        if self._last_applied_sig == "FULL":
+            return
+        self._last_applied_sig = "FULL"
+        self.view.setMask(QRegion(0, 0, self.view.width(), self.view.height()))
 
     def _setup_clipboard_listener(self):
         clipboard = QGuiApplication.clipboard()

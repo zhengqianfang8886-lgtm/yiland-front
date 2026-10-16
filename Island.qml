@@ -1,64 +1,58 @@
 // ==========================================
 // 📄 File: Island.qml
-// 🌟 悬停偷瞄(Peek)自动缩回 · 点击左键固定常驻(Pin)
+// 🌟 动态安全包络线 · 绝不切边总控
 // ==========================================
 import QtQuick
 import QtQuick.Controls
 
 Item {
     id: root
-    width: 860
-    height: 270
+    width: 460
+    height: 280
 
     readonly property string chosenFont: Theme.activeFont
-    readonly property int splitGap: (typeof Config !== "undefined" && Config.splitGap !== undefined) ? Config.splitGap : 8
 
-    // 阻塞状态：胶囊实际上处于隐藏吸顶状态（非 Peek 偷瞄中）时才阻断副岛
-    readonly property bool isBlockingTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY" || capsule.isExpanded || capsule.isCollapsing || capsule.isActuallyTucked)
+    IslandStateMachine {
+        id: fsm
+        isBlockedByTransient: (capsule.isCalling || capsule.activeTransient === "ALERT" || capsule.activeTransient === "SEDENTARY")
 
-    // 副岛展示门控：主岛稳定着陆且非吸顶中（Peek 偷瞄探出时也允许副岛展示）
-    readonly property bool subIslandsAllowed: capsule.isCapsuleSettled && !root.isBlockingTransient
-
-    readonly property real effectiveCapsuleX: capsule.isExpanded ? 
-        Math.round((root.width - capsule.currentNormalWidth) / 2 + (typeof Config !== "undefined" ? Config.offsetX : 0)) : 
-        capsule.x
-
-    readonly property real effectiveCapsuleWidth: capsule.isExpanded ? 
-        capsule.currentNormalWidth : 
-        capsule.width
-
-    // -------------------------------------------------------------------------
-    // 媒体音乐状态管理
-    // -------------------------------------------------------------------------
-    property bool musicRetained: Boolean(relay && relay.status === "Playing")
-
-    Timer {
-        id: musicRetainTimer
-        interval: 5000
-        repeat: false
-        onTriggered: {
-            if (!relay || relay.status !== "Playing") root.musicRetained = false
-        }
-    }
-
-    Connections {
-        target: relay
-        ignoreUnknownSignals: true
-        function onStatusChanged() {
-            if (relay && relay.status === "Playing") {
-                musicRetainTimer.stop()
-                root.musicRetained = true
-            } else if (root.musicRetained) {
-                musicRetainTimer.restart()
+        onIsSettledChanged: {
+            if (!isSettled) {
+                // 🚀 动画行进期间：全放开，让 GPU 满血绘制，绝不裁切！
+                if (typeof Bridge !== "undefined") Bridge.openFullCorridorForMotion()
+            } else {
+                // 动画彻底稳定：落定安全遮罩
+                root.commitSettledMask()
             }
         }
     }
 
-    readonly property bool hasMusicIsland: Boolean(relay && (relay.status === "Playing" || root.musicRetained))
+    // 🚀【核心修复】：带 6px 绝对呼吸空间的智能包络遮罩
+    function commitSettledMask() {
+        if (typeof Bridge === "undefined") return
 
-    // -------------------------------------------------------------------------
-    // 展开卡片与导航标签
-    // -------------------------------------------------------------------------
+        var capW = Math.round(capsule.width)
+        var capX = Math.round((root.width - capW) / 2 + capsule.islandOffsetX)
+        var safePad = 6  // 6px 呼吸边距，彻底消灭任何边缘撕裂
+
+        if (fsm.stateName === "TUCKED") {
+            // 吸顶时：仅保留顶端 8px 捕捉鼠标，左右留足呼吸边距
+            Bridge.applySettledMask(Math.max(0, capX - safePad), 0, capW + safePad * 2, 8)
+            return
+        }
+
+        var capY = Math.max(0, Math.round(capsule.y))
+        var capH = Math.round(capsule.height)
+
+        // 常态/大卡片态：向四周外扩 6px，保证抗锯齿与外发光绝不被切
+        Bridge.applySettledMask(
+            Math.max(0, capX - safePad),
+            Math.max(0, capY - safePad),
+            capW + safePad * 2,
+            capH + safePad * 2
+        )
+    }
+
     readonly property var allTabsMeta: ({
         "time": { key: "time", name: "时间", color: Theme.calendar, activeColor: Qt.rgba(Theme.calendar.r, Theme.calendar.g, Theme.calendar.b, 0.22) },
         "hardware": { key: "hardware", name: "控制", color: "#f59e0b", activeColor: Qt.rgba(245 / 255, 158 / 255, 11 / 255, 0.22) },
@@ -104,6 +98,8 @@ Item {
     IslandSedentaryService {
         id: sedentaryService
         onRequestAlert: (continuousMinutes) => {
+            // 收到久坐提醒，若吸顶则立即唤醒钉回常态
+            fsm.evLeftClickPin()
             capsule.continuousSitMinutes = continuousMinutes
             triggerTransient("SEDENTARY", 0)
         }
@@ -115,14 +111,13 @@ Item {
     IslandBridgeRelay {
         id: relay
         onTriggerOsd: (icon, label, val) => triggerTransient("OSD", 1500)
-        
         onTriggerWorkspace: (c, t, n) => {
-            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
             if (capsule.isAtMotel) capsule.goHome()
             triggerTransient("WORKSPACE", 800)
-            Bridge.forceRaise()
+            if (typeof Bridge !== "undefined") Bridge.forceRaise()
         }
 
+        // 🚀【核心防护】：新消息/来电到来时，强制从天花板拉回常态，绝不允许遮罩卡在 5px！
         onTriggerAlert: (icon, t, sub, ms, avatar) => {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
             var isCall = (icon === "📞" || relay.isCalling)
@@ -131,7 +126,8 @@ Item {
             if (isDnd && !isCall) return
             if (isDnd && isCall && !allowCall) return
 
-            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+            // 0ms 解脱吸顶状态，防止切边
+            fsm.evLeftClickPin()
             if (capsule.isAtMotel) capsule.goHome()
 
             capsule.alertIcon = icon
@@ -142,13 +138,13 @@ Item {
         }
 
         onTriggerClipboard: (icon, t, sub, ms) => {
-            if (!(typeof Config !== "undefined" && Config.dndEnabled) && !capsule.isTucked) capsule.triggerClipGlow()
+            if (!(typeof Config !== "undefined" && Config.dndEnabled) && fsm.stateName !== "TUCKED") capsule.triggerClipGlow()
         }
 
         onCallEnded: {
-            if (capsule.isExpanded) capsule.startCollapse()
+            if (fsm.stateName === "EXPANDED") fsm.evCollapseCard()
             if (!(typeof Config !== "undefined" && Config.dndEnabled && !Config.dndAllowCalls)) {
-                if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+                fsm.evLeftClickPin()
                 capsule.alertIcon = "📞"
                 capsule.alertTitle = relay.callTitle || "Teams 通话"
                 capsule.alertSubtitle = "呼叫已完成"
@@ -161,14 +157,12 @@ Item {
     Loader {
         id: settingsLoader
         active: false; source: "SettingsWindow.qml"
-        onLoaded: { item.show(); item.raise(); item.requestActivate() }
+        onLoaded: { item.show(); item.raise() }
     }
 
     function openSettingsWindow() {
         if (settingsLoader.status === Loader.Ready && settingsLoader.item) {
-            settingsLoader.item.show()
-            settingsLoader.item.raise()
-            settingsLoader.item.requestActivate()
+            settingsLoader.item.show(); settingsLoader.item.raise()
         } else {
             settingsLoader.active = true
         }
@@ -176,7 +170,7 @@ Item {
 
     Timer { id: transientTimer; onTriggered: capsule.activeTransient = "" }
     function triggerTransient(mode, ms) {
-        if (capsule.isExpanded) return
+        if (fsm.stateName === "EXPANDED") return
         capsule.activeTransient = mode
         if (ms > 0) {
             transientTimer.interval = ms; transientTimer.restart()
@@ -186,59 +180,27 @@ Item {
     }
 
     function expandToTab(tabName) {
-        if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
-        capsule.lockBriefMorph()
+        fsm.evLeftClickPin()
+        if (capsule.lockBriefMorph) capsule.lockBriefMorph()
         if (capsule.activeTransient === "ALERT") {
             transientTimer.stop()
             capsule.activeTransient = ""
         }
         capsule.expandedTab = tabName
-        capsule.isExpanded = true
-        maskController.commit()
+        fsm.evExpandCard()
     }
 
-    Timer {
-        id: subInteractingTimer
-        interval: 700
-        onTriggered: capsule.subBubbleInteracting = false
-    }
-
-    function handleSubBubbleInteracted() {
-        capsule.subBubbleInteracting = true
-        subInteractingTimer.restart()
-    }
-
-    // =========================================================================
-    // 挂载槽容器与胶囊
-    // =========================================================================
-
-    // 1. 左侧挂载槽 (音乐、内存)
-    IslandPluginBay {
-        id: leftBay
-        z: 1
-        side: "left"
-        capsuleX: root.effectiveCapsuleX
-        capsuleWidth: root.effectiveCapsuleWidth
-        capsuleY: capsule.y
-        capsuleHeight: capsule.height
-        splitGap: root.splitGap
-        isBlocked: !root.subIslandsAllowed
-        relay: relay
-        capsule: capsule
-        hasMusicIsland: root.hasMusicIsland
-        activeKeys: (typeof Config !== "undefined" && Config.subIslandsLeft) ? Config.subIslandsLeft : ["memory", "music"]
-        onRequestExpand: (tab) => root.expandToTab(tab)
-        onInteracted: root.handleSubBubbleInteracted()
-        onMaskUpdateRequested: maskController.commit()
-    }
-
-    // 2. 核心主胶囊
+    // 核心胶囊
     IslandCapsule {
         id: capsule
+        fsm: fsm
+        anchors.horizontalCenter: parent.horizontalCenter
+
         chosenFont: root.chosenFont
         enabledTabs: root.enabledTabs
         dominantColor: relay.dominantColor
-        anySubBubbleHovered: leftBay.isAnyHovered || rightBay.isAnyHovered
+        spec1: relay.spec1; spec2: relay.spec2; spec3: relay.spec3; spec4: relay.spec4
+
         status: relay.status; isCalling: relay.isCalling; callTitle: relay.callTitle; callSubtitle: relay.callSubtitle; callAvatar: relay.callAvatar
         title: relay.title; artist: relay.artist; artUrl: relay.artUrl; position: relay.position; duration: relay.duration
         wsCurrent: relay.wsCurrent; wsTotal: relay.wsTotal; wsName: relay.wsName; wsList: relay.wsList
@@ -246,40 +208,29 @@ Item {
         displayDate: timeService.displayDate; displayTime: timeService.displayTime; displaySeconds: timeService.displaySeconds; displayPeriod: timeService.displayPeriod
         downCompact: relay.downSpeedCompact; upCompact: relay.upSpeedCompact; downSpeedStr: relay.downSpeedStr; upSpeedStr: relay.upSpeedStr; localIp: relay.localIp
 
+        unreadCount: relay.unreadCount
+        latestNotifAvatar: relay.latestNotifAvatar
+        memoryPercent: relay.memoryPercent
+
         onSedentaryRested: sedentaryService.markRested()
         onSedentarySnooze: sedentaryService.snooze()
 
         onRequestExpand: (t) => root.expandToTab(t)
         onRequestSettings: root.openSettingsWindow()
-        onMaskCommitRequested: maskController.commit()
-        onXChanged: maskController.commit()
-    }
 
-    // 3. 右侧挂载槽 (计时、通知)
-    IslandPluginBay {
-        id: rightBay
-        z: 1
-        side: "right"
-        capsuleX: root.effectiveCapsuleX
-        capsuleWidth: root.effectiveCapsuleWidth
-        capsuleY: capsule.y
-        capsuleHeight: capsule.height
-        splitGap: root.splitGap
-        isBlocked: !root.subIslandsAllowed
-        relay: relay
-        capsule: capsule
-        hasMusicIsland: root.hasMusicIsland
-        activeKeys: (typeof Config !== "undefined" && Config.subIslandsRight) ? Config.subIslandsRight : ["timer", "notification"]
-        onRequestExpand: (tab) => root.expandToTab(tab)
-        onInteracted: root.handleSubBubbleInteracted()
-        onMaskUpdateRequested: maskController.commit()
+        // 🚀 只要播放状态改变（开始播放音乐），立即确保退出吸顶
+        onStatusChanged: {
+            if (status === "Playing" && fsm.stateName === "TUCKED") {
+                fsm.evLeftClickPin()
+            }
+        }
     }
 
     Connections {
         target: capsule
         ignoreUnknownSignals: true
         function onTimerAlert(t, msg) {
-            if (capsule.isTucked) { capsule.isTucked = false; capsule.isPeeking = false }
+            fsm.evLeftClickPin()
             capsule.alertIcon = "⏰"
             capsule.alertTitle = t
             capsule.alertSubtitle = msg
@@ -288,31 +239,8 @@ Item {
         }
     }
 
-    // 4. 自省式遮罩控制器
-    IslandMaskController {
-        id: maskController
-        rootItem: root
-        capsuleItem: capsule
-        leftBay: leftBay
-        rightBay: rightBay
-        isExpanded: capsule.isExpanded
-        isCollapsing: capsule.isCollapsing
-        isMorphing: capsule.isMorphing
-        targetW: capsule.targetWidth
-        targetH: capsule.targetHeight
-    }
-
-    Timer {
-        id: startupMaskTimer
-        interval: 60; running: false; repeat: false
-        onTriggered: {
-            maskController.maskActive = true
-            maskController.commit()
-        }
-    }
-
     Component.onCompleted: {
         capsule.expandedTab = relay.isCalling ? "media" : "time"
-        startupMaskTimer.start()
+        root.commitSettledMask()
     }
 }

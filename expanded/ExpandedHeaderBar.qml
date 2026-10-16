@@ -1,5 +1,6 @@
 // ==========================================
 // 📄 File: expanded/ExpandedHeaderBar.qml
+// 🌟 展开态顶栏（集成全局偏好设置直接入口）
 // ==========================================
 import QtQuick
 
@@ -18,6 +19,7 @@ Item {
 
     signal tabWheel(var wheel)
     signal switchRoute(string targetTab)
+    signal requestSettings()
 
     Rectangle {
         id: outerCapsule
@@ -40,6 +42,7 @@ Item {
             onWheel: (event) => barRoot.tabWheel(event)
         }
 
+        // 左侧模块标题与摘要
         Item {
             id: leftContentArea
             anchors.left: parent.left
@@ -96,13 +99,15 @@ Item {
             }
         }
 
+        // 右侧控制区（导航分段点 + 🚀 常驻偏好设置齿轮）
         Row {
             id: rightControlsRow
             anchors.right: parent.right
             anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 6
+            spacing: 8
 
+            // 1. 选项卡槽位点
             Row {
                 id: dotsRow
                 anchors.verticalCenter: parent.verticalCenter
@@ -114,7 +119,7 @@ Item {
                     Item {
                         id: tabSlotItem
                         readonly property bool isCurrent: (barRoot.expandedTab === modelData.key)
-                        width: isCurrent ? 18 : 6; height: 18
+                        width: isCurrent ? 16 : 6; height: 18
                         anchors.verticalCenter: parent.verticalCenter
 
                         Behavior on width {
@@ -143,6 +148,37 @@ Item {
                             onWheel: (wheel) => barRoot.tabWheel(wheel)
                         }
                     }
+                }
+            }
+
+            Rectangle { width: 1; height: 12; color: Qt.rgba(1, 1, 1, 0.15); anchors.verticalCenter: parent.verticalCenter }
+
+            // 2. 🚀【核心入口】：右上角全局常驻偏好设置按钮
+            Rectangle {
+                id: settingsBtn
+                width: 20; height: 20; radius: 10
+                anchors.verticalCenter: parent.verticalCenter
+                color: setHover.hovered ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.06)
+                border.color: setHover.hovered ? "#38bdf8" : "transparent"
+                border.width: 1
+                scale: setTap.pressed ? 0.9 : (setHover.hovered ? 1.08 : 1.0)
+
+                Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
+                Behavior on color { ColorAnimation { duration: Theme.animInstant } }
+
+                Text {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -0.5
+                    text: "⚙"
+                    color: setHover.hovered ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.6)
+                    font.pixelSize: 12
+                    font.bold: true
+                }
+
+                HoverHandler { id: setHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    id: setTap
+                    onTapped: barRoot.requestSettings()
                 }
             }
         }

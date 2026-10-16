@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: capsule/CapsuleSensorArea.qml
-// 🌟 交互感知层 (右键隐藏 · 左键固定 · 离开自动缩回)
+// 🌟 毫秒级输入层 (新增常态双击右键直达设置中心)
 // ==========================================
 import QtQuick
 
@@ -13,8 +13,8 @@ Item {
     property bool isCalling: false
     property bool isNoticeActive: false
     property string activeTransient: ""
-    property bool subBubbleInteracting: false
     property bool isTucked: false
+    property bool isPeeking: false
 
     property bool isScrubbing: false
     property bool isScrubCanceling: false
@@ -34,10 +34,12 @@ Item {
     signal moveOffsetRequested(real deltaX)
     signal dragFinished(real velocityX)
     signal goHomeRequested()
-    signal requestTuck()
-    signal pinnedRestoreRequested() // 点击左键永久固定信号
-    signal pointerExitedCapsule()    // 鼠标移出胶囊信号
-    signal pointerEnteredCapsule()   // 鼠标移入胶囊信号
+
+    signal requestTuck()             // 单击右键隐藏
+    signal pinnedRestoreRequested()  // 固定恢复常态
+    signal pointerExitedCapsule()
+    signal pointerEnteredCapsule()
+    signal requestSettingsWindow()   // 🚀 呼叫偏好设置窗口
 
     property bool isPointerPressed: false
     property real pressStartX: 0
@@ -48,6 +50,21 @@ Item {
     property bool scrollSessionLocked: false
     property bool wasScrubbingJustNow: false
 
+    // 🚀 右键双击检测定时器
+    property int rightClickCount: 0
+    Timer {
+        id: rightClickTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            if (sensorRoot.rightClickCount === 1) {
+                // 单击右键：如果未在探头态，则执行吸顶隐藏
+                if (!sensorRoot.isPeeking) sensorRoot.requestTuck()
+            }
+            sensorRoot.rightClickCount = 0
+        }
+    }
+
     Timer {
         id: hoverDwellTimer
         interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
@@ -56,8 +73,7 @@ Item {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
             if (sensorRoot.isPointerPressed || sensorRoot.isScrubbing || sensorRoot.wasScrubbingJustNow || sensorRoot.isMovingIsland || sensorRoot.isTucked) return
 
-            if (!sensorRoot.scrollSessionLocked && !sensorRoot.subBubbleInteracting && 
-                !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
+            if (!sensorRoot.scrollSessionLocked && !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
                 if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
                 else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification")
                 else if (sensorRoot.activeTransient === "SEDENTARY") return
@@ -114,7 +130,7 @@ Item {
                 leaveGraceTimer.stop()
                 sensorRoot.pointerEnteredCapsule()
                 if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && 
-                    !sensorRoot.subBubbleInteracting && !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed && !sensorRoot.isTucked) {
+                    !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed && !sensorRoot.isTucked) {
                     if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
                         hoverDwellTimer.restart()
                     }
@@ -141,14 +157,35 @@ Item {
         onExited: sensorRoot.pointerExitedCapsule()
 
         onPressed: (mouse) => {
-            if (mouse.button === Qt.RightButton) return
+            // 🚀【右键多击与还原判定】
+            if (mouse.button === Qt.RightButton) {
+                mouse.accepted = true
+                hoverDwellTimer.stop()
+                leaveGraceTimer.stop()
+
+                if (sensorRoot.isPeeking) {
+                    sensorRoot.pinnedRestoreRequested()
+                    return
+                }
+
+                sensorRoot.rightClickCount++
+                if (sensorRoot.rightClickCount === 1) {
+                    rightClickTimer.restart()
+                } else if (sensorRoot.rightClickCount >= 2) {
+                    rightClickTimer.stop()
+                    sensorRoot.rightClickCount = 0
+                    // 🚀 双击右键直接打开设置窗口！
+                    sensorRoot.requestSettingsWindow()
+                }
+                return
+            }
 
             hoverDwellTimer.stop()
             sensorRoot.isPointerPressed = true
             sensorRoot.pressStartX = mouse.x
             sensorRoot.pressStartY = mouse.y
             sensorRoot.lastDragX = mouse.x
-            sensorRoot.dragVelocityX = 0
+            dragVelocityX = 0
 
             var isModifierHeld = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier)
             if (isModifierHeld || mouse.button === Qt.MiddleButton) {
@@ -233,15 +270,8 @@ Item {
         }
 
         onClicked: (mouse) => {
-            // 右键：触发隐藏
-            if (mouse.button === Qt.RightButton) {
-                hoverDwellTimer.stop()
-                leaveGraceTimer.stop()
-                sensorRoot.requestTuck()
-                return
-            }
+            if (mouse.button === Qt.RightButton) return
 
-            // 🚀【左键点击】：明确意图，永久固定钉住胶囊
             sensorRoot.pinnedRestoreRequested()
 
             if (sensorRoot.wasScrubbingJustNow || sensorRoot.isScrubbing || sensorRoot.isMovingIsland || sensorRoot.activeTransient === "SEDENTARY") {

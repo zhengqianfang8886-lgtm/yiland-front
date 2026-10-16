@@ -32,15 +32,9 @@ CONFIG_SCHEMA = {
     "showSeconds": {"default": False, "val": lambda v: bool(v)},
     "showDate": {"default": False, "val": lambda v: bool(v)},
     "showNetSpeed": {"default": True, "val": lambda v: bool(v)},
-    # 🚀 方案 A：常态桌面徽标显示开关
     "showWorkspaceName": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
-    "splitGap": {"default": 8, "val": lambda v: max(2, min(24, int(v)))},
-    "subIslandsLeft": {"default": ["memory", "music"], "val": lambda v: list(v)},
-    "subIslandsRight": {"default": ["timer", "notification"], "val": lambda v: list(v)},
-    "multiIslandExpandDirection": {"default": "right", "val": lambda v: str(v)},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
-    "tourbillonAnimationEnabled": {"default": True, "val": lambda v: bool(v)},
     "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
     "memoryThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
     "sedentaryReminderEnabled": {"default": True, "val": lambda v: bool(v)},
@@ -64,8 +58,6 @@ CONFIG_SCHEMA = {
     "showNotificationTab": {"default": True, "val": lambda v: bool(v)},
     "dndEnabled": {"default": False, "val": lambda v: bool(v)},
     "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
-    "notificationPrivacyMode": {"default": False, "val": lambda v: bool(v)},
-    "showBattery": {"default": True, "val": lambda v: bool(v)},
 }
 
 
@@ -82,12 +74,7 @@ class ConfigManager(QObject):
     showNetSpeedChanged = Signal(bool)
     showWorkspaceNameChanged = Signal(bool)
     savedClocksChanged = Signal(list)
-    splitGapChanged = Signal(int)
-    subIslandsLeftChanged = Signal(list)
-    subIslandsRightChanged = Signal(list)
-    multiIslandExpandDirectionChanged = Signal(str)
     musicVisualizerBarsChanged = Signal(int)
-    tourbillonAnimationEnabledChanged = Signal(bool)
     showMemoryBubbleChanged = Signal(bool)
     memoryThresholdChanged = Signal(int)
     sedentaryReminderEnabledChanged = Signal(bool)
@@ -111,8 +98,6 @@ class ConfigManager(QObject):
     showNotificationTabChanged = Signal(bool)
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
-    notificationPrivacyModeChanged = Signal(bool)
-    showBatteryChanged = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -157,7 +142,7 @@ class ConfigManager(QObject):
 
             self._savedClocks = self._migrate_clock_items(self._savedClocks)
         except Exception as e:
-            app_logger.warning(f"[Config] 配置文件解析异常，已启用自愈默认配置: {e}")
+            app_logger.warning(f"[Config] 配置文件解析异常: {e}")
 
     def save(self):
         try:
@@ -248,35 +233,10 @@ class ConfigManager(QObject):
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
 
-    @Property(int, notify=splitGapChanged)
-    def splitGap(self): return self._splitGap
-    @splitGap.setter
-    def splitGap(self, val): self._set_value("splitGap", val, self.splitGapChanged)
-
-    @Property(list, notify=subIslandsLeftChanged)
-    def subIslandsLeft(self): return self._subIslandsLeft
-    @subIslandsLeft.setter
-    def subIslandsLeft(self, val): self._set_value("subIslandsLeft", val, self.subIslandsLeftChanged)
-
-    @Property(list, notify=subIslandsRightChanged)
-    def subIslandsRight(self): return self._subIslandsRight
-    @subIslandsRight.setter
-    def subIslandsRight(self, val): self._set_value("subIslandsRight", val, self.subIslandsRightChanged)
-
-    @Property(str, notify=multiIslandExpandDirectionChanged)
-    def multiIslandExpandDirection(self): return self._multiIslandExpandDirection
-    @multiIslandExpandDirection.setter
-    def multiIslandExpandDirection(self, val): self._set_value("multiIslandExpandDirection", val, self.multiIslandExpandDirectionChanged)
-
     @Property(int, notify=musicVisualizerBarsChanged)
     def musicVisualizerBars(self): return self._musicVisualizerBars
     @musicVisualizerBars.setter
     def musicVisualizerBars(self, val): self._set_value("musicVisualizerBars", val, self.musicVisualizerBarsChanged)
-
-    @Property(bool, notify=tourbillonAnimationEnabledChanged)
-    def tourbillonAnimationEnabled(self): return self._tourbillonAnimationEnabled
-    @tourbillonAnimationEnabled.setter
-    def tourbillonAnimationEnabled(self, val): self._set_value("tourbillonAnimationEnabled", val, self.tourbillonAnimationEnabledChanged)
 
     @Property(bool, notify=showMemoryBubbleChanged)
     def showMemoryBubble(self): return self._showMemoryBubble
@@ -392,16 +352,6 @@ class ConfigManager(QObject):
     def dndAllowCalls(self): return self._dndAllowCalls
     @dndAllowCalls.setter
     def dndAllowCalls(self, val): self._set_value("dndAllowCalls", val, self.dndAllowCallsChanged)
-
-    @Property(bool, notify=notificationPrivacyModeChanged)
-    def notificationPrivacyMode(self): return self._notificationPrivacyMode
-    @notificationPrivacyMode.setter
-    def notificationPrivacyMode(self, val): self._set_value("notificationPrivacyMode", val, self.notificationPrivacyModeChanged)
-
-    @Property(bool, notify=showBatteryChanged)
-    def showBattery(self): return self._showBattery
-    @showBattery.setter
-    def showBattery(self, val): self._set_value("showBattery", val, self.showBatteryChanged)
 
     def _load_world_cities(self):
         try:

@@ -1,5 +1,6 @@
 # ==========================================
 # 📄 File: bridge.py
+# 🌟 阶段式单次视窗拓展机制（杜绝抽搐与卡顿）
 # ==========================================
 import gc
 import time
@@ -16,6 +17,7 @@ from services import (
     get_tz_offset_str,
     get_local_ip,
 )
+from PySide6.QtGui import QGuiApplication
 
 
 class IslandBridge(QObject):
@@ -52,8 +54,6 @@ class IslandBridge(QObject):
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
-        
-        # 🚀 保持未读数信号直通
         self._notif_model.unreadCountChanged.connect(self._on_model_unread_changed)
 
         self._cached_volume = 50
@@ -86,7 +86,42 @@ class IslandBridge(QObject):
             self._notif_model.clearAll()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    # 🚀 直接暴露强类型属性，让 QML 建立绝对稳定的 Property Binding
+    # =========================================================================
+    # 🚀【极速模式】：单次定界，动画期间绝不 resize 窗口，彻底释放 GPU 120Hz 算力
+    # =========================================================================
+    @Slot(str)
+    def notifyWindowState(self, state_name: str):
+        """仅在状态跳变时单次调用（0 毫秒完成），动画全程 GPU 自主计算渲染"""
+        screen = QGuiApplication.primaryScreen()
+        if not screen: return
+        base = screen.geometry() if (not self.config or self.config.anchorMode == "screen") else screen.availableGeometry()
+        off_x = self.config.offsetX if self.config else 0
+        top_m = self.config.capsuleTopMargin if self.config else 8
+
+        if state_name == "EXPANDED":
+            w, h = 440, 270
+            final_y = base.y() + top_m
+        elif state_name == "TUCKED":
+            w, h = 260, 6
+            final_y = base.y()  # 顶格
+        else:  # NORMAL / PEEKING
+            w, h = 440, 52
+            final_y = base.y() + top_m
+
+        final_x = base.x() + (base.width() - w) // 2 + off_x
+        self.view.setGeometry(final_x, final_y, w, h)
+
+    # 兼容过渡保留
+    @Slot("QVariantList")
+    def updateCompositeMask(self, rects): pass
+    @Slot()
+    def setPassthrough(self): pass
+    @Slot()
+    def clearMask(self): pass
+    @Slot()
+    def forceClearWindow(self): pass
+
+    # 属性
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
@@ -190,27 +225,18 @@ class IslandBridge(QObject):
     @Slot()
     def openSystemMonitor(self): self.wm.open_system_monitor()
 
-    @Slot("QVariantList")
-    def updateCompositeMask(self, rects): self.wm.update_composite_mask(rects)
-
-    @Slot()
-    def setPassthrough(self): self.wm.set_passthrough()
-
-    @Slot()
-    def clearMask(self): self.wm.clear_mask()
-
-    @Slot()
-    def forceClearWindow(self): self.view.requestUpdate()
-
     @Slot(result=str)
     def getLatestNotificationAvatar(self): return self._notif_model.latestAvatar
 
     @Slot()
-    def forceRaise(self): self.view.raise_()
+    def forceRaise(self):
+        # 仅提升视觉层级，绝不激活视窗焦点
+        self.view.raise_()
 
     @Slot()
     def requestWindowFocus(self):
-        self.view.show(); self.view.raise_(); self.view.requestActivate()
+        # 绝不执行 requestActivate()，保持无焦点状态
+        self.view.raise_()
 
     @Slot()
     def onIslandCollapsed(self):
@@ -228,7 +254,28 @@ class IslandBridge(QObject):
         try:
             self._sig_inproc_event.emit(event_type, state_obj)
         except RuntimeError:
-            pass  # 程序退出时主线程已释放 C++ 对象，静默忽略
+            pass
+
+    @Slot()
+    def openFullCorridorForMotion(self):
+        """
+        动画开始瞬间调用：临时把遮罩扩大到全视窗，
+        确保 GPU 无论如何展开形变，动画绝不会被截断，且在此期间 0 次 setMask！
+        """
+        self.wm.clear_mask()
+
+    @Slot(int, int, int, int)
+    def applySettledMask(self, x: int, y: int, w: int, h: int):
+        """
+        动画彻底停止瞬间单次调用：在灵动岛四周建立精准输入屏障，
+        透明区域立刻放行鼠标点击，穿透到下层所有软件！
+        """
+        self.wm.set_precise_bounding_mask(x, y, w, h)
+
+    @Slot()
+    def setPassthrough(self):
+        self.wm.set_passthrough()
+
 
     @Slot(str, object)
     def _handle_inproc_event(self, event_type: str, s):
@@ -276,5 +323,4 @@ class IslandBridge(QObject):
                 "id": int(time.time() * 1000), "icon": s.last_notify_icon or "💬",
                 "title": t_title, "content": t_sub, "avatar": avatar, "time": time.strftime("%H:%M"), "read": False
             })
-            # 🚀【核心修复】：同步触发胶囊弹窗横幅（Alert），灵动岛瞬间感知
             self.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)

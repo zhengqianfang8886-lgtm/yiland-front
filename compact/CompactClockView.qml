@@ -1,13 +1,12 @@
 // ==========================================
 // 📄 File: compact/CompactClockView.qml
+// 🌟 核心时钟流 · 去框高集成版
 // ==========================================
 import QtQuick
 
 Row {
     id: clockRoot
-    spacing: 7
-    leftPadding: 8
-    rightPadding: 8
+    spacing: 6
     anchors.verticalCenter: parent.verticalCenter
 
     property string chosenFont: ""
@@ -25,13 +24,11 @@ Row {
     property string displayPeriod: "pm"
     property bool isClockActive: true
 
-    // 方案 A 属性
     property bool showWorkspaceName: true
     property string wsName: ""
     property int displayWsNumber: 0
 
     opacity: clockRoot.isClockActive ? 1.0 : 0.0
-    scale: 1.0
     Behavior on opacity { NumberAnimation { duration: clockRoot.isClockActive ? 140 : 80; easing.type: Easing.OutQuad } }
 
     Text {
@@ -64,12 +61,11 @@ Row {
     }
 
     // =========================================================================
-    // 0. 当前工作区微徽标（纯文字精简版：无图标）
+    // 0. 当前工作区微徽标（🚀 彻底去框，纯文字轻量融入）
     // =========================================================================
-    Rectangle {
+    Item {
         id: wsBadge
-        height: 18
-        radius: 6
+        height: parent.height
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
@@ -77,26 +73,20 @@ Row {
         readonly property bool shouldShow: clockRoot.showWorkspaceName && (resolvedWsText !== "")
 
         visible: width > 0
-        width: shouldShow ? Math.min(68, Math.max(20, wsBadgeText.implicitWidth + 10)) : 0
+        width: shouldShow ? Math.min(60, wsBadgeText.implicitWidth + 4) : 0
         opacity: shouldShow ? 1.0 : 0.0
-
-        color: wsBadgeMouse.containsMouse ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.28) : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.16)
-        border.color: wsBadgeMouse.containsMouse ? Theme.workspace : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.45)
-        border.width: 0.9
-
-        Behavior on color { ColorAnimation { duration: Theme.animFast } }
-        Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
 
         Text {
             id: wsBadgeText
             anchors.centerIn: parent
             text: wsBadge.resolvedWsText
-            color: "white"
-            font.pixelSize: 9
-            font.weight: Font.Bold
+            color: wsBadgeMouse.containsMouse ? Theme.workspace : Qt.rgba(1, 1, 1, 0.75)
+            font.pixelSize: 10
+            font.weight: Font.Black
             font.family: clockRoot.displayFont
             elide: Text.ElideRight
             width: Math.min(56, implicitWidth)
+            Behavior on color { ColorAnimation { duration: 120 } }
         }
 
         MouseArea {
@@ -118,51 +108,56 @@ Row {
         }
     }
 
-    // 1. CAPS LOCK
-    Rectangle {
+    // 1. CAPS LOCK (去外框，留纯提示)
+    Item {
         id: capsLockBadge
-        height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter; clip: true
-        visible: width > 0; width: clockRoot.isCapsLock ? 42 : 0; opacity: clockRoot.isCapsLock ? 1.0 : 0.0
-        color: Qt.rgba(1, 1, 1, 0.09); border.color: Qt.rgba(255, 255, 255, 0.16); border.width: 0.8
+        height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
+        visible: width > 0; width: clockRoot.isCapsLock ? capsLockRow.implicitWidth : 0
+        opacity: clockRoot.isCapsLock ? 1.0 : 0.0
+
         Row {
-            anchors.centerIn: parent; spacing: 2.5
+            id: capsLockRow
+            anchors.centerIn: parent; spacing: 2
             Text { text: "⇪"; color: "#38bdf8"; font.pixelSize: 10; font.weight: Font.Black; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: "CAPS"; color: Qt.rgba(1, 1, 1, 0.9); font.pixelSize: 8; font.weight: Font.Black; font.letterSpacing: 0.6; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "CAPS"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 8; font.weight: Font.Black; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
         }
     }
 
-    // 2. NUM LOCK
-    Rectangle {
+    // 2. NUM LOCK (去外框)
+    Item {
         id: numLockBadge
-        height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter; clip: true
-        visible: width > 0; width: clockRoot.isNumLock ? 40 : 0; opacity: clockRoot.isNumLock ? 1.0 : 0.0
-        color: Qt.rgba(1, 1, 1, 0.09); border.color: Qt.rgba(255, 255, 255, 0.16); border.width: 0.8
+        height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
+        visible: width > 0; width: clockRoot.isNumLock ? numLockRow.implicitWidth : 0
+        opacity: clockRoot.isNumLock ? 1.0 : 0.0
+
         Row {
-            anchors.centerIn: parent; spacing: 3
+            id: numLockRow
+            anchors.centerIn: parent; spacing: 2.5
             Rectangle {
                 width: 4; height: 4; radius: 2; color: "#34d399"; anchors.verticalCenter: parent.verticalCenter
-                Rectangle { anchors.centerIn: parent; width: 7; height: 7; radius: 3.5; color: Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.28) }
             }
-            Text { text: "NUM"; color: Qt.rgba(1, 1, 1, 0.92); font.pixelSize: 8; font.weight: Font.Black; font.letterSpacing: 0.6; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: "NUM"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 8; font.weight: Font.Black; font.family: clockRoot.displayFont; anchors.verticalCenter: parent.verticalCenter }
         }
     }
 
-    // 3. 实时网速
-    Rectangle {
+    // 3. 实时网速 (彻底无框，直接悬浮)
+    Item {
         id: netSpeedItem
-        height: 18; radius: 4; anchors.verticalCenter: parent.verticalCenter; color: "transparent"; clip: true
-        visible: width > 0; width: clockRoot.showNetSpeed ? 46 : 0; opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
+        height: parent.height; anchors.verticalCenter: parent.verticalCenter; clip: true
+        visible: width > 0; width: clockRoot.showNetSpeed ? 40 : 0
+        opacity: clockRoot.showNetSpeed ? 1.0 : 0.0
+
         Column {
             anchors.centerIn: parent; spacing: 0.5
             Row {
                 spacing: 2; anchors.horizontalCenter: parent.horizontalCenter
                 Text { text: "↓"; font.pixelSize: 8; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.45); anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.downCompact; color: Qt.rgba(1, 1, 1, 0.75); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: clockRoot.downCompact; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
             }
             Row {
                 spacing: 2; anchors.horizontalCenter: parent.horizontalCenter
                 Text { text: "↑"; font.pixelSize: 8; font.weight: Font.Black; color: Qt.rgba(1, 1, 1, 0.45); anchors.verticalCenter: parent.verticalCenter }
-                Text { text: clockRoot.upCompact; color: Qt.rgba(1, 1, 1, 0.75); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: clockRoot.upCompact; color: Qt.rgba(1, 1, 1, 0.8); font.pixelSize: 8; font.weight: Font.Bold; font.family: clockRoot.displayFont; font.features: { "tnum": 1 }; anchors.verticalCenter: parent.verticalCenter }
             }
         }
     }
@@ -172,7 +167,7 @@ Row {
         id: dateItem
         height: parent.height; anchors.verticalCenter: parent.verticalCenter
         readonly property bool shouldShow: (typeof Config !== "undefined" && Config.showDate) && clockRoot.displayDate !== ""
-        visible: width > 0; width: shouldShow ? Math.ceil(dateText.implicitWidth + 3) : 0; opacity: shouldShow ? 1.0 : 0.0
+        visible: width > 0; width: shouldShow ? Math.ceil(dateText.implicitWidth + 2) : 0; opacity: shouldShow ? 1.0 : 0.0
         Text {
             id: dateText; anchors.centerIn: parent; text: clockRoot.displayDate; color: Qt.rgba(1, 1, 1, 0.65)
             font.family: clockRoot.effectiveFont; font.pixelSize: 11; font.weight: Font.DemiBold; font.letterSpacing: 0.2; renderType: Text.QtRendering
