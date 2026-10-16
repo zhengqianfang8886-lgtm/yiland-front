@@ -6,3 +6,6 @@ services/__pycache__/*
 build/*
 .venv/*
 dist/*
+backend/__pycache__/*
+backend/core/__pycache__/*
+backend/modules/__pycache__/*
