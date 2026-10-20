@@ -1,12 +1,11 @@
-import "../components/expanded"
-import "../components/pages"
 // ==========================================
-// 📄 File: ExpandedCardView.qml (已移除 time/network/bluetooth 纯净版)
+// 📄 File: ui/views/ExpandedCardView.qml
+// 🌟 展开态卡片中枢 (消灭特权挂载 · 传送带统一接管全量视图)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
-
-
+import "../components/expanded"
+import "../components/pages"
 
 Item {
     id: cardRoot
@@ -36,17 +35,7 @@ Item {
     property string upSpeedStr: ""
     property string localIp: ""
 
-    // 专注计时器常驻数据代理接口
-    readonly property bool timerActive: persistentTimerPage.isRunning || persistentTimerPage.isPaused || persistentTimerPage.isCompleted
-    readonly property bool timerIsPaused: persistentTimerPage.isPaused
-    readonly property bool timerIsCompleted: persistentTimerPage.isCompleted
-    readonly property string timerFormattedText: persistentTimerPage.formattedTime
-    readonly property real timerProgress: persistentTimerPage.progress
-
-    function toggleTimerPause() { persistentTimerPage.togglePause() }
-
     signal startCollapse()
-    signal timerCompleted(string title, string message)
     signal requestSettings()
 
     Timer {
@@ -79,7 +68,6 @@ Item {
         onClicked: (mouse) => mouse.accepted = true
     }
 
-    // 顶栏元数据解析（已彻底剔除 time / network / bluetooth）
     readonly property var currentTabMeta: {
         if (cardRoot.isCalling) return { title: "TEAMS CALL", sub: "呼叫中", color: Theme.media }
         if (cardRoot.expandedTab === "hardware") return { title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" }
@@ -169,7 +157,7 @@ Item {
                 onCollapseRequested: cardRoot.startCollapse()
             }
 
-            // 🚀【核心修复】：传送带映射彻底剔除 compTime, compNetwork, compBluetooth
+            // 🚀【彻底统一】：Timer 重新回归传送带标准调度，消除所有外部特权贴纸
             InterruptibleConveyor {
                 id: conveyor
                 anchors.fill: parent
@@ -180,34 +168,14 @@ Item {
                     "workspace": compWorkspace,
                     "media": compMedia,
                     "calendar": compCalendar,
-                    "timer": null,
+                    "timer": compTimer,
                     "clock": compClock,
                     "notification": compNotification
                 })
             }
-
-            TimerPage {
-                id: persistentTimerPage
-                width: parent.width
-                height: parent.height
-                chosenFont: cardRoot.chosenFont
-                z: 10
-                visible: conveyor.activeKey === "timer" || conveyor.departingKey === "timer"
-                x: {
-                    if (conveyor.activeKey === "timer") {
-                        return conveyor.slideOffset
-                    }
-                    if (conveyor.departingKey === "timer") {
-                        return conveyor.slideOffset - (conveyor.slideDir > 0 ? conveyor.width : -conveyor.width)
-                    }
-                    return conveyor.width
-                }
-                onTimerCompleted: (t, msg) => cardRoot.timerCompleted(t, msg)
-            }
         }
     }
 
-    // 🚀【核心修复】：仅保留存续页面的组件声明
     Component { id: compHardware; HardwarePage { chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() } }
     Component {
         id: compWorkspace
@@ -229,11 +197,7 @@ Item {
         }
     }
     Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compTimer; TimerPage { chosenFont: cardRoot.chosenFont } }
     Component { id: compClock; WorldClockPage { chosenFont: cardRoot.chosenFont } }
-    Component {
-        id: compNotification
-        NotificationPage {
-            chosenFont: cardRoot.chosenFont
-        }
-    }
+    Component { id: compNotification; NotificationPage { chosenFont: cardRoot.chosenFont } }
 }

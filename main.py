@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: main.py (标准化生产入口)
+# 📄 File: main.py
+# 🌟 生产级桌面启动中枢 (注册 image://tray 内存图像提供者)
 # ==========================================
 import sys
 import os
@@ -9,10 +10,11 @@ import ctypes
 import threading
 import asyncio
 
-# 将项目根目录置入 sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+
+os.environ.setdefault("QSG_RENDER_LOOP", "threaded")
 
 from backend.logger import app_logger
 from backend.config import ConfigManager
@@ -55,11 +57,11 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     app_logger.info("Alcove Island (Strict Non-Focus Mode) 启动中...")
 
-    # 硬件 32 位 ARGB 透明通道
     surface_format = QSurfaceFormat()
     surface_format.setAlphaBufferSize(8)
     surface_format.setRenderableType(QSurfaceFormat.RenderableType.OpenGL)
     surface_format.setSwapBehavior(QSurfaceFormat.SwapBehavior.DoubleBuffer)
+    surface_format.setSwapInterval(1)
     QSurfaceFormat.setDefaultFormat(surface_format)
 
     app = QGuiApplication(sys.argv)
@@ -75,7 +77,6 @@ def main():
     view = QQuickView()
     view.setColor("transparent")
 
-    # 零焦点置顶窗口标志位
     view.setFlags(
         Qt.WindowType.FramelessWindowHint | 
         Qt.WindowType.WindowStaysOnTopHint | 
@@ -84,7 +85,6 @@ def main():
         Qt.WindowType.BypassWindowManagerHint
     )
 
-    # 注册 QML 自动导入目录池（全域免写复杂相对路径）
     engine = view.engine()
     engine.addImportPath(os.path.join(BASE_DIR, "ui"))
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "windows"))

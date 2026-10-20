@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一事件交互桥接中枢 (纯胶水层)
+# 🌟 Qt / QML 统一交互中枢 (单一事实源绑定 · 拔除幽灵托盘代码)
 # ==========================================
 import time
 import atexit
@@ -16,10 +16,10 @@ from backend.utils import get_world_time, get_tz_offset_str
 class IslandBridge(QObject):
     @Slot(bool)
     def setUiActive(self, active: bool):
-        if self._backend and self._backend.mpris:
-            self._backend.mpris.ui_active = active
+        if self._backend:
+            self._backend.set_ui_active(active)
 
-    # 视图更新信号
+    # 视图层响应信号
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
@@ -44,6 +44,9 @@ class IslandBridge(QObject):
     netSpeedUpdated = Signal(str, str, str, str)
     batteryUpdated = Signal(int, bool)
 
+    # 专注计时器单一事实源信号
+    timerUpdated = Signal()
+
     # 跨线程投递信号
     _sig_inproc_event = Signal(str, object)
     _sig_spectrum_event = Signal(float, float, float, float)
@@ -59,12 +62,12 @@ class IslandBridge(QObject):
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
+
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged.emit)
 
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
         self.wm.clipboardTriggered.connect(self.clipboardTriggered)
 
-        # 跨线程安全排队队列
         self._sig_inproc_event.connect(self._handle_inproc_event, Qt.ConnectionType.QueuedConnection)
         self._sig_spectrum_event.connect(self.audioSpectrumUpdated.emit, Qt.ConnectionType.QueuedConnection)
         atexit.register(self.cleanup)
@@ -82,7 +85,7 @@ class IslandBridge(QObject):
             self._notif_model.clearAll()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    # --- 统一直接代理单事实源 (State) ---
+    # --- 统一直接代理单事实源 (State & Models) ---
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
@@ -119,10 +122,100 @@ class IslandBridge(QObject):
     def isSystemCharging(self):
         return self._backend.state.battery_charging if self._backend else False
 
-    @Property(bool, constant=True)
-    def isBluetoothPowered(self): return True
+    # =========================================================================
+    # ⏱️ 计时器数据暴露 (纯受控数据源)
+    # =========================================================================
+    @Property(str, notify=timerUpdated)
+    def timerType(self): return self._backend.state.timer_type if self._backend else "countdown"
 
-    # --- 统一动作槽函数 ---
+    @Property(bool, notify=timerUpdated)
+    def timerIsRunning(self): return self._backend.state.timer_is_running if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def timerIsPaused(self): return self._backend.state.timer_is_paused if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def timerIsCompleted(self): return self._backend.state.timer_is_completed if self._backend else False
+
+    @Property(int, notify=timerUpdated)
+    def timerRemainingSec(self): return self._backend.state.timer_remaining_sec if self._backend else 1500
+
+    @Property(int, notify=timerUpdated)
+    def timerTotalSec(self): return self._backend.state.timer_total_sec if self._backend else 1500
+
+    @Property(int, notify=timerUpdated)
+    def timerElapsedSec(self): return self._backend.state.timer_elapsed_sec if self._backend else 0
+
+    @Property(str, notify=timerUpdated)
+    def timerMode(self): return self._backend.state.timer_mode if self._backend else "focus"
+
+    @Property(list, notify=timerUpdated)
+    def timerLaps(self): return self._backend.state.timer_laps if self._backend else []
+
+    @Slot(str)
+    def switchTimerType(self, t_type: str):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.switch_type(t_type))
+
+    @Slot()
+    def toggleTimerPause(self):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.toggle_pause())
+
+    @Slot(int, str)
+    def startTimerPreset(self, sec: int, mode: str):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.start_preset(sec, mode))
+
+    @Slot(int)
+    def adjustTimerTime(self, delta_sec: int):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.adjust_time(delta_sec))
+
+    @Slot()
+    def recordTimerLap(self):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.record_lap())
+
+    @Slot()
+    def resetTimer(self):
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.reset())
+
+    # =========================================================================
+    # 📅 习惯打卡数据暴露 (后端 SQLite 代理)
+    # =========================================================================
+    @Slot(result="QVariantList")
+    def getHabits(self):
+        if self._backend and self._backend.habits:
+            return self._backend.habits.get_habits()
+        return []
+
+    @Slot(str, str, result="QVariantList")
+    def addHabit(self, name: str, icon: str = "📌"):
+        if self._backend and self._backend.habits:
+            return self._backend.habits.add_habit(name, icon)
+        return []
+
+    @Slot(str, result="QVariantList")
+    def deleteHabit(self, habit_id: str):
+        if self._backend and self._backend.habits:
+            return self._backend.habits.delete_habit(habit_id)
+        return []
+
+    @Slot(str, int, int, result="QVariantMap")
+    def getMonthRecords(self, habit_id: str, year: int, month: int):
+        if self._backend and self._backend.habits:
+            return self._backend.habits.get_month_records(habit_id, year, month)
+        return {}
+
+    @Slot(str, str, result=bool)
+    def toggleHabitRecord(self, habit_id: str, date_str: str):
+        if self._backend and self._backend.habits:
+            return self._backend.habits.toggle_record(habit_id, date_str)
+        return False
+
+    # --- 硬件控制动作槽函数 ---
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         if not self._backend: return
@@ -138,11 +231,6 @@ class IslandBridge(QObject):
             self.run_async(self._backend.audio.toggle_mute())
         elif mode == 2:
             self.run_async(self._backend.audio.toggle_mic_mute())
-
-    @Slot(int)
-    def adjustVolume(self, delta_pct: int):
-        if self._backend and self._backend.audio:
-            self.run_async(self._backend.audio.set_delta(delta_pct))
 
     @Slot(str)
     def sendMediaCmd(self, action: str):
@@ -195,9 +283,6 @@ class IslandBridge(QObject):
     def openSystemMonitor(self): self.wm.open_system_monitor()
 
     @Slot()
-    def openBluetoothSettings(self): self.wm.open_bluetooth_settings()
-
-    @Slot()
     def forceRaise(self): self.view.raise_()
 
     @Slot()
@@ -216,7 +301,6 @@ class IslandBridge(QObject):
     @Slot(str, result=str)
     def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
 
-    # 内部事件投递转发
     def post_inproc_event(self, event_type: str, state_obj):
         try:
             self._sig_inproc_event.emit(event_type, state_obj)
@@ -231,7 +315,6 @@ class IslandBridge(QObject):
 
     @Slot(str, object)
     def _handle_inproc_event(self, event_type: str, s):
-        # 1. 媒体事件
         if event_type in ("MEDIA_UPDATE", "FULL_SYNC"):
             art = s.art_url
             if art and art.startswith("/") and not art.startswith("file://"):
@@ -242,18 +325,14 @@ class IslandBridge(QObject):
             prog = (s.position / s.duration) if s.duration > 0 else 0.0
             self.progressUpdated.emit(s.position, s.duration, prog)
 
-        # 2. 工作区事件
         if event_type in ("WORKSPACE_CHANGED", "FULL_SYNC"):
             self.workspaceTriggered.emit(s.workspace_index, s.workspace_total, s.workspace_name)
             self.workspaceListUpdated.emit(s.workspaces)
 
-        # 3. 硬件音量与亮度
         if event_type in ("VOLUME_UPDATE", "FULL_SYNC"):
             self.volumeChanged.emit(s.volume)
             self.hardwareMuteStateChanged.emit(s.is_muted, s.is_mic_muted)
             if event_type == "VOLUME_UPDATE":
-                from backend.logger import app_logger
-                app_logger.info(f"[OSD TRACE] Bridge 收到 VOLUME_UPDATE -> 准备触发 OSD (音量: {s.volume}, 静音: {s.is_muted})")
                 icon = "🔇" if s.is_muted else ("🔈" if s.volume == 0 else "🔊")
                 self.osdTriggered.emit(icon, "Volume", s.volume)
 
@@ -262,12 +341,10 @@ class IslandBridge(QObject):
             if event_type == "BRIGHTNESS_UPDATE":
                 self.osdTriggered.emit("☀️", "Display", s.brightness)
 
-        # 4. 键盘锁
         if event_type in ("KEYBOARD_LOCK_UPDATE", "FULL_SYNC"):
             self.capsLockChanged.emit(s.is_caps_lock)
             self.numLockChanged.emit(s.is_num_lock)
 
-        # 5. 性能与网速
         if event_type in ("MEMORY_UPDATE", "FULL_SYNC"):
             self.memoryUpdated.emit(s.memory_percent, s.memory_used_gb, s.memory_total_gb)
 
@@ -277,7 +354,9 @@ class IslandBridge(QObject):
         if event_type in ("BATTERY_UPDATE", "FULL_SYNC"):
             self.batteryUpdated.emit(s.battery_pct, s.battery_charging)
 
-        # 6. 通话与通知
+        if event_type in ("TIMER_UPDATE", "FULL_SYNC"):
+            self.timerUpdated.emit()
+
         if event_type == "TEAMS_CALL_INCOMING":
             self.callIncomingTriggered.emit(
                 s.last_notify_title or "Teams 来电",

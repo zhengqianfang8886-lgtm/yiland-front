@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/base.py
-# 🌟 模块统一生命周期契约基类
+# 🌟 模块统一生命周期契约基类 (扩展休眠管理)
 # ==========================================
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -16,6 +16,7 @@ class BaseModule(ABC):
     def __init__(self, backend: "DirectIslandBackend", state: "IslandState"):
         self.backend = backend
         self.state = state
+        self._is_active = True
 
     @abstractmethod
     async def start(self) -> None:
@@ -26,6 +27,13 @@ class BaseModule(ABC):
     async def stop(self) -> None:
         """异步生命周期注销（取消定时器、解除钩子、断开连接）"""
         pass
+
+    def set_active(self, active: bool) -> None:
+        """
+        休眠断路器：用于控制模块在灵动岛深潜/隐藏时进入低功耗待机
+        子类按需重写以切断轮询或降低采样频率
+        """
+        self._is_active = active
 
     def notify(self, event_name: str) -> None:
         """标准事件投递中枢通道"""

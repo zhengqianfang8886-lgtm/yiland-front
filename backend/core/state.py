@@ -49,12 +49,21 @@ class IslandState:
         self.net_up_compact: str = "0K"
         self.local_ip: str = "127.0.0.1"
 
-        # 7. 蓝牙外设
-        self.bt_powered: bool = True
-        self.bt_devices: List[Dict[str, Any]] = []
+        # 7. 专注计时器核心状态 (状态彻底由后端收编)
+        self.timer_type: str = "countdown"  # "countdown" | "stopwatch"
+        self.timer_is_running: bool = False
+        self.timer_is_paused: bool = False
+        self.timer_is_completed: bool = False
+        self.timer_remaining_sec: int = 1500
+        self.timer_total_sec: int = 1500
+        self.timer_elapsed_sec: int = 0
+        self.timer_mode: str = "focus"      # "focus" | "break" | "custom"
+        self.timer_laps: List[Dict[str, Any]] = []
 
         # 8. 通话与通知
         self.last_notify_title: str = ""
         self.last_notify_content: str = ""
         self.last_notify_icon: str = "💬"
         self.last_notify_avatar: str = ""
+        self.notification_sender_bus: str = ""
+        self.notification_id: int = 0

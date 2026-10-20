@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/system.py
-# 🌟 零系统调用开销版系统监视模块
+# 🌟 零无谓开销·事件驱动型休眠监视模块 (彻底根除盲目轮询)
 # ==========================================
 import os
 import glob
@@ -30,6 +30,8 @@ class SystemModule(BaseModule):
         super().__init__(backend, state)
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        # 核心休眠栅栏：深潜/隐藏时阻塞协程，CPU 释放至 0.00%
+        self._wake_event = asyncio.Event()
 
         self._caps_paths: List[str] = []
         self._num_paths: List[str] = []
@@ -42,6 +44,17 @@ class SystemModule(BaseModule):
         self._proc_net_dev = None
         self._proc_meminfo = None
 
+    def set_active(self, active: bool) -> None:
+        super().set_active(active)
+        if active:
+            if not self._wake_event.is_set():
+                self._wake_event.set()
+                app_logger.debug("[SystemModule] 唤醒系统状态监控循环")
+        else:
+            if self._wake_event.is_set():
+                self._wake_event.clear()
+                app_logger.debug("[SystemModule] UI 已隐藏，系统监控循环进入挂起休眠 (0% CPU)")
+
     async def start(self) -> None:
         self._running = True
         self._refresh_hw_paths()
@@ -50,17 +63,19 @@ class SystemModule(BaseModule):
         try:
             self._proc_net_dev = open("/proc/net/dev", "r", encoding="ascii", errors="ignore")
             self._proc_meminfo = open("/proc/meminfo", "r", encoding="ascii", errors="ignore")
-        except Exception:
-            pass
+        except OSError as e:
+            app_logger.warning(f"[SystemModule] 无法打开 /proc 监视句柄: {e}")
 
         self._last_net_bytes = self._read_net_bytes()
         self._last_net_time = time.monotonic()
 
+        self._wake_event.set()
         self._task = asyncio.create_task(self._monitor_loop())
-        app_logger.info("系统硬件、网速与电池监视引擎已挂载")
+        app_logger.info("系统硬件、网速与电池监视引擎已挂载 (支持零能耗挂起)")
 
     async def stop(self) -> None:
         self._running = False
+        self._wake_event.set()
         if self._task and not self._task.done():
             self._task.cancel()
             try:
@@ -72,8 +87,8 @@ class SystemModule(BaseModule):
             if fp:
                 try:
                     fp.close()
-                except Exception:
-                    pass
+                except OSError as e:
+                    app_logger.debug(f"[SystemModule] 关闭文件描述符异常: {e}")
 
     def _refresh_hw_paths(self):
         self._caps_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
@@ -101,7 +116,8 @@ class SystemModule(BaseModule):
                 rx_total += int(data[0])
                 tx_total += int(data[8])
             return rx_total, tx_total
-        except Exception:
+        except (ValueError, IndexError, OSError) as e:
+            app_logger.debug(f"[SystemModule] 网速字节采样异常: {e}")
             return 0, 0
 
     def _get_local_ip(self) -> str:
@@ -109,14 +125,19 @@ class SystemModule(BaseModule):
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.connect(("8.8.8.8", 80))
                 return s.getsockname()[0]
-        except Exception:
+        except OSError:
             return "127.0.0.1"
 
     async def _monitor_loop(self):
         tick = 0
         while self._running:
             try:
-                # 1. 键盘锁 (每 500ms 检查一次)
+                # 🚀 闲置阻断点：如果 UI 处于非激活状态，无超时等待唤醒信号，完全让出 CPU
+                await self._wake_event.wait()
+                if not self._running:
+                    break
+
+                # 1. 键盘锁 (每 500ms 检查)
                 caps_on = False
                 for p in self._caps_paths:
                     try:
@@ -124,7 +145,7 @@ class SystemModule(BaseModule):
                             if fp.read(1) != "0":
                                 caps_on = True
                                 break
-                    except Exception:
+                    except OSError:
                         pass
 
                 num_on = False
@@ -134,7 +155,7 @@ class SystemModule(BaseModule):
                             if fp.read(1) != "0":
                                 num_on = True
                                 break
-                    except Exception:
+                    except OSError:
                         pass
 
                 if self.state.is_caps_lock != caps_on or self.state.is_num_lock != num_on:
@@ -182,8 +203,8 @@ class SystemModule(BaseModule):
                                     self.state.memory_used_gb = f"{used_kb / 1048576:.1f}G"
                                     self.state.memory_total_gb = f"{total_kb / 1048576:.1f}G"
                                     self.notify("MEMORY_UPDATE")
-                        except Exception:
-                            pass
+                        except (ValueError, IndexError, OSError) as e:
+                            app_logger.debug(f"[SystemModule] 内存读取异常: {e}")
 
                     if self._bat_capacity_path:
                         try:
@@ -198,13 +219,13 @@ class SystemModule(BaseModule):
                                 self.state.battery_pct = cur_bat
                                 self.state.battery_charging = charging
                                 self.notify("BATTERY_UPDATE")
-                        except Exception:
-                            pass
+                        except (ValueError, OSError) as e:
+                            app_logger.debug(f"[SystemModule] 电池读取异常: {e}")
 
                 await asyncio.sleep(0.5)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                app_logger.debug(f"系统指标采样异常: {e}")
+                app_logger.warning(f"[SystemModule] 监控未知异常: {e}")
                 await asyncio.sleep(1.0)

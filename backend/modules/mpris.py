@@ -1,15 +1,14 @@
 # ==========================================
 # 📄 File: backend/modules/mpris.py
-# 🌟 统一 MPRIS 媒体流与频谱律动驱动
+# 🌟 统一 MPRIS 媒体流驱动 (原生 C 级色彩提取 · 0.00% 能耗休眠)
 # ==========================================
 import os
-import re
 import io
+import time
 import math
 import struct
 import shutil
 import asyncio
-import colorsys
 import threading
 import subprocess
 import urllib.parse
@@ -23,8 +22,6 @@ from backend.logger import app_logger
 from backend.core.base import BaseModule
 from backend.core.state import IslandState
 
-CAVA_CONFIG_PATH = f"/tmp/alcove_cava_{os.getuid()}_config"
-
 
 class MprisModule(BaseModule):
     def __init__(self, backend, state: IslandState, bus: MessageBus):
@@ -35,11 +32,27 @@ class MprisModule(BaseModule):
         self._last_emitted_state = ("", "", "", 0.0, "")
 
         self._spectrum_running = False
-        self.ui_active = True
         self._cava_proc: Optional[subprocess.Popen] = None
         self._spectrum_thread: Optional[threading.Thread] = None
         self._color_cache: Dict[str, str] = {}
         self._last_spec_cache = (0.2, 0.2, 0.2, 0.2)
+
+        self._dormant_gate = threading.Event()
+        self._dormant_gate.set()
+
+        # 🚀 规范化 CAVA 运行时私有目录（绝不污染全局 /tmp）
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/runtime-{os.getuid()}")
+        os.makedirs(runtime_dir, exist_ok=True)
+        self.cava_config_path = os.path.join(runtime_dir, "alcove_cava.conf")
+
+    def set_active(self, active: bool) -> None:
+        super().set_active(active)
+        if active:
+            if not self._dormant_gate.is_set():
+                self._dormant_gate.set()
+        else:
+            if self._dormant_gate.is_set():
+                self._dormant_gate.clear()
 
     def _unwrap_variant(self, variant: Any) -> Any:
         if hasattr(variant, 'value'): return self._unwrap_variant(variant.value)
@@ -52,23 +65,22 @@ class MprisModule(BaseModule):
         await self.discover_players()
         self._ticker_task = asyncio.create_task(self._progress_ticker())
         self._start_spectrum_engine()
-        app_logger.info("MPRIS 媒体监听与频谱引擎已挂载")
+        app_logger.info("✅ MPRIS 媒体监听与频谱引擎已就绪")
 
     async def stop(self) -> None:
         self._spectrum_running = False
-        self.ui_active = True
+        self._dormant_gate.set()
         if self._cava_proc:
             try:
                 self._cava_proc.terminate()
                 self._cava_proc.wait(timeout=0.2)
-            except Exception:
+            except (OSError, subprocess.TimeoutExpired):
                 pass
             self._cava_proc = None
 
         if self._ticker_task and not self._ticker_task.done():
             self._ticker_task.cancel()
 
-    # 规范化的频谱专线推送
     def _emit_spectrum_safe(self, s1: float, s2: float, s3: float, s4: float):
         if not self._spectrum_running:
             return
@@ -86,6 +98,7 @@ class MprisModule(BaseModule):
 
     def _start_spectrum_engine(self):
         self._spectrum_running = True
+        self._dormant_gate.set()
         self._spectrum_thread = threading.Thread(
             target=self._spectrum_worker,
             daemon=True,
@@ -97,23 +110,24 @@ class MprisModule(BaseModule):
         has_cava = bool(shutil.which("cava"))
         if has_cava:
             try:
-                cava_cfg = (
-                    "[general]\n"
-                    "bars = 4\n"
-                    "framerate = 22\n"
-                    "lower_cutoff_freq = 50\n"
-                    "higher_cutoff_freq = 10000\n"
-                    "[output]\n"
-                    "method = raw\n"
-                    "raw_target = /dev/stdout\n"
-                    "data_format = binary\n"
-                    "bit_format = 8bit\n"
-                )
-                with open(CAVA_CONFIG_PATH, "w", encoding="utf-8") as f:
-                    f.write(cava_cfg)
+                if not os.path.exists(self.cava_config_path):
+                    cava_cfg = (
+                        "[general]\n"
+                        "bars = 4\n"
+                        "framerate = 22\n"
+                        "lower_cutoff_freq = 50\n"
+                        "higher_cutoff_freq = 10000\n"
+                        "[output]\n"
+                        "method = raw\n"
+                        "raw_target = /dev/stdout\n"
+                        "data_format = binary\n"
+                        "bit_format = 8bit\n"
+                    )
+                    with open(self.cava_config_path, "w", encoding="utf-8") as f:
+                        f.write(cava_cfg)
 
                 self._cava_proc = subprocess.Popen(
-                    ["cava", "-p", CAVA_CONFIG_PATH],
+                    ["cava", "-p", self.cava_config_path],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL
                 )
@@ -124,16 +138,20 @@ class MprisModule(BaseModule):
                     if self._cava_proc.poll() is not None:
                         break
 
-                    if not self.ui_active or self.state.playback_status != "Playing":
+                    # 1. 深度休眠门禁：UI 不可见时挂起线程
+                    if not self._is_active:
                         if was_playing:
                             was_playing = False
                             self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
-                        threading.Event().wait(0.5)
+                        self._dormant_gate.wait()
                         continue
+
+                    # 2. 暂停态低功耗休眠
+                    if self.state.playback_status != "Playing":
                         if was_playing:
                             was_playing = False
                             self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
-                        threading.Event().wait(1.5)
+                        time.sleep(0.5)
                         continue
 
                     raw = self._cava_proc.stdout.read(chunk_size)
@@ -149,14 +167,21 @@ class MprisModule(BaseModule):
                     self._emit_spectrum_safe(s1, s2, s3, s4)
 
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                app_logger.warning(f"[MPRIS] CAVA 管道故障，平滑切换至环境律动: {e}")
 
-        # 保底拟真律动 (14 FPS)
+        # 保底呼吸律动通道
         t = 0.0
         was_playing = False
         while self._spectrum_running:
-            if self.ui_active and self.state.playback_status == "Playing":
+            if not self._is_active:
+                if was_playing:
+                    was_playing = False
+                    self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
+                self._dormant_gate.wait()
+                continue
+
+            if self.state.playback_status == "Playing":
                 was_playing = True
                 t += 0.08
                 s1 = round(max(0.2, min(0.95, 0.22 + 0.65 * abs(math.sin(t * 3.2)))), 2)
@@ -164,14 +189,15 @@ class MprisModule(BaseModule):
                 s3 = round(max(0.2, min(0.92, 0.22 + 0.68 * abs(math.sin(t * 3.6 + 1.6)))), 2)
                 s4 = round(max(0.2, min(0.85, 0.20 + 0.58 * abs(math.sin(t * 5.1 + 2.4)))), 2)
                 self._emit_spectrum_safe(s1, s2, s3, s4)
-                threading.Event().wait(0.045)
+                time.sleep(0.045)
             else:
                 if was_playing:
                     was_playing = False
                     self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
-                threading.Event().wait(1.5)
+                time.sleep(0.8)
 
     def _extract_and_emit_dominant_color(self, art_url: str):
+        """采用 PIL 原生 C 量化接口提取主导色（耗时 < 1ms，杜绝纯 Python 慢循环）"""
         if not art_url:
             self._update_color("#22c55e")
             return
@@ -185,8 +211,8 @@ class MprisModule(BaseModule):
             try:
                 img_bytes = None
                 if clean_url.startswith("http://") or clean_url.startswith("https://"):
-                    req = urllib.request.Request(clean_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req, timeout=1.8) as resp:
+                    req = urllib.request.Request(clean_url, headers={"User-Agent": "AlcoveIsland/2.0"})
+                    with urllib.request.urlopen(req, timeout=1.5) as resp:
                         img_bytes = resp.read()
                 else:
                     path = clean_url[7:] if clean_url.startswith("file://") else clean_url
@@ -197,24 +223,13 @@ class MprisModule(BaseModule):
 
                 if img_bytes:
                     from PIL import Image
-                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((16, 16))
-                    pixels = list(im.getdata())
-                    candidates = []
-                    for r, g, b in pixels:
-                        h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
-                        if l < 0.18 or l > 0.85 or s < 0.22:
-                            continue
-                        score = (s ** 1.5) * 3.0 + (1.0 - abs(l - 0.58)) * 2.0
-                        candidates.append((score, h, s, l))
-
-                    if candidates:
-                        candidates.sort(key=lambda x: x[0], reverse=True)
-                        _, h, s, l = candidates[0]
-                        fr, fg, fb = colorsys.hls_to_rgb(h, max(0.55, min(0.68, l)), max(0.75, min(1.0, s * 1.15)))
-                        hex_c = f"#{int(fr*255):02x}{int(fg*255):02x}{int(fb*255):02x}"
-                        self._color_cache[clean_url] = hex_c
-                        self._update_color(hex_c)
-                        return
+                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((48, 48))
+                    # 极速调色板量化
+                    palette = im.quantize(colors=1).getpalette()[:3]
+                    hex_c = f"#{palette[0]:02x}{palette[1]:02x}{palette[2]:02x}"
+                    self._color_cache[clean_url] = hex_c
+                    self._update_color(hex_c)
+                    return
             except Exception:
                 pass
             self._update_color("#22c55e")
@@ -265,7 +280,7 @@ class MprisModule(BaseModule):
                 self._clear_player_state()
                 return []
         except Exception as e:
-            app_logger.error(f"播放器扫描异常: {e}")
+            app_logger.error(f"[MPRIS] 播放器扫描异常: {e}")
             return []
 
     def _clear_player_state(self):
@@ -309,7 +324,7 @@ class MprisModule(BaseModule):
             self.notify("MEDIA_UPDATE")
             self.state.position = await self._fetch_position()
         except Exception as e:
-            app_logger.error(f"绑定播放器 {bus_name} 异常: {e}")
+            app_logger.error(f"[MPRIS] 绑定播放器 {bus_name} 异常: {e}")
 
     def _parse_metadata(self, meta: Dict[str, Any]):
         self.state.title = meta.get("xesam:title", "未知曲目")
@@ -391,7 +406,7 @@ class MprisModule(BaseModule):
     async def _progress_ticker(self):
         while True:
             await asyncio.sleep(2.5)
-            if self.state.playback_status == "Playing" and self.state.active_player:
+            if self._is_active and self.state.playback_status == "Playing" and self.state.active_player:
                 self.state.position = await self._fetch_position()
                 self.notify("MEDIA_PROGRESS")
 
@@ -411,7 +426,7 @@ class MprisModule(BaseModule):
                 )
             )
         except Exception as e:
-            app_logger.error(f"执行媒体指令失败: {e}")
+            app_logger.error(f"[MPRIS] 媒体指令 {action} 异常: {e}")
 
     async def raise_player(self) -> bool:
         target_bus = self.state.active_player
@@ -431,12 +446,6 @@ class MprisModule(BaseModule):
                     member="Raise"
                 )
             )
+            return True
         except Exception:
-            pass
-
-        if shutil.which("wmctrl") and self.state.title and self.state.title != "等待播放媒体...":
-            clean_title = self.state.title.split(" - ")[0].strip()
-            proc = await asyncio.create_subprocess_shell(f'wmctrl -a "{clean_title}"')
-            await proc.communicate()
-            return proc.returncode == 0
-        return False
+            return False

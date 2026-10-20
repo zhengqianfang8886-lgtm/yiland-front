@@ -1,10 +1,5 @@
-// ==========================================
-// 📄 File: CalendarPage.qml (统一 Token 瘦身版)
-// ==========================================
 import QtQuick
-import QtQuick.LocalStorage
 import "../calendar"
-import "../calendar/HabitStorage.js" as HabitStorage
 
 Rectangle {
     id: calRoot
@@ -49,8 +44,10 @@ Rectangle {
         return days[new Date(selYear, selMonth, selDay).getDay()];
     }
 
+    // 🚀【核心重构】：所有数据库操作直通 Bridge 后端，零 GUI 线程卡顿
     function reloadHabits() {
-        habitsList = HabitStorage.loadHabits(LocalStorage);
+        if (typeof Bridge === "undefined") return;
+        habitsList = Bridge.getHabits();
         if (currentHabitIndex >= habitsList.length) {
             currentHabitIndex = Math.max(0, habitsList.length - 1);
         }
@@ -58,13 +55,13 @@ Rectangle {
     }
 
     function reloadMonthRecords() {
-        if (!currentHabit) { checkRecords = {}; return; }
-        checkRecords = HabitStorage.getMonthRecords(LocalStorage, currentHabit.id, calYear, calMonth);
+        if (!currentHabit || typeof Bridge === "undefined") { checkRecords = {}; return; }
+        checkRecords = Bridge.getMonthRecords(currentHabit.id, calYear, calMonth);
     }
 
     function toggleSelectedDay() {
-        if (!currentHabit) { isManagingHabits = true; return; }
-        HabitStorage.toggleRecord(LocalStorage, currentHabit.id, selectedDateStr);
+        if (!currentHabit || typeof Bridge === "undefined") { isManagingHabits = true; return; }
+        Bridge.toggleHabitRecord(currentHabit.id, selectedDateStr);
         reloadMonthRecords();
     }
 
@@ -203,14 +200,18 @@ Rectangle {
                 currentHabitIndex: calRoot.currentHabitIndex
                 onCloseRequested: calRoot.isManagingHabits = false
                 onHabitCreated: (name) => {
-                    calRoot.habitsList = HabitStorage.addHabit(LocalStorage, name, "📌");
-                    calRoot.currentHabitIndex = calRoot.habitsList.length - 1;
-                    calRoot.reloadMonthRecords();
+                    if (typeof Bridge !== "undefined") {
+                        calRoot.habitsList = Bridge.addHabit(name, "📌");
+                        calRoot.currentHabitIndex = calRoot.habitsList.length - 1;
+                        calRoot.reloadMonthRecords();
+                    }
                 }
                 onHabitDeleted: (id) => {
-                    calRoot.habitsList = HabitStorage.deleteHabit(LocalStorage, id);
-                    calRoot.currentHabitIndex = Math.max(0, calRoot.currentHabitIndex - 1);
-                    calRoot.reloadMonthRecords();
+                    if (typeof Bridge !== "undefined") {
+                        calRoot.habitsList = Bridge.deleteHabit(id);
+                        calRoot.currentHabitIndex = Math.max(0, calRoot.currentHabitIndex - 1);
+                        calRoot.reloadMonthRecords();
+                    }
                 }
                 onHabitSelected: (idx) => {
                     calRoot.currentHabitIndex = idx;

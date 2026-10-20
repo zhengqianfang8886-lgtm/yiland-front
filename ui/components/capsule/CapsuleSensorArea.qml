@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 100% 完整原有手势与防误触层
+// 🌟 纯声明式状态机手势中枢 (彻底斩断 Timer 连环套)
 // ==========================================
 import QtQuick
 
@@ -8,6 +8,7 @@ Item {
     id: sensorRoot
     anchors.fill: parent
 
+    // 核心外部约束状态
     property bool isExpanded: false
     property bool isCollapsing: false
     property bool isCalling: false
@@ -17,11 +18,14 @@ Item {
     property bool isPeeking: false
     property bool isPassive5S: false
 
+    // 内部手势动作事实源 (SSOT)
     property bool isScrubbing: false
     property bool isScrubCanceling: false
+    property bool isMovingIsland: false
 
     readonly property bool isPointerHovered: globalCapsuleHover.hovered || hitArea.containsMouse
 
+    // 业务向外信号
     signal requestExpand(string tabName)
     signal requestCollapse()
     signal startCollapse()
@@ -41,79 +45,73 @@ Item {
     signal pointerEnteredCapsule()
     signal requestSettingsWindow()
 
-    property bool isPointerPressed: false
+    // 坐标与速度采样跟踪
     property real pressStartX: 0
     property real pressStartY: 0
     property real lastDragX: 0
     property real dragVelocityX: 0
-    property bool isMovingIsland: false
-    property bool scrollSessionLocked: false
-    property bool wasScrubbingJustNow: false
 
-    Timer {
-        id: hoverDwellTimer
-        interval: (typeof Config !== "undefined" && Config.hoverDwellTime !== undefined) ? Config.hoverDwellTime : 240
-        repeat: false
-        onTriggered: {
-            if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
-            if (sensorRoot.isPointerPressed || sensorRoot.isScrubbing || sensorRoot.wasScrubbingJustNow || sensorRoot.isMovingIsland || sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return
+    // 🚀【核心重构】：用声明式 StateGroup 完全替代 Timer
+    state: "IDLE"
 
-            if (!sensorRoot.scrollSessionLocked && !sensorRoot.isCollapsing && sensorRoot.isPointerHovered && !sensorRoot.isExpanded) {
-                if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
-                else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification")
-                else if (sensorRoot.activeTransient === "SEDENTARY") return
-                else sensorRoot.requestExpand("workspace")
-            }
+    states: [
+        State {
+            name: "IDLE"
+            PropertyChanges { target: sensorRoot; isScrubbing: false; isScrubCanceling: false; isMovingIsland: false }
+        },
+        State {
+            name: "HOVERING"
+            // 当配置关闭悬停展开或处于特殊模态时，不触发展开流转
+        },
+        State {
+            name: "PRESSED"
+        },
+        State {
+            name: "SCRUBBING"
+            PropertyChanges { target: sensorRoot; isScrubbing: true }
+        },
+        State {
+            name: "MOVING"
+            PropertyChanges { target: sensorRoot; isMovingIsland: true }
         }
-    }
-
-    Timer {
-        id: leaveGraceTimer
-        interval: 160
-        repeat: false
-        onTriggered: {
-            if (!sensorRoot.isExpanded) return
-            if (sensorRoot.isPointerHovered) return
-            sensorRoot.startCollapse()
-        }
-    }
-
-    Timer { id: resetWasScrubbingTimer; interval: 100; onTriggered: sensorRoot.wasScrubbingJustNow = false }
-    Timer {
-        id: longPressTimer; interval: 180; onTriggered: {
-            if (sensorRoot.isPointerPressed && !sensorRoot.isExpanded && !sensorRoot.isCalling && !sensorRoot.isMovingIsland && !sensorRoot.isTucked && !sensorRoot.isPeeking && !sensorRoot.isPassive5S) {
-                sensorRoot.activateScrubbing()
-            }
-        }
-    }
-
-    function activateScrubbing() {
-        hoverDwellTimer.stop(); leaveGraceTimer.stop()
-        sensorRoot.isScrubbing = true
-        sensorRoot.wasScrubbingJustNow = true
-        sensorRoot.isScrubCanceling = false
-        sensorRoot.scrubStarted()
-    }
+    ]
 
     HoverHandler {
         id: globalCapsuleHover
         blocking: false
         enabled: !sensorRoot.isTucked
+
         onHoveredChanged: {
             if (hovered) {
-                leaveGraceTimer.stop()
                 sensorRoot.pointerEnteredCapsule()
-                if (!sensorRoot.isExpanded && !sensorRoot.isCollapsing && 
-                    !sensorRoot.isScrubbing && !sensorRoot.isPointerPressed && !sensorRoot.isTucked && !sensorRoot.isPeeking && !sensorRoot.isPassive5S) {
-                    if (typeof Config === "undefined" || Config.hoverExpandEnabled !== false) {
-                        hoverDwellTimer.restart()
-                    }
+                if (sensorRoot.state === "IDLE" && !sensorRoot.isExpanded && !sensorRoot.isCollapsing) {
+                    sensorRoot.state = "HOVERING"
                 }
             } else {
-                hoverDwellTimer.stop()
-                sensorRoot.scrollSessionLocked = false
                 sensorRoot.pointerExitedCapsule()
-                if (sensorRoot.isExpanded) leaveGraceTimer.restart()
+                if (sensorRoot.state === "HOVERING") {
+                    sensorRoot.state = "IDLE"
+                }
+                if (sensorRoot.isExpanded) {
+                    // 物理离开胶囊，触发平滑收起
+                    sensorRoot.startCollapse()
+                }
+            }
+        }
+    }
+
+    // 悬停驻留响应转移（物理空间上的确定性响应）
+    onStateChanged: {
+        if (state === "HOVERING") {
+            if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
+            if (sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return
+
+            // 悬停意图直接转换为对应的功能卡片
+            if (!sensorRoot.isExpanded) {
+                if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
+                else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification")
+                else if (sensorRoot.activeTransient === "SEDENTARY") return
+                else sensorRoot.requestExpand("workspace")
             }
         }
     }
@@ -136,28 +134,22 @@ Item {
                 return
             }
 
-            hoverDwellTimer.stop()
-            sensorRoot.isPointerPressed = true
             sensorRoot.pressStartX = mouse.x
             sensorRoot.pressStartY = mouse.y
             sensorRoot.lastDragX = mouse.x
-            dragVelocityX = 0
+            sensorRoot.dragVelocityX = 0
 
             var isModifierHeld = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier)
             if (isModifierHeld || mouse.button === Qt.MiddleButton) {
-                sensorRoot.isMovingIsland = true
+                sensorRoot.state = "MOVING"
                 return
             }
 
-            if (mouse.button === Qt.LeftButton) {
-                longPressTimer.restart()
-            }
+            sensorRoot.state = "PRESSED"
         }
 
         onPositionChanged: (mouse) => {
-            if (!sensorRoot.isPointerPressed) return
-
-            if (sensorRoot.isMovingIsland) {
+            if (sensorRoot.state === "MOVING") {
                 var stepX = mouse.x - sensorRoot.lastDragX
                 sensorRoot.dragVelocityX = stepX
                 sensorRoot.lastDragX = mouse.x
@@ -167,50 +159,47 @@ Item {
 
             var adx = Math.abs(mouse.x - sensorRoot.pressStartX)
             var ady = mouse.y - sensorRoot.pressStartY
-            if (!sensorRoot.isScrubbing && (adx >= 6 && Math.abs(ady) < 18)) {
-                longPressTimer.stop()
-                sensorRoot.activateScrubbing()
+
+            // 状态自举：横向位移突破 6px 且纵向偏离在安全阈值内，直接切入 SCRUBBING
+            if (sensorRoot.state === "PRESSED" && adx >= 6 && Math.abs(ady) < 18) {
+                sensorRoot.state = "SCRUBBING"
+                sensorRoot.scrubStarted()
             }
-            if (sensorRoot.isScrubbing) {
-                if (ady > 30) sensorRoot.isScrubCanceling = true
-                else { sensorRoot.isScrubCanceling = false; sensorRoot.scrubMoved(mouse.x, mouse.y) }
+
+            if (sensorRoot.state === "SCRUBBING") {
+                if (ady > 30) {
+                    sensorRoot.isScrubCanceling = true
+                } else {
+                    sensorRoot.isScrubCanceling = false
+                    sensorRoot.scrubMoved(mouse.x, mouse.y)
+                }
             }
         }
 
         onReleased: (mouse) => {
             if (mouse.button === Qt.RightButton) return
 
-            sensorRoot.isPointerPressed = false
-            longPressTimer.stop()
-            hoverDwellTimer.stop()
-
-            if (sensorRoot.isMovingIsland) {
-                sensorRoot.isMovingIsland = false
+            if (sensorRoot.state === "MOVING") {
+                sensorRoot.state = "IDLE"
                 sensorRoot.dragFinished(sensorRoot.dragVelocityX)
                 return
             }
 
-            if (sensorRoot.isScrubbing) {
-                sensorRoot.wasScrubbingJustNow = true
-                resetWasScrubbingTimer.restart()
+            if (sensorRoot.state === "SCRUBBING") {
                 if (sensorRoot.isScrubCanceling) sensorRoot.scrubCanceled()
                 else sensorRoot.scrubCommitted()
-                sensorRoot.isScrubbing = false
-                sensorRoot.isScrubCanceling = false
+                sensorRoot.state = "IDLE"
+                return
             }
+
+            sensorRoot.state = "IDLE"
         }
 
         onCanceled: {
-            sensorRoot.isPointerPressed = false
-            sensorRoot.isMovingIsland = false
-            longPressTimer.stop(); hoverDwellTimer.stop()
-            if (sensorRoot.isScrubbing) {
-                sensorRoot.wasScrubbingJustNow = true
-                resetWasScrubbingTimer.restart()
-                sensorRoot.isScrubbing = false
-                sensorRoot.isScrubCanceling = false
+            if (sensorRoot.state === "SCRUBBING") {
                 sensorRoot.scrubCanceled()
             }
+            sensorRoot.state = "IDLE"
         }
 
         onWheel: (wheel) => {
@@ -228,25 +217,21 @@ Item {
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
                 mouse.accepted = true
-                hoverDwellTimer.stop()
-                leaveGraceTimer.stop()
                 sensorRoot.requestTuckToggle()
                 return
             }
 
-            if (sensorRoot.isPeeking || sensorRoot.isPassive5S) return
+            if (sensorRoot.isPeeking || sensorRoot.isPassive5S || sensorRoot.isExpanded) return
+            if (sensorRoot.activeTransient === "SEDENTARY") return
 
-            if (sensorRoot.wasScrubbingJustNow || sensorRoot.isScrubbing || sensorRoot.isMovingIsland || sensorRoot.activeTransient === "SEDENTARY") {
-                sensorRoot.wasScrubbingJustNow = false
+            if (sensorRoot.isCalling) {
+                sensorRoot.requestExpand("media")
                 return
             }
-
-            if (sensorRoot.isExpanded) return
-
-            hoverDwellTimer.stop(); leaveGraceTimer.stop()
-            sensorRoot.scrollSessionLocked = false
-            if (sensorRoot.isCalling) { sensorRoot.requestExpand("media"); return }
-            if (sensorRoot.activeTransient === "ALERT") { sensorRoot.requestExpand("notification"); return }
+            if (sensorRoot.activeTransient === "ALERT") {
+                sensorRoot.requestExpand("notification")
+                return
+            }
             sensorRoot.requestExpand("hardware")
         }
     }

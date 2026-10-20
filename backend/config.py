@@ -1,9 +1,10 @@
 # ==========================================
-# 📄 File: config.py (彻底剔除 time 选项卡版)
+# 📄 File: backend/config.py
+# 🌟 生产级配置中心 · 400ms 单稳态防抖原子落盘 (彻底消除 NVMe 碎纸机 Bug)
 # ==========================================
 import os
 import json
-from PySide6.QtCore import QObject, Signal, Property
+from PySide6.QtCore import QObject, Signal, Property, QTimer
 from PySide6.QtGui import QFontDatabase
 from backend.logger import app_logger
 
@@ -16,7 +17,6 @@ DEFAULT_SAVED_CLOCKS = [
     {"name": "东京", "en": "Tokyo", "country": "日本", "iso": "JP", "tz": "Asia/Tokyo"}
 ]
 
-# 🚀【核心移除】：默认选项卡列表彻底移除 "time"
 DEFAULT_TAB_ORDER = [
     "hardware", "workspace", "media", "calendar",
     "timer", "clock", "network", "bluetooth", "notification"
@@ -35,7 +35,7 @@ CONFIG_SCHEMA = {
     "showNetSpeed": {"default": True, "val": lambda v: bool(v)},
     "showWorkspaceName": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
-    "musicVisualizerBars": {"default": 5, "val": lambda v: max(5, min(10, int(v)))},
+    "musicVisualizerBars": {"default": 5, "val": lambda v: max(3, min(8, int(v)))},
     "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
     "memoryThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
     "sedentaryReminderEnabled": {"default": True, "val": lambda v: bool(v)},
@@ -109,6 +109,12 @@ class ConfigManager(QObject):
             val = meta["default"]
             setattr(self, f"_{key}", list(val) if isinstance(val, list) else val)
 
+        # 🚀【核心防抖设计】：400ms 磁盘写入防抖定时器，阻断滑块高频连续写盘
+        self._save_debounce_timer = QTimer(self)
+        self._save_debounce_timer.setSingleShot(True)
+        self._save_debounce_timer.setInterval(400)
+        self._save_debounce_timer.timeout.connect(self._do_atomic_save)
+
         self.load()
 
     def _set_value(self, key: str, new_val, signal: Signal) -> bool:
@@ -119,7 +125,7 @@ class ConfigManager(QObject):
         old_val = getattr(self, f"_{key}")
         if old_val != new_val:
             setattr(self, f"_{key}", new_val)
-            self.save()
+            self._save_debounce_timer.start() # 仅触发定时器，绝不立刻同步落盘
             signal.emit(new_val)
             return True
         return False
@@ -137,7 +143,6 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 过滤持久化文件中残留的 "time"
             if "time" in self._tabOrder:
                 self._tabOrder = [t for t in self._tabOrder if t != "time"]
 
@@ -150,6 +155,11 @@ class ConfigManager(QObject):
             app_logger.warning(f"[Config] 配置文件解析异常: {e}")
 
     def save(self):
+        """强制提交保存请求（进入防抖队列）"""
+        self._save_debounce_timer.start()
+
+    def _do_atomic_save(self):
+        """真正执行单次原子化落盘"""
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             dump_data = {key: getattr(self, f"_{key}") for key in CONFIG_SCHEMA}
@@ -157,8 +167,9 @@ class ConfigManager(QObject):
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(dump_data, f, indent=2, ensure_ascii=False)
             os.replace(tmp_file, CONFIG_FILE)
+            app_logger.debug("[Config] 配置数据已安全原子落盘")
         except Exception as e:
-            app_logger.warning(f"[Config] 保存配置失败: {e}")
+            app_logger.error(f"[Config] 保存配置失败: {e}")
 
     @Property(int, notify=topMarginChanged)
     def topMargin(self): return self._topMargin
@@ -189,21 +200,6 @@ class ConfigManager(QObject):
     def fontFamily(self): return self._fontFamily
     @fontFamily.setter
     def fontFamily(self, val): self._set_value("fontFamily", val, self.fontFamilyChanged)
-
-    @Property(str, notify=fontFamilyChanged)
-    def activeFont(self):
-        if not self._fontFamily or "系统默认" in self._fontFamily: return ""
-        return self._fontFamily
-
-    @Property(str, notify=fontFamilyChanged)
-    def numberFont(self):
-        if not self._fontFamily or "系统默认" in self._fontFamily: return "Monospace"
-        return self._fontFamily
-
-    @Property(list, constant=True)
-    def systemFonts(self):
-        if self._system_fonts is None: self._system_fonts = self._load_system_fonts()
-        return self._system_fonts
 
     @Property(str, notify=timeFormatChanged)
     def timeFormat(self): return self._timeFormat
@@ -368,15 +364,6 @@ class ConfigManager(QObject):
         except Exception:
             pass
         return []
-
-    def _load_system_fonts(self):
-        try:
-            try: families = QFontDatabase.families()
-            except TypeError: families = QFontDatabase.families(QFontDatabase.WritingSystem.Any)
-            families = sorted(list(set(families)))
-            return ["系统默认 (Default)"] + families
-        except Exception:
-            return ["系统默认 (Default)"]
 
     def _migrate_clock_items(self, clock_list):
         if not clock_list or not isinstance(clock_list, list): return list(DEFAULT_SAVED_CLOCKS)

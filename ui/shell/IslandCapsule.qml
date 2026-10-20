@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 纯净协调器版 (消除双重动画打架 · 零截断)
+// 🌟 纯净协调器版 (补全乐观掩码打通 · 彻底根除悬停脱靶)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -10,7 +10,7 @@ import "../components/capsule"
 Item {
     id: capsuleRoot
 
-    property real capsuleRadius: 17
+    property real capsuleRadius: 19
     property real capsuleScaleX: 1.0
     property real capsuleScaleY: 1.0
     property real islandOffsetX: 0
@@ -29,8 +29,7 @@ Item {
     signal requestExpand(string tabName)
     signal requestSettings()
 
-    // 默认初始几何
-    width: 160; height: 34
+    width: 180; height: 38
     y: normalTopMargin
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
@@ -42,18 +41,19 @@ Item {
         yScale: capsuleRoot.capsuleScaleY
     }
 
-    // 🌟 原生业务控制器
     IslandStageController {
         id: stage
         onStageGeometryRequested: (isModeSwitch) => capsuleRoot.resolveAndApplyGeometry(isModeSwitch)
         onModeSwitchTriggered: (isAnchored) => capsuleBackground.triggerModeHaptic(isAnchored)
     }
 
-    // 🌟 唯一合法的物理动画协调器 (独占所有变形动画)
     IslandMotionCoordinator {
         id: coordinator
         targetHost: capsuleRoot
         stageCtrl: stage
+        goalHeight: 38
+        goalRadius: 19
+        goalWidth: 180
         onMotionStarted: if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion()
         onMotionSettled: capsuleRoot.commitSettledMask()
     }
@@ -70,12 +70,12 @@ Item {
 
     readonly property bool isPhysicallyDeepTucked: (stage.currentBaseTier === stage.tierTUCKED) && 
                                                   (stage.submergedSubTier === stage.subTierDEEP) &&
-                                                  coordinator.isSettled
+                                                  (capsuleRoot.y < 0) &&
+                                                  !coordinator.isTuckingInProgress
 
     readonly property bool isExpandedState: (stage.currentBaseTier === stage.tierEXPANDED)
     readonly property bool isCompactContentVisible: !isPhysicallyDeepTucked && !isExpandedState
 
-    // 🚀 休眠断路器：隐藏时 CPU 降至 0%
     onIsPhysicallyDeepTuckedChanged: {
         if (typeof Bridge !== "undefined" && Bridge.setUiActive) {
             Bridge.setUiActive(!isPhysicallyDeepTucked)
@@ -85,32 +85,29 @@ Item {
         }
     }
 
-    // 🚀 核心算式：计算最安全的物理边界 (增加 20px 安全富余量，打死都不会切边)
     function resolveAndApplyGeometry(isModeSwitch) {
-        var nW = Math.max(160, compactCapsuleView.implicitCompactWidth + 20)
         var tY = normalTopMargin
-        var tW = nW
-        var tH = 34
-        var tR = 17
+        var tW = 180
+        var tH = 38
+        var tR = 19
 
         if (isExpandedState) {
             tW = 420; tH = 240; tR = 24; tY = normalTopMargin
         } else if (stage.activeOverlayKey === "CALL") {
-            tW = 320; tH = 44; tR = 22
+            tW = 320; tH = 46; tR = 23
         } else if (stage.activeOverlayKey === "SEDENTARY") {
-            tW = 420; tH = 108; tR = 26
+            tW = 420; tH = 112; tR = 26
         } else if (stage.activeOverlayKey === "ALERT") {
-            tW = Math.round(Math.min(420, Math.max(160, compactCapsuleView.alertContentImplicitWidth + 36)))
-            tH = capsuleRoot.isLongAlert ? 64 : 48
-            tR = 24
+            tW = Math.round(Math.min(420, Math.max(196, compactCapsuleView.alertContentImplicitWidth + 36)))
+            tH = capsuleRoot.isLongAlert ? 66 : 50
+            tR = 25
         } else if (stage.activeOverlayKey === "WORKSPACE") {
-            // 🚀 强制锁定：保持当前常态胶囊长度，不发生任何形变！
-            tW = nW
+            tW = 210; tH = 38; tR = 19
         } else {
-            tW = nW; tH = 34; tR = 17
+            tW = compactCapsuleView.naturalPillWidth
+            tH = 38; tR = 19
         }
 
-        // TUCKED 吸顶坐标
         if ((stage.currentBaseTier === stage.tierTUCKED) && (stage.submergedSubTier === stage.subTierDEEP)) {
             tY = -(tH - 4.5)
         }
@@ -118,11 +115,25 @@ Item {
         coordinator.syncAndAnimate(tY, tW, tH, tR, isModeSwitch === true)
     }
 
+    // 🚀【核心补齐 1】：乐观物理掩码打通接口，彻底解决动效协调器的防御性空调用
+    function commitMaskTarget(targetW, targetH) {
+        if (typeof Bridge === "undefined" || !Bridge.applySettledMask) return
+        var capX = Math.round((parent.width - targetW) / 2 + islandOffsetX)
+        var safePad = 8
+        Bridge.applySettledMask(Math.max(0, capX - safePad), 0, targetW + safePad * 2, targetH + safePad * 2)
+    }
+
     Connections {
         target: compactCapsuleView
-        enabled: !capsuleRoot.isPhysicallyDeepTucked
-        function onImplicitCompactWidthChanged() {
-            capsuleRoot.resolveAndApplyGeometry(false)
+        enabled: !capsuleRoot.isExpandedState
+        function onNaturalPillWidthChanged() {
+            if (capsuleRoot.isPhysicallyDeepTucked) {
+                if (Math.abs(capsuleRoot.width - compactCapsuleView.naturalPillWidth) >= 2) {
+                    capsuleRoot.resolveAndApplyGeometry(false)
+                }
+            } else {
+                capsuleRoot.resolveAndApplyGeometry(false)
+            }
         }
     }
 
@@ -156,7 +167,6 @@ Item {
         return Qt.rgba(0, 0, 0, 0)
     }
 
-    // 1. 底板外框
     CapsuleBackground {
         id: capsuleBackground
         capsuleRadius: capsuleRoot.capsuleRadius
@@ -164,14 +174,12 @@ Item {
         isHovered: sensorArea.isPointerHovered
     }
 
-    // 2. 光学视口容器
     Item {
         id: opticalAperture
         anchors.fill: parent
         clip: true
         visible: !capsuleRoot.isPhysicallyDeepTucked || coordinator.isTuckingInProgress
 
-        // 紧凑态内容
         CompactCapsuleView {
             id: compactCapsuleView
             anchors.fill: parent
@@ -180,7 +188,6 @@ Item {
             opacity: capsuleRoot.isCompactContentVisible ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 130 } }
 
-            showNetSpeed: false
             chosenFont: capsuleRoot.effectiveFont
             activeTransient: stage.activeOverlayKey
             isCalling: stage.activeOverlayKey === "CALL"
@@ -206,24 +213,28 @@ Item {
             latestNotifAvatar: relay ? relay.latestNotifAvatar : ""
             memoryPercent: relay ? relay.memoryPercent : 0
 
-            timerActive: (expandedCardView && expandedCardView.timerActive !== undefined) ? expandedCardView.timerActive : false
-            timerFormattedText: (expandedCardView && expandedCardView.timerFormattedText !== undefined) ? expandedCardView.timerFormattedText : "25:00"
-            timerIsPaused: (expandedCardView && expandedCardView.timerIsPaused !== undefined) ? expandedCardView.timerIsPaused : false
-            timerIsCompleted: (expandedCardView && expandedCardView.timerIsCompleted !== undefined) ? expandedCardView.timerIsCompleted : false
-            timerProgress: (expandedCardView && expandedCardView.timerProgress !== undefined) ? expandedCardView.timerProgress : 1.0
+            // 🚀 直接绑定 Bridge 单一事实源
+            timerActive: (typeof Bridge !== "undefined") ? (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted) : false
+            timerFormattedText: {
+                if (typeof Bridge === "undefined") return "25:00"
+                var sec = Bridge.timerType === "stopwatch" ? Bridge.timerElapsedSec : Bridge.timerRemainingSec
+                var m = Math.floor(sec / 60)
+                var s = sec % 60
+                return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
+            }
+            timerIsPaused: (typeof Bridge !== "undefined") ? Bridge.timerIsPaused : false
+            timerIsCompleted: (typeof Bridge !== "undefined") ? Bridge.timerIsCompleted : false
+            timerProgress: (typeof Bridge !== "undefined" && Bridge.timerTotalSec > 0) ? (Bridge.timerRemainingSec / Bridge.timerTotalSec) : 1.0
 
             continuousSitMinutes: 45
             onSedentaryRested: capsuleRoot.sedentaryRested()
             onSedentarySnooze: capsuleRoot.sedentarySnooze()
             onRequestExpandTab: (tab) => capsuleRoot.requestExpand(tab)
             onToggleTimer: {
-                if (expandedCardView && expandedCardView.toggleTimerPause) {
-                    expandedCardView.toggleTimerPause()
-                }
+                if (typeof Bridge !== "undefined") Bridge.toggleTimerPause()
             }
         }
 
-        // 大卡片展开态内容
         Item {
             anchors.fill: parent
             anchors.margins: 12
@@ -266,12 +277,10 @@ Item {
                 ignoreUnknownSignals: true
                 function onStartCollapse() { stage.requestCollapse() }
                 function onRequestSettings() { capsuleRoot.requestSettings() }
-                function onTimerCompleted(title, message) { capsuleRoot.timerAlert(title, message) }
             }
         }
     }
 
-    // 3. 原生手势区
     CapsuleSensorArea {
         id: sensorArea
         anchors.fill: parent
