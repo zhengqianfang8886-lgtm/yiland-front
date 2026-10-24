@@ -38,6 +38,13 @@ Item {
     signal startCollapse()
     signal requestSettings()
 
+    // 🚀【核心修复】：监听外部展开路由赋值，自动驱动内部传送带换页
+    onExpandedTabChanged: {
+        if (conveyor && conveyor.activeKey !== expandedTab) {
+            conveyor.switchTo(expandedTab, 0)
+        }
+    }
+
     Timer {
         id: cardLeaveGraceTimer
         interval: 500
@@ -157,7 +164,6 @@ Item {
                 onCollapseRequested: cardRoot.startCollapse()
             }
 
-            // 🚀【彻底统一】：Timer 重新回归传送带标准调度，消除所有外部特权贴纸
             InterruptibleConveyor {
                 id: conveyor
                 anchors.fill: parent

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 纯净协调器版 (补全乐观掩码打通 · 彻底根除悬停脱靶)
+// 🌟 胶囊主壳 (彻底解耦视口显示与动画执行)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -23,7 +23,6 @@ Item {
 
     property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
 
-    signal timerAlert(string title, string msg)
     signal sedentaryRested()
     signal sedentarySnooze()
     signal requestExpand(string tabName)
@@ -62,18 +61,18 @@ Item {
     readonly property alias stageEngine: stage
 
     readonly property bool isLongAlert: {
-        if (!relay) return false
-        var t = relay.alertTitle || ""
-        var sub = relay.alertSubtitle || ""
+        var t = stage.activePayload.title || ""
+        var sub = stage.activePayload.subtitle || ""
         return (stage.activeOverlayKey === "ALERT") && ((t.length + sub.length) > 24 || sub.indexOf("\n") !== -1)
     }
 
-    readonly property bool isPhysicallyDeepTucked: (stage.currentBaseTier === stage.tierTUCKED) && 
-                                                  (stage.submergedSubTier === stage.subTierDEEP) &&
+    // 🚀【架构级解耦】：是否真正隐藏，不仅看坐标，还要看动画引擎是否彻底停息
+    readonly property bool isPhysicallyDeepTucked: (stage.baseMode === stage.modeTUCKED) && 
+                                                  (stage.presentState === stage.stateREST) &&
                                                   (capsuleRoot.y < 0) &&
-                                                  !coordinator.isTuckingInProgress
+                                                  !coordinator.isAnimating
 
-    readonly property bool isExpandedState: (stage.currentBaseTier === stage.tierEXPANDED)
+    readonly property bool isExpandedState: (stage.presentState === stage.stateEXPANDED)
     readonly property bool isCompactContentVisible: !isPhysicallyDeepTucked && !isExpandedState
 
     onIsPhysicallyDeepTuckedChanged: {
@@ -95,6 +94,8 @@ Item {
             tW = 420; tH = 240; tR = 24; tY = normalTopMargin
         } else if (stage.activeOverlayKey === "CALL") {
             tW = 320; tH = 46; tR = 23
+        } else if (stage.activeOverlayKey === "VOICE_INPUT") {
+            tW = 320; tH = 42; tR = 21
         } else if (stage.activeOverlayKey === "SEDENTARY") {
             tW = 420; tH = 112; tR = 26
         } else if (stage.activeOverlayKey === "ALERT") {
@@ -104,18 +105,22 @@ Item {
         } else if (stage.activeOverlayKey === "WORKSPACE") {
             tW = 210; tH = 38; tR = 19
         } else {
-            tW = compactCapsuleView.naturalPillWidth
+            var dynamicW = (compactCapsuleView && compactCapsuleView.naturalPillWidth > 0) ? compactCapsuleView.naturalPillWidth : 180
+            tW = Math.max(180, dynamicW)
             tH = 38; tR = 19
         }
 
-        if ((stage.currentBaseTier === stage.tierTUCKED) && (stage.submergedSubTier === stage.subTierDEEP)) {
+        if ((stage.baseMode === stage.modeTUCKED) && (stage.presentState === stage.stateREST)) {
             tY = -(tH - 4.5)
+        }
+
+        if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
+            Bridge.openFullCorridorForMotion()
         }
 
         coordinator.syncAndAnimate(tY, tW, tH, tR, isModeSwitch === true)
     }
 
-    // 🚀【核心补齐 1】：乐观物理掩码打通接口，彻底解决动效协调器的防御性空调用
     function commitMaskTarget(targetW, targetH) {
         if (typeof Bridge === "undefined" || !Bridge.applySettledMask) return
         var capX = Math.round((parent.width - targetW) / 2 + islandOffsetX)
@@ -161,8 +166,9 @@ Item {
 
     readonly property color currentEffectiveAccent: {
         if (stage.activeOverlayKey === "CALL") return Theme.media
+        if (stage.activeOverlayKey === "VOICE_INPUT") return "#38bdf8"
         if (stage.activeOverlayKey === "SEDENTARY") return Qt.rgba(52/255, 211/255, 153/255, 1.0)
-        if (stage.activeOverlayKey === "ALERT") return compactCapsuleView.alertThemeColor
+        if (stage.activeOverlayKey === "ALERT") return stage.activePayload.color || Theme.notification
         if (relay && relay.status === "Playing" && !isExpandedState) return relay.dominantColor
         return Qt.rgba(0, 0, 0, 0)
     }
@@ -178,19 +184,27 @@ Item {
         id: opticalAperture
         anchors.fill: parent
         clip: true
-        visible: !capsuleRoot.isPhysicallyDeepTucked || coordinator.isTuckingInProgress
+        // 🚀 确保在动画完整结束前，视口必须大开，杜绝画面截断
+        visible: !capsuleRoot.isPhysicallyDeepTucked
 
         CompactCapsuleView {
             id: compactCapsuleView
             anchors.fill: parent
 
-            visible: capsuleRoot.isCompactContentVisible
+            visible: opacity > 0.001
             opacity: capsuleRoot.isCompactContentVisible ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 130 } }
 
             chosenFont: capsuleRoot.effectiveFont
             activeTransient: stage.activeOverlayKey
             isCalling: stage.activeOverlayKey === "CALL"
+
+            alertIcon: stage.activePayload.icon
+            alertTitle: stage.activePayload.title
+            alertSubtitle: stage.activePayload.subtitle
+            alertAvatar: stage.activePayload.avatar
+            osdIcon: stage.activePayload.icon
+            osdValue: stage.activePayload.value
 
             dominantColor: relay ? relay.dominantColor : "#22c55e"
             spec1: relay ? relay.spec1 : 0.2
@@ -213,7 +227,6 @@ Item {
             latestNotifAvatar: relay ? relay.latestNotifAvatar : ""
             memoryPercent: relay ? relay.memoryPercent : 0
 
-            // 🚀 直接绑定 Bridge 单一事实源
             timerActive: (typeof Bridge !== "undefined") ? (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted) : false
             timerFormattedText: {
                 if (typeof Bridge === "undefined") return "25:00"
@@ -230,16 +243,14 @@ Item {
             onSedentaryRested: capsuleRoot.sedentaryRested()
             onSedentarySnooze: capsuleRoot.sedentarySnooze()
             onRequestExpandTab: (tab) => capsuleRoot.requestExpand(tab)
-            onToggleTimer: {
-                if (typeof Bridge !== "undefined") Bridge.toggleTimerPause()
-            }
+            onToggleTimer: if (typeof Bridge !== "undefined") Bridge.toggleTimerPause()
         }
 
         Item {
             anchors.fill: parent
             anchors.margins: 12
             z: 20
-            visible: capsuleRoot.isExpandedState
+            visible: opacity > 0.001
             opacity: capsuleRoot.isExpandedState ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: 150 } }
 
@@ -285,7 +296,6 @@ Item {
         id: sensorArea
         anchors.fill: parent
         z: 10
-        enabled: !capsuleRoot.isExpandedState
         isExpanded: capsuleRoot.isExpandedState
         isTucked: capsuleRoot.isPhysicallyDeepTucked
         isCalling: stage.activeOverlayKey === "CALL"
@@ -294,9 +304,7 @@ Item {
         onRequestTuckToggle: stage.toggleTuck()
         onRequestSettingsWindow: capsuleRoot.requestSettings()
         onRequestExpand: (tab) => {
-            if (expandedCardView) {
-                expandedCardView.expandedTab = tab
-            }
+            if (expandedCardView) expandedCardView.expandedTab = tab
             stage.requestExpand()
         }
         onStartCollapse: stage.requestCollapse()

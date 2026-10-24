@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 纯声明式状态机手势中枢 (彻底斩断 Timer 连环套)
+// 🌟 纯声明式状态机手势中枢 (放行特态内部交互按钮)
 // ==========================================
 import QtQuick
 
@@ -45,13 +45,11 @@ Item {
     signal pointerEnteredCapsule()
     signal requestSettingsWindow()
 
-    // 坐标与速度采样跟踪
     property real pressStartX: 0
     property real pressStartY: 0
     property real lastDragX: 0
     property real dragVelocityX: 0
 
-    // 🚀【核心重构】：用声明式 StateGroup 完全替代 Timer
     state: "IDLE"
 
     states: [
@@ -59,13 +57,8 @@ Item {
             name: "IDLE"
             PropertyChanges { target: sensorRoot; isScrubbing: false; isScrubCanceling: false; isMovingIsland: false }
         },
-        State {
-            name: "HOVERING"
-            // 当配置关闭悬停展开或处于特殊模态时，不触发展开流转
-        },
-        State {
-            name: "PRESSED"
-        },
+        State { name: "HOVERING" },
+        State { name: "PRESSED" },
         State {
             name: "SCRUBBING"
             PropertyChanges { target: sensorRoot; isScrubbing: true }
@@ -79,7 +72,8 @@ Item {
     HoverHandler {
         id: globalCapsuleHover
         blocking: false
-        enabled: !sensorRoot.isTucked
+        // 在深度隐藏或已展开时，本层不抢占悬停判断
+        enabled: !sensorRoot.isTucked && !sensorRoot.isExpanded
 
         onHoveredChanged: {
             if (hovered) {
@@ -92,25 +86,22 @@ Item {
                 if (sensorRoot.state === "HOVERING") {
                     sensorRoot.state = "IDLE"
                 }
-                if (sensorRoot.isExpanded) {
-                    // 物理离开胶囊，触发平滑收起
-                    sensorRoot.startCollapse()
-                }
+                // 🚨【核心修复】：严禁在此处调用 sensorRoot.startCollapse()！
+                // 展开态的收起由 ExpandedCardView 自带的 cardLeaveGraceTimer（带防抖延时）专门接管，
+                // 此处若调用，展开瞬间焦点转移就会被误判为退出胶囊，从而光速收缩并卡死为大黑块。
             }
         }
     }
 
-    // 悬停驻留响应转移（物理空间上的确定性响应）
     onStateChanged: {
         if (state === "HOVERING") {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return
             if (sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return
 
-            // 悬停意图直接转换为对应的功能卡片
             if (!sensorRoot.isExpanded) {
                 if (sensorRoot.isCalling) sensorRoot.requestExpand("media")
                 else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification")
-                else if (sensorRoot.activeTransient === "SEDENTARY") return
+                else if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return
                 else sensorRoot.requestExpand("workspace")
             }
         }
@@ -119,7 +110,11 @@ Item {
     MouseArea {
         id: hitArea
         anchors.fill: parent
-        enabled: !sensorRoot.isExpanded && !sensorRoot.isNoticeActive && !sensorRoot.isTucked
+        // 当展开、或处于特态时，禁用小胶囊的全局事件捕获，让下层具体按钮生效
+        enabled: !sensorRoot.isExpanded && !sensorRoot.isNoticeActive && !sensorRoot.isTucked &&
+                 (sensorRoot.activeTransient !== "VOICE_INPUT") &&
+                 (sensorRoot.activeTransient !== "CALL") &&
+                 (sensorRoot.activeTransient !== "SEDENTARY")
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         cursorShape: sensorRoot.isMovingIsland ? Qt.SizeHorCursor :
@@ -160,7 +155,6 @@ Item {
             var adx = Math.abs(mouse.x - sensorRoot.pressStartX)
             var ady = mouse.y - sensorRoot.pressStartY
 
-            // 状态自举：横向位移突破 6px 且纵向偏离在安全阈值内，直接切入 SCRUBBING
             if (sensorRoot.state === "PRESSED" && adx >= 6 && Math.abs(ady) < 18) {
                 sensorRoot.state = "SCRUBBING"
                 sensorRoot.scrubStarted()
@@ -222,7 +216,7 @@ Item {
             }
 
             if (sensorRoot.isPeeking || sensorRoot.isPassive5S || sensorRoot.isExpanded) return
-            if (sensorRoot.activeTransient === "SEDENTARY") return
+            if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return
 
             if (sensorRoot.isCalling) {
                 sensorRoot.requestExpand("media")

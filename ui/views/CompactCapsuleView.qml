@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 方案 A 幽灵展开微手柄 (平时 0px 隐形 · 悬停水滴拉伸滑出 · 38px 桌面黄金版)
+// 🌟 方案 A 微胶囊流体灌浆计时器 · 挂载语音动态视口版
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -13,7 +13,6 @@ Item {
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
     readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
 
-    // 🚀【方案 A 核心】：由外部手势层透传的光标悬停感知状态
     property bool isCapsuleHovered: false
 
     property string activeTransient: ""
@@ -122,9 +121,6 @@ Item {
         return n
     }
 
-    // =========================================================================
-    // 📐 插槽物理宽度测量
-    // =========================================================================
     readonly property bool showWsBadge: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) && (compactRoot.wsName !== "" || compactRoot.displayWsNumber > 0)
     readonly property int slotWidthWs: showWsBadge ? Math.max(22, Math.ceil(wsBadgeDummy.implicitWidth + 14)) : 0
 
@@ -154,17 +150,14 @@ Item {
         visible: false
     }
 
-    readonly property int slotWidthTimer: compactRoot.timerActive ? 58 : 0
+    readonly property int slotWidthTimer: compactRoot.timerActive ? 56 : 0
     readonly property int slotWidthNotif: compactRoot.unreadNotifCount > 0 ? Math.max(18, notifBadgeText.implicitWidth + 9) : 0
 
-    // 🚀【方案 A 核心槽位宽度】：悬停激活展开手柄 (宽 22px)，平时严格收缩为 0px
     readonly property bool showExpandBtn: compactRoot.isCapsuleHovered && !compactRoot.isCalling && (compactRoot.activeTransient === "" || compactRoot.activeTransient === "MEDIA_PEEK")
     readonly property int slotWidthExpandBtn: showExpandBtn ? 22 : 0
 
-    // =========================================================================
-    // 🌊 胶囊整体闭环自然宽度 (加入幽灵手柄的自适应流体延展)
-    // =========================================================================
     readonly property int naturalPillWidth: {
+        if (compactRoot.activeTransient === "VOICE_INPUT") return 320
         var slots = []
         if (slotWidthWs > 0) slots.push(slotWidthWs)
         if (slotWidthWave > 0) slots.push(slotWidthWave)
@@ -173,12 +166,12 @@ Item {
         if (slotWidthNumLock > 0) slots.push(slotWidthNumLock)
         if (slotWidthTimer > 0) slots.push(slotWidthTimer)
         if (slotWidthNotif > 0) slots.push(slotWidthNotif)
-        if (slotWidthExpandBtn > 0) slots.push(slotWidthExpandBtn) // 🚀 幽灵手柄入列
+        if (slotWidthExpandBtn > 0) slots.push(slotWidthExpandBtn)
 
-        var total = 16 + 16 // 双端固定 16px 边距
+        var total = 16 + 16
         for (var i = 0; i < slots.length; i++) {
             total += slots[i]
-            if (i < slots.length - 1) total += 10 // 模块间固定 10px 间隙
+            if (i < slots.length - 1) total += 10
         }
         return Math.max(180, Math.ceil(total / 2) * 2)
     }
@@ -279,16 +272,24 @@ Item {
         isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
     }
 
-    // =========================================================================
-    // 🌟 统一插槽流水线主视口：严格内联流排布 · 杜绝一切越界刺破
-    // =========================================================================
+    // 挂载端侧语音组件
+    CompactVoiceView {
+        id: voiceView
+        chosenFont: compactRoot.effectiveFont
+        isListening: (compactRoot.activeTransient === "VOICE_INPUT" && !compactRoot.isExpanded)
+        voiceLevel: (typeof Bridge !== "undefined" && Bridge.voiceInputLevel !== undefined) ? Bridge.voiceInputLevel : 0.2
+        streamText: (typeof Bridge !== "undefined" && Bridge.voiceInputText !== undefined) ? Bridge.voiceInputText : ""
+        onStopRequested: if (typeof Bridge !== "undefined") Bridge.stopVoiceInput()
+    }
+
     Item {
         id: contentViewport
         anchors.fill: parent
         readonly property bool isNormal: (!compactRoot.isExpanded &&
                                           (compactRoot.activeTransient === "" || compactRoot.activeTransient === "MEDIA_PEEK") &&
                                           !compactRoot.isCalling &&
-                                          !compactRoot.isScrubbing)
+                                          !compactRoot.isScrubbing &&
+                                          compactRoot.activeTransient !== "VOICE_INPUT")
         visible: opacity > 0.001
         opacity: isNormal ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 140 } }
@@ -296,11 +297,8 @@ Item {
         Row {
             id: pipelineRow
             anchors.centerIn: parent
-            spacing: 10 // 🚀 严格 10px 黄金空气间距
+            spacing: 10
 
-            // -----------------------------------------------------------------
-            // 【插槽 1】：当前工作区标识
-            // -----------------------------------------------------------------
             Rectangle {
                 id: wsSlot
                 visible: compactRoot.showWsBadge
@@ -339,9 +337,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 【插槽 2 & 3】：媒体律动声谱 (带 70ms 液压阻尼) / 内存预警
-            // -----------------------------------------------------------------
             Item {
                 id: mediaSlot
                 anchors.verticalCenter: parent.verticalCenter
@@ -357,7 +352,7 @@ Item {
                     anchors.centerIn: parent
                     width: compactRoot.fullWaveWidth
                     height: compactRoot.barMaxH
-                    opacity: compactRoot.waveVisible ? (compactRoot.isActivelyPlaying ? 1.0 : 0.6) : 0.0
+                    opacity: compactRoot.waveVisible ? (compactRoot.isActivelyPlaying ? 1.0 : 0.85) : 0.0
                     scale: compactRoot.waveVisible ? 1.0 : 0.5
                     visible: opacity > 0.01
 
@@ -377,6 +372,8 @@ Item {
                                 radius: compactRoot.barW / 2
                                 color: compactRoot.dominantColor
                                 anchors.verticalCenter: parent.verticalCenter
+
+                                Behavior on color { ColorAnimation { duration: 240 } }
 
                                 transform: Scale {
                                     origin.y: compactRoot.barMaxH / 2
@@ -415,9 +412,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 【插槽 4】：时序中枢核心
-            // -----------------------------------------------------------------
             Item {
                 id: clockSlot
                 anchors.verticalCenter: parent.verticalCenter
@@ -436,9 +430,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 【插槽 5】：NumLock 独立插槽
-            // -----------------------------------------------------------------
             Item {
                 id: numLockSlot
                 anchors.verticalCenter: parent.verticalCenter
@@ -474,9 +465,6 @@ Item {
                 }
             }
 
-            // -----------------------------------------------------------------
-            // 【插槽 6】：专注倒计时药丸
-            // -----------------------------------------------------------------
             Item {
                 id: timerSlot
                 anchors.verticalCenter: parent.verticalCenter
@@ -487,50 +475,74 @@ Item {
 
                 Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
 
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 5
+                readonly property color timerAccent: compactRoot.timerIsPaused ? "#f59e0b" :
+                                                      (compactRoot.timerIsCompleted ? "#10b981" : "#f97316")
 
-                    Item {
-                        width: 13; height: 13
-                        anchors.verticalCenter: parent.verticalCenter
-                        Shape {
-                            anchors.fill: parent
-                            ShapePath {
-                                strokeWidth: 1.8; strokeColor: Qt.rgba(1, 1, 1, 0.18); fillColor: "transparent"
-                                capStyle: ShapePath.RoundCap
-                                PathAngleArc { centerX: 6.5; centerY: 6.5; radiusX: 5.0; radiusY: 5.0; startAngle: -90; sweepAngle: 360 }
-                            }
-                            ShapePath {
-                                strokeWidth: 1.8
-                                strokeColor: compactRoot.timerIsPaused ? "#f59e0b" : (compactRoot.timerIsCompleted ? "#10b981" : "#f97316")
-                                fillColor: "transparent"; capStyle: ShapePath.RoundCap
-                                PathAngleArc {
-                                    centerX: 6.5; centerY: 6.5; radiusX: 5.0; radiusY: 5.0; startAngle: -90
-                                    sweepAngle: compactRoot.timerIsCompleted ? 360 : 360 * Math.min(1.0, Math.max(0.0, compactRoot.timerProgress))
-                                }
+                Rectangle {
+                    id: timerPillBody
+                    anchors.fill: parent
+                    radius: 10
+                    color: Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.12)
+                    border.color: timerHover.hovered ? timerSlot.timerAccent :
+                                  Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.38)
+                    border.width: 1
+                    clip: true
+
+                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                    Behavior on color { ColorAnimation { duration: 200 } }
+
+                    Rectangle {
+                        id: progressFill
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        radius: 10
+
+                        width: compactRoot.timerIsCompleted ? parent.width :
+                               Math.round(parent.width * Math.min(1.0, Math.max(0.0, compactRoot.timerProgress)))
+
+                        color: Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.32)
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: 350
+                                easing.type: Easing.OutCubic
                             }
                         }
+                        Behavior on color { ColorAnimation { duration: 200 } }
                     }
 
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: compactRoot.timerFormattedText
-                        color: compactRoot.timerIsPaused ? "#fcd34d" : (compactRoot.timerIsCompleted ? "#6ee7b7" : "#ffffff")
-                        font.family: compactRoot.displayFont
-                        font.pixelSize: 11
-                        font.weight: Font.Black
-                        font.features: { "tnum": 1 }
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 3
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: compactRoot.timerIsCompleted ? "✓" : (compactRoot.timerIsPaused ? "⏸" : "")
+                            visible: text !== ""
+                            color: compactRoot.timerIsCompleted ? "#6ee7b7" : "#fcd34d"
+                            font.pixelSize: 8
+                            font.weight: Font.Black
+                        }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: compactRoot.timerFormattedText
+                            color: compactRoot.timerIsCompleted ? "#6ee7b7" :
+                                   (compactRoot.timerIsPaused ? "#fcd34d" : "#ffffff")
+                            font.family: compactRoot.displayFont
+                            font.pixelSize: 11
+                            font.weight: Font.Black
+                            font.letterSpacing: 0.3
+                            font.features: { "tnum": 1 }
+                        }
                     }
                 }
 
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                HoverHandler { id: timerHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: compactRoot.toggleTimer() }
             }
 
-            // -----------------------------------------------------------------
-            // 【插槽 7】：消息未读角标
-            // -----------------------------------------------------------------
             Rectangle {
                 id: notifSlot
                 anchors.verticalCenter: parent.verticalCenter
@@ -557,9 +569,6 @@ Item {
                 TapHandler { onTapped: compactRoot.requestExpandTab("notification") }
             }
 
-            // -----------------------------------------------------------------
-            // 🌟【插槽 8】：方案 A 幽灵展开微手柄 (Ghost Chevron)
-            // -----------------------------------------------------------------
             Item {
                 id: expandSlot
                 anchors.verticalCenter: parent.verticalCenter

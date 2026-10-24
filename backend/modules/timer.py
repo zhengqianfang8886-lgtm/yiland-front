@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/timer.py
-# 🌟 原生异步专注计时器驱动 (彻底解耦 QML 视图生命周期)
+# 🌟 原生异步专注计时器驱动 (契约打断 · 根除协程自消亡 Bug)
 # ==========================================
 import asyncio
 from typing import Optional
@@ -47,19 +47,39 @@ class TimerModule(BaseModule):
                         self.state.timer_remaining_sec -= 1
                         self.notify("TIMER_UPDATE")
                     else:
+                        # 🚀 计时到达终点
                         self.state.timer_remaining_sec = 0
                         self.state.timer_is_running = False
                         self.state.timer_is_paused = False
                         self.state.timer_is_completed = True
-                        self._stop_ticker()
                         self.notify("TIMER_UPDATE")
-                        # 触发专注完成通知
+
+                        # 契约化触发系统级打断弹窗（线程安全、物理先发唤醒）
                         if self.state.timer_mode == "break":
-                            self.backend.bridge.alertTriggered.emit("⏰", "休息结束", "精力充沛，准备开启下一次专注吧 🚀", 5000, "")
+                            self.trigger_overlay(
+                                key="ALERT",
+                                title="休息结束",
+                                subtitle="精力充沛，准备开启下一次专注吧 🚀",
+                                icon="⏰",
+                                duration_ms=5000,
+                                priority=45
+                            )
                         else:
-                            self.backend.bridge.alertTriggered.emit("⏰", "专注完成", "倒计时已结束，站起来活动一下身体", 5000, "")
+                            self.trigger_overlay(
+                                key="ALERT",
+                                title="专注完成",
+                                subtitle="倒计时已结束，站起来活动一下身体",
+                                icon="⏰",
+                                duration_ms=5000,
+                                priority=45
+                            )
+                        
+                        # 正常退出循环，严禁在任务内调用 _stop_ticker() 导致自杀中断
+                        break
         except asyncio.CancelledError:
             pass
+        finally:
+            self._ticker_task = None
 
     async def switch_type(self, timer_type: str):
         if self.state.timer_is_running:
@@ -118,7 +138,7 @@ class TimerModule(BaseModule):
         h, rem = divmod(s, 3600)
         m, sec = divmod(rem, 60)
         time_str = f"{h:02d}:{m:02d}:{sec:02d}" if h > 0 else f"{m:02d}:{sec:02d}"
-        
+
         self.state.timer_laps.insert(0, {
             "id": len(self.state.timer_laps) + 1,
             "time": time_str

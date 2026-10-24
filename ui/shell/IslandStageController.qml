@@ -1,33 +1,41 @@
 // ==========================================
-// 📄 File: IslandStageController.qml (零抽搐·瞬时物理走廊打通版)
+// 📄 File: ui/shell/IslandStageController.qml
+// 🌟 正交分层舞台控制器 (彻底解耦鼠标探出与系统被动通知)
 // ==========================================
 import QtQuick
 
 Item {
     id: stageCtrl
 
-    readonly property int tierNORMAL: 0
-    readonly property int tierEXPANDED: 1
-    readonly property int tierTUCKED: 2
-    property int currentBaseTier: tierNORMAL
+    // 1. 底模态 (Base Mode) - 用户的常态偏好
+    readonly property int modeNORMAL: 0
+    readonly property int modeTUCKED: 1
+    property int baseMode: modeNORMAL
 
-    readonly property int subTierDEEP: 0
-    readonly property int subTierUSER: 1
-    readonly property int subTierPASSIVE: 2
-    property int submergedSubTier: subTierDEEP
+    // 2. 呈现模态 (Presentation State) - 视窗呈现目标
+    readonly property int stateREST: 0      // 常态静止
+    readonly property int statePEEK: 1      // 用户光标主动在天花板探出
+    readonly property int stateOVERLAY: 2   // 系统被动弹窗 (通知/计时完成/OSD/呼叫)
+    readonly property int stateEXPANDED: 3  // 全卡片展开
+    property int presentState: stateREST
 
     IslandTransientHub {
         id: transientHub
         onGeometryInvalidated: stageCtrl.stageGeometryRequested(false)
+        onTransientDismissed: (key) => {
+            // 当弹窗自然超时结束，平滑回到 REST 状态
+            if (stageCtrl.presentState === stageCtrl.stateOVERLAY) {
+                stageCtrl.presentState = stageCtrl.stateREST
+                stageCtrl.stageGeometryRequested(false)
+            }
+        }
     }
 
     readonly property alias hub: transientHub
     readonly property alias activeOverlayKey: transientHub.activeKey
     readonly property alias activePayload: transientHub.activePayload
 
-    // 武装标志：初始与常态下为 true
     property bool tuckArmed: true
-
     Timer {
         id: tuckArmTimer
         interval: 350
@@ -38,15 +46,23 @@ Item {
     signal stageGeometryRequested(bool isModeSwitch)
     signal modeSwitchTriggered(bool isAnchored)
 
+    // =========================================================================
+    // 🚀【核心通道 1】：被动事件入栈 (通知 / 计时结束 / OSD / 通话)
+    // =========================================================================
     function pushTransient(key, customDurationMs, payload) {
-        if (currentBaseTier === tierEXPANDED && key !== "CALL") return false
+        if (presentState === stateEXPANDED && key !== "CALL") return false
 
-        if (currentBaseTier === tierTUCKED) {
-            if (submergedSubTier !== subTierUSER) {
-                submergedSubTier = subTierPASSIVE
-            }
+        // 立即切断任何正在计时的鼠标离开定时器
+        userLeaveTimer.stop()
+
+        // 硬件级安全视口打通
+        if (typeof Bridge !== "undefined") {
+            if (Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion()
+            if (Bridge.forceRaise) Bridge.forceRaise()
         }
 
+        // 切换为独立弹窗状态
+        presentState = stateOVERLAY
         var ok = transientHub.push(key, customDurationMs, payload)
         stageGeometryRequested(false)
         return ok
@@ -54,77 +70,74 @@ Item {
 
     function popTransient(key) {
         transientHub.dismiss(key)
-
-        if (currentBaseTier === tierTUCKED && submergedSubTier === subTierPASSIVE) {
-            submergedSubTier = subTierDEEP
+        if (presentState === stateOVERLAY) {
+            presentState = stateREST
+            stageGeometryRequested(false)
         }
+    }
+
+    // =========================================================================
+    // 🚀【核心通道 2】：主动鼠标感应 (仅对用户 PEEK 生效，严禁干扰 OVERLAY)
+    // =========================================================================
+    function userHoverEnter() {
+        if (baseMode !== modeTUCKED || !tuckArmed) return
+        if (presentState === stateOVERLAY || presentState === stateEXPANDED) return
+        if (presentState === statePEEK) return
+
+        userLeaveTimer.stop()
+        if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
+            Bridge.openFullCorridorForMotion()
+        }
+
+        presentState = statePEEK
         stageGeometryRequested(false)
     }
 
-    Connections {
-        target: transientHub
-        function onTransientDismissed(key) {
-            if (stageCtrl.currentBaseTier === stageCtrl.tierTUCKED && stageCtrl.submergedSubTier === stageCtrl.subTierPASSIVE) {
-                stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
+    function userHoverKeep() {
+        if (presentState === statePEEK) {
+            userLeaveTimer.stop()
+        }
+    }
+
+    function userHoverLeave() {
+        if (presentState === statePEEK) {
+            tuckArmed = true
+            userLeaveTimer.restart()
+        }
+    }
+
+    // 🚀 物理级隔离：定时器仅当且仅当处于 PEEK 状态时才执行复原
+    Timer {
+        id: userLeaveTimer
+        interval: 160
+        repeat: false
+        onTriggered: {
+            if (stageCtrl.presentState === stageCtrl.statePEEK) {
+                stageCtrl.presentState = stageCtrl.stateREST
                 stageCtrl.stageGeometryRequested(false)
             }
         }
     }
 
-    // 🚀【核心修复点 1】：探头第 0 毫秒立刻解除物理裁剪，鼠标往下走绝不穿透
-    function userHoverEnter() {
-        if (currentBaseTier !== tierTUCKED || !tuckArmed) return
-        if (submergedSubTier === subTierUSER) return
-
-        userLeaveTimer.stop()
-
-        // 立即向后端开启全域走廊，彻底杜绝 8px Mask 导致的虚假 Exited 抽搐
-        if (typeof Bridge !== "undefined") {
-            Bridge.openFullCorridorForMotion()
-        }
-
-        submergedSubTier = subTierUSER
-        stageGeometryRequested(false)
-    }
-
-    function userHoverKeep() {
-        if (currentBaseTier !== tierTUCKED) return
-        userLeaveTimer.stop()
-    }
-
-    function userHoverLeave() {
-        if (currentBaseTier !== tierTUCKED) return
-        // 移出感应区后自动充能武装，准备迎接下一次移入
-        tuckArmed = true
-        userLeaveTimer.restart()
-    }
-
-    // 🚀【核心修复点 2】：140ms 人体工学迟滞滤波，消除边缘微抖动
-    Timer {
-        id: userLeaveTimer
-        interval: 140
-        repeat: false
-        onTriggered: {
-            if (stageCtrl.currentBaseTier === stageCtrl.tierTUCKED) {
-                if (stageCtrl.submergedSubTier !== stageCtrl.subTierDEEP) {
-                    stageCtrl.submergedSubTier = stageCtrl.subTierDEEP
-                    stageCtrl.hub.dismiss()
-                    stageCtrl.stageGeometryRequested(false)
-                }
-            }
-        }
-    }
-
+    // =========================================================================
+    // 🚀【核心通道 3】：大卡片展开 / 隐藏切换
+    // =========================================================================
     function requestExpand() {
-        if (currentBaseTier === tierTUCKED) return
+        if (baseMode === modeTUCKED && presentState === stateREST) return
         popTransient()
-        currentBaseTier = tierEXPANDED
+        userLeaveTimer.stop()
+        if (typeof Bridge !== "undefined") {
+            if (Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion()
+            if (Bridge.forceRaise) Bridge.forceRaise()
+        }
+        presentState = stateEXPANDED
         stageGeometryRequested(false)
     }
 
     function requestCollapse() {
         popTransient()
-        currentBaseTier = tierNORMAL
+        userLeaveTimer.stop()
+        presentState = stateREST
         stageGeometryRequested(false)
     }
 
@@ -132,16 +145,13 @@ Item {
         popTransient()
         userLeaveTimer.stop()
 
-        var willBeAnchored = (currentBaseTier === tierTUCKED)
+        var willBeAnchored = (baseMode === modeTUCKED)
+        baseMode = willBeAnchored ? modeNORMAL : modeTUCKED
+        presentState = stateREST
 
         if (willBeAnchored) {
-            currentBaseTier = tierNORMAL
-            submergedSubTier = subTierDEEP
             tuckArmed = true
         } else {
-            currentBaseTier = tierTUCKED
-            submergedSubTier = subTierDEEP
-            // 右键隐藏瞬间关闭武装，防止光标停在原地自碰自弹
             tuckArmed = false
             tuckArmTimer.restart()
         }

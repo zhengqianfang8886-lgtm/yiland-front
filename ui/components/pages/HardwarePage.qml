@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: pages/HardwarePage.qml
+// 📄 File: ui/components/pages/HardwarePage.qml
+// 🌟 硬件控制页 (音量调控全动作日志埋点版)
 // ==========================================
 import QtQuick
 
@@ -24,11 +25,19 @@ Item {
             hwPageRoot.isVolMuted = volMuted
             hwPageRoot.isMicMuted = micMuted
         }
-        function onVolumeChanged(val) { hwPageRoot.currentVolume = val }
+        function onVolumeChanged(val) {
+            // 🔊【音量日志触发点 11】：硬件页面响应全局音量变动
+            console.log("[HardwarePage] 收到 onVolumeChanged 信号 -> currentVolume 从 " + hwPageRoot.currentVolume + " 更新为 " + val)
+            hwPageRoot.currentVolume = val
+        }
         function onBrightnessChanged(val) { hwPageRoot.currentBrightness = val }
         function onOsdTriggered(icon, label, val) {
-            if (label === "Volume") hwPageRoot.currentVolume = val
-            else if (label === "Display") hwPageRoot.currentBrightness = val
+            if (label === "Volume") {
+                console.log("[HardwarePage] 收到 onOsdTriggered(Volume) -> " + val + "%")
+                hwPageRoot.currentVolume = val
+            } else if (label === "Display") {
+                hwPageRoot.currentBrightness = val
+            }
         }
     }
 
@@ -244,6 +253,8 @@ Item {
                     function updateVolume(mouseX) {
                         var ratio = Math.max(0.0, Math.min(1.0, mouseX / soundTrack.width))
                         var target = Math.round(ratio * 100)
+                        // 🔊【音量日志触发点 12】：硬件控制卡片中拖拽滑条触发音量设定
+                        console.log("[HardwarePage] 滑条交互拖动调节 -> target: " + target + "% (当前: " + hwPageRoot.currentVolume + "%)")
                         if (typeof Bridge !== "undefined") {
                             Bridge.adjustHardware(0, target - hwPageRoot.currentVolume)
                         }
@@ -255,6 +266,8 @@ Item {
                         wheel.accepted = true
                         var step = (typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5
                         var delta = wheel.angleDelta.y > 0 ? step : -step
+                        // 🔊【音量日志触发点 13】：硬件控制卡片中在滑轨上滚轮调音
+                        console.log("[HardwarePage] 滚轮悬停调节音量 -> delta: " + delta + "%")
                         if (typeof Bridge !== "undefined") Bridge.adjustHardware(0, delta)
                     }
                 }

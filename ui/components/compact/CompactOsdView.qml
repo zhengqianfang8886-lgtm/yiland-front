@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: compact/CompactOsdView.qml (流体物理滑轨·紧凑自适应版)
+// 📄 File: ui/components/compact/CompactOsdView.qml
+// 🌟 流体物理滑轨 · OSD 动效触发日志增强版
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -7,7 +8,6 @@ import QtQuick.Shapes
 Item {
     id: osdRoot
     anchors.fill: parent
-    // 紧贴胶囊内边距，完全服从胶囊现有物理宽度
     anchors.leftMargin: 8
     anchors.rightMargin: 8
 
@@ -22,6 +22,8 @@ Item {
     readonly property int clampedValue: Math.min(100, Math.max(0, osdValue))
 
     onOsdValueChanged: {
+        // 🔊【音量日志触发点 8】：CompactOsdView 视觉跳动动画触发
+        console.log("[CompactOsdView] 音量/OSD动画触发 -> 图标: " + osdIcon + ", 数值: " + osdValue + ", 静音: " + isHardwareMuted)
         speakerPulseScale = 1.15
         pulseCooldownTimer.restart()
     }
@@ -57,7 +59,6 @@ Item {
             layer.enabled: true
             layer.samples: 4
 
-            // 喇叭锥体
             ShapePath {
                 fillColor: osdRoot.isHardwareMuted ? Theme.danger : "#ffffff"
                 strokeColor: "transparent"
@@ -70,7 +71,6 @@ Item {
                 PathLine { x: 1.5; y: 5.0 }
             }
 
-            // 低音量弧
             ShapePath {
                 strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue > 0) ? "#ffffff" : "transparent"
                 strokeWidth: 1.2
@@ -80,7 +80,6 @@ Item {
                 PathArc { x: 9.5; y: 9.5; radiusX: 2.6; radiusY: 2.6; useLargeArc: false }
             }
 
-            // 高音量弧
             ShapePath {
                 strokeColor: (!osdRoot.isHardwareMuted && osdRoot.clampedValue >= 50) ? "#ffffff" : "transparent"
                 strokeWidth: 1.2
@@ -90,7 +89,6 @@ Item {
                 PathArc { x: 12.0; y: 11.5; radiusX: 5.2; radiusY: 5.2; useLargeArc: false }
             }
 
-            // 静音斜杠
             ShapePath {
                 strokeColor: osdRoot.isHardwareMuted ? Theme.danger : "transparent"
                 strokeWidth: 1.3
@@ -104,7 +102,7 @@ Item {
         }
     }
 
-    // 2. 右侧定宽百分比（紧凑 26px）
+    // 2. 右侧定宽百分比
     Item {
         id: valueWrapper
         anchors.right: parent.right
@@ -126,7 +124,7 @@ Item {
         }
     }
 
-    // 3. 中间流体滑轨（左右锚定填满剩余空间，胶囊多长它就多长，不推挤外壳）
+    // 3. 中间流体滑轨
     Rectangle {
         id: sliderTrack
         anchors.left: iconArea.right

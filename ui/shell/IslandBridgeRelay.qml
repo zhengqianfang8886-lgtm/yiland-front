@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: IslandBridgeRelay.qml
+// 📄 File: ui/shell/IslandBridgeRelay.qml
+// 🌟 统一事件清洗与中继总线 (音量 OSD 日志埋点版)
 // ==========================================
 import QtQuick
 
@@ -28,30 +29,17 @@ Item {
     property string wsName: "1"
     property var wsList: []
 
-    property string osdIcon: "🔊"
-    property int osdValue: 50
-    property string alertIcon: "🔔"
-    property string alertTitle: ""
-    property string alertSubtitle: ""
-    property string alertAvatar: ""
-
-    // 🚀【核心修复】：直通绑定 Bridge 原生属性
     readonly property var notifModel: (typeof Bridge !== "undefined") ? Bridge.notificationModel : null
     property int unreadCount: (typeof Bridge !== "undefined" && Bridge.unreadCount !== undefined) ? Bridge.unreadCount : 0
     property string latestNotifAvatar: (typeof Bridge !== "undefined" && Bridge.latestNotificationAvatar !== undefined) ? Bridge.latestNotificationAvatar : ""
 
     property string downSpeedStr: "0.0 B/s"
     property string upSpeedStr: "0.0 B/s"
-    property string downSpeedCompact: "0K"
-    property string upSpeedCompact: "0K"
     property string localIp: "127.0.0.1"
 
     property int memoryPercent: 0
-    property string memoryUsedGb: "0G"
-    property string memoryTotalGb: "0G"
 
-    signal triggerAlert(string icon, string title, string sub, int ms, string avatar)
-    signal triggerClipboard(string icon, string title, string detail, int ms)
+    signal triggerAlert(var payload, int durationMs)
     signal triggerOsd(string icon, string label, int val)
     signal triggerWorkspace(int curr, int tot, string name)
     signal callEnded()
@@ -60,10 +48,7 @@ Item {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         ignoreUnknownSignals: true
 
-        // 🚀【核心修复】：实时响应未读数变动
-        function onUnreadCountChanged(cnt) {
-            relay.unreadCount = cnt
-        }
+        function onUnreadCountChanged(cnt) { relay.unreadCount = cnt }
 
         function onMediaUpdated(t, a, s, u, pos, dur) {
             relay.title = t; relay.artist = a; relay.status = s; relay.artUrl = u
@@ -79,24 +64,52 @@ Item {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4
         }
 
-        function onClipboardTriggered(icon, title, detail, ms) { relay.triggerClipboard(icon, title, detail, ms) }
         function onOsdTriggered(icon, label, val) {
-            relay.osdIcon = icon; relay.osdValue = val
+            // 🔊【音量日志触发点 9】：QML 中继层拦截到底层发来的 OSD 信号
+            if (label === "Volume") {
+                console.log("[IslandBridgeRelay] 收到底层音量 OSD 信号 -> icon: " + icon + ", label: " + label + ", val: " + val)
+            }
             relay.triggerOsd(icon, label, val)
         }
+
+        function onClipboardTriggered(icon, title, detail, ms) {
+            relay.triggerAlert({
+                icon: icon,
+                title: title,
+                subtitle: detail,
+                avatar: "",
+                color: "#38bdf8"
+            }, ms)
+        }
+
         function onWorkspaceTriggered(curr, tot, name) {
             relay.wsCurrent = curr; relay.wsTotal = tot; relay.wsName = name
             relay.triggerWorkspace(curr, tot, name)
         }
         function onWorkspaceListUpdated(list) { relay.wsList = list }
-        function onAlertTriggered(icon, t, sub, ms, avatar) { relay.triggerAlert(icon, t, sub, ms, avatar) }
+
+        function onAlertTriggered(icon, t, sub, ms, avatar) {
+            relay.triggerAlert({
+                icon: icon || "🔔",
+                title: t || "提醒",
+                subtitle: sub || "",
+                avatar: avatar || "",
+                color: (icon === "⏰") ? "#f97316" : "#818cf8"
+            }, ms > 0 ? ms : 3500)
+        }
 
         function onCallIncomingTriggered(title, sub, avatar) {
             relay.isCalling = true
             relay.callTitle = title || "Teams 来电"
             relay.callSubtitle = sub || "正在呼叫..."
             relay.callAvatar = avatar || ""
-            relay.triggerAlert("📞", relay.callTitle, relay.callSubtitle, 0, relay.callAvatar)
+            relay.triggerAlert({
+                icon: "📞",
+                title: relay.callTitle,
+                subtitle: relay.callSubtitle,
+                avatar: relay.callAvatar,
+                color: "#22c55e"
+            }, 0)
         }
 
         function onCallEndedTriggered() {

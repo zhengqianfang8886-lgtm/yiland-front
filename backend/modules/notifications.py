@@ -1,10 +1,9 @@
 # ==========================================
 # 📄 File: backend/modules/notifications.py
-# 🌟 Teams 专属过滤 · 零磁盘落盘 · 隐私调试安全版
+# 🌟 Teams 专属过滤 · 零磁盘落盘 · PAL 兼容适配版
 # ==========================================
 import os
 import asyncio
-import shutil
 from typing import Optional
 
 from dbus_next.aio import MessageBus
@@ -14,6 +13,7 @@ from dbus_next import Message
 from backend.logger import app_logger
 from backend.core.base import BaseModule
 from backend.core.state import IslandState
+from backend.platform import detect_platform
 
 
 def is_debug_mode() -> bool:
@@ -32,6 +32,7 @@ class NotificationModule(BaseModule):
 
     def __init__(self, backend, state: IslandState):
         super().__init__(backend, state)
+        self.platform = detect_platform()
         self.monitor_bus: Optional[MessageBus] = None
         self.action_bus: Optional[MessageBus] = None
         self.current_call_id: Optional[int] = None
@@ -177,36 +178,22 @@ class NotificationModule(BaseModule):
             self._stop_call("超时无应答挂断")
 
     async def focus_teams(self) -> bool:
-        """靶向置顶 Teams 窗口"""
-        if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-            cmd = 'hyprctl dispatch focuswindow "class:^(.*teams.*)$" || hyprctl dispatch focuswindow "title:^(.*Teams.*)$"'
-            proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-            await proc.communicate()
-            return proc.returncode == 0
-        if shutil.which("wmctrl"):
-            cmd = 'wmctrl -a "Microsoft Teams" 2>/dev/null || wmctrl -a "teams.live.com" 2>/dev/null'
-            proc = await asyncio.create_subprocess_shell(cmd)
-            await proc.communicate()
-            return proc.returncode == 0
-        return False
+        """通过 PAL 平台适配层聚焦 Teams 窗口"""
+        return self.platform.focus_application_window(class_pattern="teams", title_pattern="Microsoft Teams")
 
     async def answer_call(self) -> bool:
         """快捷安全接听"""
         if not self.is_calling: return False
         await self.focus_teams()
-        await asyncio.sleep(0.12)
-        cmd = "wtype -M ctrl -M shift -k s 2>/dev/null || xdotool key --clearmodifiers ctrl+shift+s 2>/dev/null"
-        proc = await asyncio.create_subprocess_shell(cmd)
-        await proc.communicate()
-        return True
+        await asyncio.sleep(0.15)
+        # 通过 PAL 触发组合键
+        return self.platform.simulate_shortcut("ctrl+shift+s")
 
     async def reject_call(self) -> bool:
         """快捷安全拒接"""
         if not self.is_calling: return False
         await self.focus_teams()
-        await asyncio.sleep(0.12)
-        cmd = "wtype -M ctrl -M shift -k d 2>/dev/null || xdotool key --clearmodifiers ctrl+shift+d 2>/dev/null"
-        proc = await asyncio.create_subprocess_shell(cmd)
-        await proc.communicate()
+        await asyncio.sleep(0.15)
+        res = self.platform.simulate_shortcut("ctrl+shift+d")
         self._stop_call("主动拒接")
-        return True
+        return res

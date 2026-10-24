@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/backend.py
-# 🌟 单一异步控制调度总线 (集成 Timer 与 Habit 原生驱动)
+# 🌟 单一异步控制调度总线 (集成语音输入驱动)
 # ==========================================
 import asyncio
 from typing import Optional, List
@@ -20,6 +20,7 @@ from backend.modules.notifications import NotificationModule
 from backend.modules.system import SystemModule
 from backend.modules.timer import TimerModule
 from backend.modules.habits import HabitModule
+from backend.modules.voice import VoiceInputModule
 
 
 class DirectIslandBackend:
@@ -41,6 +42,7 @@ class DirectIslandBackend:
         self.system: Optional[SystemModule] = None
         self.timer: Optional[TimerModule] = None
         self.habits: Optional[HabitModule] = None
+        self.voice: Optional[VoiceInputModule] = None
 
     def broadcast(self, event_type: str = "UPDATE"):
         if self.bridge:
@@ -74,6 +76,7 @@ class DirectIslandBackend:
         self.system = SystemModule(self, self.state)
         self.timer = TimerModule(self, self.state)
         self.habits = HabitModule(self, self.state)
+        self.voice = VoiceInputModule(self, self.state)
 
         self.modules = [
             self.workspace,
@@ -84,6 +87,7 @@ class DirectIslandBackend:
             self.system,
             self.timer,
             self.habits,
+            self.voice,
         ]
 
         init_tasks = [mod.start() for mod in self.modules]
@@ -93,7 +97,7 @@ class DirectIslandBackend:
                 app_logger.error(f"模块 [{mod.__class__.__name__}] 启动异常: {res}")
 
         self.broadcast("FULL_SYNC")
-        app_logger.info("✨ 所有原生硬件驱动、计时引擎与持久化仓储接入完毕。")
+        app_logger.info("✨ 所有原生硬件驱动、计时引擎与语音识别管道接入完毕。")
 
     async def shutdown(self):
         app_logger.info("🛑 正在卸载后端服务...")

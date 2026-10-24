@@ -1,10 +1,11 @@
-import "../shell"
-import "../views"
 // ==========================================
-// 📄 File: Island.qml (平滑单向迟滞天花板感应版)
+// 📄 File: ui/windows/Island.qml
+// 🌟 顶级窗口视图与天花板感应网 (音量 OSD 状态压栈日志增强版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
+import "../shell"
+import "../views"
 
 Item {
     id: root
@@ -52,7 +53,12 @@ Item {
     IslandSedentaryService {
         id: sedentaryService
         onRequestAlert: (mins) => {
-            capsule.stageEngine.pushTransient("SEDENTARY", 0)
+            capsule.stageEngine.pushTransient("SEDENTARY", 0, {
+                title: "站立建议",
+                subtitle: "已连续伏案 " + mins + " 分钟",
+                icon: "🧘",
+                color: "#34d399"
+            })
         }
         onDismissAlert: {
             capsule.stageEngine.popTransient("SEDENTARY")
@@ -63,27 +69,47 @@ Item {
         id: relay
 
         onTriggerOsd: (icon, label, val) => {
-            capsule.stageEngine.pushTransient("OSD", 1500)
+            // 🔊【音量日志触发点 10】：顶层接收并准备将 OSD 压入灵动岛动画瞬态栈
+            if (label === "Volume") {
+                console.log("[Island.qml] 准备呼出胶囊音量 OSD: " + icon + " " + val + "% (持续 1500ms)")
+            }
+            capsule.stageEngine.pushTransient("OSD", 1500, {
+                icon: icon,
+                title: label,
+                subtitle: val + "%",
+                value: val,
+                color: (icon === "🔇") ? "#ef4444" : "#ffffff"
+            })
         }
 
         onTriggerWorkspace: (c, t, n) => {
             if (capsule.islandOffsetX !== 0) capsule.goHome()
-            capsule.stageEngine.pushTransient("WORKSPACE", 800)
-            if (typeof Bridge !== "undefined") Bridge.forceRaise()
+            capsule.stageEngine.pushTransient("WORKSPACE", 800, {
+                icon: "⊞",
+                title: n || ("桌面 " + c),
+                subtitle: c + "/" + t,
+                color: Theme.workspace
+            })
         }
 
-        onTriggerAlert: (icon, t, sub, ms, avatar) => {
+        onTriggerAlert: (payload, durationMs) => {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
-            var isCall = (icon === "📞" || relay.isCalling)
+            var isCall = (payload.icon === "📞" || relay.isCalling)
             if (isDnd && !isCall) return
 
             if (capsule.islandOffsetX !== 0) capsule.goHome()
-            capsule.stageEngine.pushTransient("ALERT", ms > 0 ? ms : 3500)
+            capsule.stageEngine.pushTransient("ALERT", durationMs, payload)
         }
 
         onCallEnded: {
             capsule.stageEngine.popTransient("CALL")
-            capsule.stageEngine.pushTransient("ALERT", 3000)
+            capsule.stageEngine.pushTransient("ALERT", 3000, {
+                icon: "📞",
+                title: "通话已结束",
+                subtitle: "Teams 语音通话",
+                avatar: "",
+                color: "#818cf8"
+            })
         }
     }
 
@@ -92,8 +118,14 @@ Item {
         ignoreUnknownSignals: true
         function onMediaUpdated(t, a, s, u, pos, dur) {
             if (s === "Playing") {
-                if (capsule.stageEngine.currentBaseTier === capsule.stageEngine.tierTUCKED) {
-                    capsule.stageEngine.pushTransient("MEDIA_PEEK", 3500)
+                if (capsule.stageEngine.baseMode === capsule.stageEngine.modeTUCKED &&
+                    capsule.stageEngine.presentState === capsule.stageEngine.stateREST) {
+                    capsule.stageEngine.pushTransient("MEDIA_PEEK", 3500, {
+                        icon: "🎵",
+                        title: t,
+                        subtitle: a,
+                        color: relay.dominantColor
+                    })
                 }
             }
         }
@@ -113,7 +145,6 @@ Item {
         }
     }
 
-    // 核心胶囊
     IslandCapsule {
         id: capsule
         anchors.horizontalCenter: parent.horizontalCenter
@@ -122,18 +153,11 @@ Item {
         timeService: timeService
         enabledTabs: root.enabledTabs
 
-        onTimerAlert: (t, msg) => {
-            capsule.stageEngine.pushTransient("ALERT", 5000)
-            if (typeof Bridge !== "undefined") Bridge.forceRaise()
-        }
         onSedentaryRested: sedentaryService.markRested()
         onSedentarySnooze: sedentaryService.snooze()
         onRequestSettings: root.openSettingsWindow()
     }
 
-    // =========================================================================
-    // 6. 🚀【全新】：零抽搐·单向迟滞天花板鼠标感应网
-    // =========================================================================
     MouseArea {
         id: ceilingHoverNet
         anchors.horizontalCenter: parent.horizontalCenter
@@ -141,10 +165,9 @@ Item {
         width: Math.max(180, capsule.width + 32)
         z: 99
 
-        readonly property bool isTuckedMode: capsule.stageEngine.currentBaseTier === capsule.stageEngine.tierTUCKED
-        readonly property bool isUserPeeking: capsule.stageEngine.submergedSubTier === capsule.stageEngine.subTierUSER
+        readonly property bool isTuckedMode: capsule.stageEngine.baseMode === capsule.stageEngine.modeTUCKED
+        readonly property bool isUserPeeking: capsule.stageEngine.presentState === capsule.stageEngine.statePEEK
 
-        // 迟滞感应高度：常态深潜时只占顶端 14px，一旦用户探出，无缝覆盖至胶囊底部，杜绝脱靶
         height: isTuckedMode ? (isUserPeeking ? Math.max(52, capsule.y + capsule.height + 12) : 14) : 0
 
         enabled: isTuckedMode

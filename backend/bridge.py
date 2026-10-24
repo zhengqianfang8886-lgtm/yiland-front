@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (单一事实源绑定 · 拔除幽灵托盘代码)
+# 🌟 Qt / QML 统一交互中枢 (集成语音识别通道与属性绑定)
 # ==========================================
 import time
 import atexit
@@ -8,6 +8,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt
+from backend.logger import app_logger
 from backend.models import NotificationListModel, BluetoothListModel
 from backend.window import WindowManagerService
 from backend.utils import get_world_time, get_tz_offset_str
@@ -19,7 +20,6 @@ class IslandBridge(QObject):
         if self._backend:
             self._backend.set_ui_active(active)
 
-    # 视图层响应信号
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
@@ -44,10 +44,13 @@ class IslandBridge(QObject):
     netSpeedUpdated = Signal(str, str, str, str)
     batteryUpdated = Signal(int, bool)
 
-    # 专注计时器单一事实源信号
     timerUpdated = Signal()
+    overlayChanged = Signal()
 
-    # 跨线程投递信号
+    # 语音输入专用信号
+    voiceInputLevelChanged = Signal(float)
+    voiceInputStateChanged = Signal(bool, str)
+
     _sig_inproc_event = Signal(str, object)
     _sig_spectrum_event = Signal(float, float, float, float)
 
@@ -85,7 +88,41 @@ class IslandBridge(QObject):
             self._notif_model.clearAll()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    # --- 统一直接代理单事实源 (State & Models) ---
+    @Property("QVariantMap", notify=overlayChanged)
+    def activeOverlay(self):
+        if self._backend:
+            return self._backend.state.get_overlay_dict()
+        return {}
+
+    @Slot()
+    def dismissOverlay(self):
+        if self._backend:
+            self._backend.state.clear_overlay()
+            self.overlayChanged.emit()
+
+    # 语音输入属性与控制方法
+    @Property(bool, notify=voiceInputStateChanged)
+    def voiceInputActive(self):
+        return self._backend.state.voice_input_active if self._backend else False
+
+    @Property(str, notify=voiceInputStateChanged)
+    def voiceInputText(self):
+        return self._backend.state.voice_input_text if self._backend else ""
+
+    @Property(float, notify=voiceInputLevelChanged)
+    def voiceInputLevel(self):
+        return self._backend.state.voice_input_level if self._backend else 0.1
+
+    @Slot()
+    def toggleVoiceInput(self):
+        if self._backend and self._backend.voice:
+            self.run_async(self._backend.voice.toggle_recording())
+
+    @Slot()
+    def stopVoiceInput(self):
+        if self._backend and self._backend.voice:
+            self.run_async(self._backend.voice.stop_recording())
+
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
@@ -122,9 +159,6 @@ class IslandBridge(QObject):
     def isSystemCharging(self):
         return self._backend.state.battery_charging if self._backend else False
 
-    # =========================================================================
-    # ⏱️ 计时器数据暴露 (纯受控数据源)
-    # =========================================================================
     @Property(str, notify=timerUpdated)
     def timerType(self): return self._backend.state.timer_type if self._backend else "countdown"
 
@@ -182,9 +216,6 @@ class IslandBridge(QObject):
         if self._backend and self._backend.timer:
             self.run_async(self._backend.timer.reset())
 
-    # =========================================================================
-    # 📅 习惯打卡数据暴露 (后端 SQLite 代理)
-    # =========================================================================
     @Slot(result="QVariantList")
     def getHabits(self):
         if self._backend and self._backend.habits:
@@ -215,7 +246,6 @@ class IslandBridge(QObject):
             return self._backend.habits.toggle_record(habit_id, date_str)
         return False
 
-    # --- 硬件控制动作槽函数 ---
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         if not self._backend: return
@@ -315,6 +345,27 @@ class IslandBridge(QObject):
 
     @Slot(str, object)
     def _handle_inproc_event(self, event_type: str, s):
+        if event_type == "VOICE_INPUT_LEVEL":
+            self.voiceInputLevelChanged.emit(s.voice_input_level)
+            return
+        elif event_type == "VOICE_INPUT_UPDATE":
+            self.voiceInputStateChanged.emit(s.voice_input_active, s.voice_input_text)
+
+        if event_type == "OVERLAY_CHANGED":
+            overlay = s.get_overlay_dict()
+            if overlay.get("key"):
+                self.view.raise_()
+                self.wm.clear_mask()
+            self.overlayChanged.emit()
+            if overlay.get("key") == "ALERT":
+                self.alertTriggered.emit(
+                    overlay.get("icon") or "🔔",
+                    overlay.get("title") or "",
+                    overlay.get("subtitle") or "",
+                    overlay.get("duration") or 3500,
+                    overlay.get("avatar") or ""
+                )
+
         if event_type in ("MEDIA_UPDATE", "FULL_SYNC"):
             art = s.art_url
             if art and art.startswith("/") and not art.startswith("file://"):

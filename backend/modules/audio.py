@@ -1,9 +1,12 @@
 # ==========================================
 # 📄 File: backend/modules/audio.py
-# 🌟 原生 pulsectl 驱动 (0延迟 · 完美融入 KDE)
+# 🌟 原生 pulsectl 驱动 (单一常驻指令管道 · 自动折叠防抖 · 零线程泄露版)
 # ==========================================
+import time
 import asyncio
 import threading
+from typing import Optional
+
 import pulsectl
 from backend.logger import app_logger
 from backend.core.base import BaseModule
@@ -11,28 +14,61 @@ from backend.core.state import IslandState
 
 
 class AudioModule(BaseModule):
-    """基于 pulsectl 的纯事件驱动音频模块，杜绝一切命令行调用与延迟"""
+    """基于 pulsectl 的高性能事件驱动音频模块
+    
+    架构设计:
+      1. PulseMonitorWorker: 独占一条长连接，事件中断无轮询监听系统音量突变。
+      2. PulseCommandWorker: 独占一条常驻指令长连接，配合原子邮箱机制，
+         将毫秒级高频调音（滚轮/滑条拖动）自动合并，彻底根除高频建立线程与连接的问题。
+    """
 
     def __init__(self, backend, state: IslandState):
         super().__init__(backend, state)
         self._running = False
-        self._monitor_thread = None
+        
+        # 1. 监听线程
+        self._monitor_thread: Optional[threading.Thread] = None
+
+        # 2. 常驻控制线程与状态折叠邮箱
+        self._cmd_thread: Optional[threading.Thread] = None
+        self._cmd_event = threading.Event()
+        self._cmd_lock = threading.Lock()
+        
+        # 待同步的目标硬件状态缓存 (None 表示该字段暂无变更)
+        self._target_sink_volume: Optional[int] = None
+        self._target_sink_mute: Optional[bool] = None
+        self._target_source_mute: Optional[bool] = None
 
     async def start(self) -> None:
         self._running = True
+
+        # 启动常驻事件监听线程
         self._monitor_thread = threading.Thread(
             target=self._pulse_monitor_worker,
             daemon=True,
             name="PulseMonitorWorker"
         )
         self._monitor_thread.start()
-        app_logger.info("✅ 原生 pulsectl 音频驱动引擎已挂载 (与 KDE 完美同步)")
+
+        # 启动常驻硬件指令执行工作线程
+        self._cmd_thread = threading.Thread(
+            target=self._pulse_cmd_worker,
+            daemon=True,
+            name="PulseCommandWorker"
+        )
+        self._cmd_thread.start()
+
+        app_logger.info("✅ 原生 pulsectl 音频引擎就绪 (双长连接管道架构: 监听+指令执行)")
 
     async def stop(self) -> None:
         self._running = False
+        self._cmd_event.set()  # 唤醒指令线程以安全退出
 
+    # =========================================================================
+    # 1. 监听通道 (Monitor Pipeline)
+    # =========================================================================
     def _sync_state_locked(self, pulse: pulsectl.Pulse):
-        """同步真实硬件状态到系统内存"""
+        """同步真实硬件状态到单一事实源 (SSOT)"""
         try:
             server_info = pulse.server_info()
             default_sink_name = server_info.default_sink_name
@@ -44,6 +80,11 @@ class AudioModule(BaseModule):
                 vol = int(round(sink.volume.value_flat * 100))
                 muted = bool(sink.mute)
                 if self.state.volume != vol or self.state.is_muted != muted:
+                    # 🔊【音量日志触发点 1】：检测到来自底层系统/硬件按键/外部程序的音量或静音状态突变
+                    app_logger.info(
+                        f"[AudioModule] 硬件事件驱动音量更新 -> 原状态:({self.state.volume}%, Mute={self.state.is_muted}) "
+                        f"| 新状态:({vol}%, Mute={muted})"
+                    )
                     self.state.volume = max(0, min(100, vol))
                     self.state.is_muted = muted
                     self.notify("VOLUME_UPDATE")
@@ -61,14 +102,12 @@ class AudioModule(BaseModule):
             pass
 
     def _pulse_monitor_worker(self):
-        """后台驻留的守护线程：利用事件中断代替轮询"""
+        """后台常驻监听守护线程：利用 PulseLoopStop 事件中断代替盲目轮询"""
         while self._running:
             try:
-                # 专用监控实例
                 with pulsectl.Pulse('alcove-island-monitor') as pulse:
                     self._sync_state_locked(pulse)
 
-                    # 当硬件产生变化时，中断监听循环
                     def callback(ev):
                         raise pulsectl.PulseLoopStop()
 
@@ -77,64 +116,107 @@ class AudioModule(BaseModule):
 
                     while self._running:
                         try:
-                            # 挂起线程，直到音频硬件发生变化
                             pulse.event_listen(timeout=2.0)
                         except pulsectl.PulseLoopStop:
-                            # 触发变化，立刻同步最新状态！
                             self._sync_state_locked(pulse)
             except Exception as e:
-                app_logger.warning(f"PulseAudio 监听断开，2秒后重试: {e}")
-                import time
-                time.sleep(2)
+                if self._running:
+                    app_logger.warning(f"PulseAudio 监听通道异常断开，2秒后尝试重连: {e}")
+                    time.sleep(2)
 
+    # =========================================================================
+    # 2. 指令通道 (Command Pipeline - 单一常驻 + 折叠合并)
+    # =========================================================================
+    def _pulse_cmd_worker(self):
+        """后台常驻指令下发线程：维护独立的长连接，顺序消费折叠后的硬件请求"""
+        while self._running:
+            try:
+                with pulsectl.Pulse('alcove-island-cmd') as pulse:
+                    while self._running:
+                        # 挂起等待新指令（若无指令，0% CPU 占用）
+                        self._cmd_event.wait(timeout=1.0)
+                        if not self._running:
+                            break
+
+                        if not self._cmd_event.is_set():
+                            continue
+
+                        # 🔒 原子取出并重置目标状态（瞬间合并此前堆积的所有中间态）
+                        with self._cmd_lock:
+                            self._cmd_event.clear()
+                            target_vol = self._target_sink_volume
+                            target_sink_mute = self._target_sink_mute
+                            target_src_mute = self._target_source_mute
+                            self._target_sink_volume = None
+                            self._target_sink_mute = None
+                            self._target_source_mute = None
+
+                        try:
+                            server_info = pulse.server_info()
+
+                            # 处理扬声器音量与静音
+                            if (target_vol is not None or target_sink_mute is not None) and server_info.default_sink_name:
+                                sink = pulse.get_sink_by_name(server_info.default_sink_name)
+                                if target_vol is not None:
+                                    pulse.volume_set_all_chans(sink, target_vol / 100.0)
+                                if target_sink_mute is not None:
+                                    pulse.mute(sink, target_sink_mute)
+
+                            # 处理麦克风静音
+                            if target_src_mute is not None and server_info.default_source_name:
+                                source = pulse.get_source_by_name(server_info.default_source_name)
+                                pulse.mute(source, target_src_mute)
+
+                        except Exception as cmd_err:
+                            app_logger.error(f"[AudioModule] 执行底层硬件指令异常: {cmd_err}")
+
+            except Exception as conn_err:
+                if self._running:
+                    app_logger.warning(f"[AudioModule] 指令通道断开，1秒后重建连接: {conn_err}")
+                    time.sleep(1)
+
+    # =========================================================================
+    # 3. 对外业务接口 (保持完全异步契约与乐观响应)
+    # =========================================================================
     async def set_volume(self, target_percent: int) -> None:
         target = max(0, min(100, int(target_percent)))
+
+        # 🔊【音量日志触发点 2】：UI 滑块拖动或直接调用 set_volume
+        app_logger.info(f"[AudioModule] UI/代码直接请求设置音量 -> 目标音量: {target}% (触发乐观更新)")
         
-        # 🚀 乐观更新：立刻通知前端，消灭 UI 延迟感
+        # 1. 乐观更新内存事实源与 GUI（零输入延迟）
         self.state.volume = target
         self.state.is_muted = False
         self.notify("VOLUME_UPDATE")
-        
-        # 独立线程发指令，绝不阻塞 asyncio
-        def _do_set():
-            try:
-                with pulsectl.Pulse('alcove-island-cmd') as pulse:
-                    sink_name = pulse.server_info().default_sink_name
-                    sink = pulse.get_sink_by_name(sink_name)
-                    pulse.volume_set_all_chans(sink, target / 100.0)
-                    pulse.mute(sink, False)
-            except Exception as e:
-                app_logger.error(f"设置音量失败: {e}")
-        
-        threading.Thread(target=_do_set, daemon=True).start()
+
+        # 2. 状态投递并折叠进命令管道
+        with self._cmd_lock:
+            self._target_sink_volume = target
+            self._target_sink_mute = False
+            self._cmd_event.set()
 
     async def set_delta(self, delta_percent: int) -> None:
+        # 🔊【音量日志触发点 3】：通过滚轮或快捷键触发音量相对步进调节
+        app_logger.info(
+            f"[AudioModule] 相对调节音量步进 -> delta: {delta_percent:+}%, "
+            f"当前音量: {self.state.volume}% -> 目标: {self.state.volume + delta_percent}%"
+        )
         await self.set_volume(self.state.volume + delta_percent)
 
     async def toggle_mute(self) -> None:
         self.state.is_muted = not self.state.is_muted
+        # 🔊【音量日志触发点 4】：扬声器静音状态主动反转
+        app_logger.info(f"[AudioModule] 主动切换扬声器静音状态 -> 当前静音已变为: {self.state.is_muted}")
         self.notify("VOLUME_UPDATE")
 
-        def _do_mute():
-            try:
-                with pulsectl.Pulse('alcove-island-cmd') as pulse:
-                    sink_name = pulse.server_info().default_sink_name
-                    sink = pulse.get_sink_by_name(sink_name)
-                    pulse.mute(sink, self.state.is_muted)
-            except Exception:
-                pass
-        threading.Thread(target=_do_mute, daemon=True).start()
+        with self._cmd_lock:
+            self._target_sink_mute = self.state.is_muted
+            self._cmd_event.set()
 
     async def toggle_mic_mute(self) -> None:
         self.state.is_mic_muted = not self.state.is_mic_muted
         self.notify("MIC_UPDATE")
 
-        def _do_mute():
-            try:
-                with pulsectl.Pulse('alcove-island-cmd') as pulse:
-                    src_name = pulse.server_info().default_source_name
-                    src = pulse.get_source_by_name(src_name)
-                    pulse.mute(src, self.state.is_mic_muted)
-            except Exception:
-                pass
-        threading.Thread(target=_do_mute, daemon=True).start()
+        with self._cmd_lock:
+            self._target_source_mute = self.state.is_mic_muted
+            self._cmd_event.set()

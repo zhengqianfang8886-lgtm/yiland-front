@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/mpris.py
-# 🌟 统一 MPRIS 媒体流驱动 (原生 C 级色彩提取 · 0.00% 能耗休眠)
+# 🌟 统一 MPRIS 媒体流驱动 (高饱和高明度色彩提取 · 0.00% 能耗休眠)
 # ==========================================
 import os
 import io
@@ -9,6 +9,7 @@ import math
 import struct
 import shutil
 import asyncio
+import colorsys
 import threading
 import subprocess
 import urllib.parse
@@ -40,7 +41,7 @@ class MprisModule(BaseModule):
         self._dormant_gate = threading.Event()
         self._dormant_gate.set()
 
-        # 🚀 规范化 CAVA 运行时私有目录（绝不污染全局 /tmp）
+        # 规范化 CAVA 运行时私有目录
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/tmp/runtime-{os.getuid()}")
         os.makedirs(runtime_dir, exist_ok=True)
         self.cava_config_path = os.path.join(runtime_dir, "alcove_cava.conf")
@@ -197,7 +198,7 @@ class MprisModule(BaseModule):
                 time.sleep(0.8)
 
     def _extract_and_emit_dominant_color(self, art_url: str):
-        """采用 PIL 原生 C 量化接口提取主导色（耗时 < 1ms，杜绝纯 Python 慢循环）"""
+        """采用多聚类量化与 HSV 活力度加权提取高亮通透主导色，杜绝暗沉"""
         if not art_url:
             self._update_color("#22c55e")
             return
@@ -223,15 +224,58 @@ class MprisModule(BaseModule):
 
                 if img_bytes:
                     from PIL import Image
-                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((48, 48))
-                    # 极速调色板量化
-                    palette = im.quantize(colors=1).getpalette()[:3]
-                    hex_c = f"#{palette[0]:02x}{palette[1]:02x}{palette[2]:02x}"
-                    self._color_cache[clean_url] = hex_c
-                    self._update_color(hex_c)
-                    return
-            except Exception:
-                pass
+                    # 1. 缩放到 36x36 极速降噪并量化为 12 种主要候选色
+                    im = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((36, 36))
+                    quantized = im.quantize(colors=12)
+                    palette = quantized.getpalette()
+                    color_counts = quantized.getcolors() or []
+
+                    best_color = None
+                    max_score = -1.0
+
+                    # 2. 遍历候选色，寻找最具活力的强调色（过滤死黑、死灰与死白）
+                    for count, idx in color_counts:
+                        r = palette[idx * 3]
+                        g = palette[idx * 3 + 1]
+                        b = palette[idx * 3 + 2]
+
+                        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+
+                        # 过滤掉过于暗黑 (v < 0.22) 与无彩色死灰 (s < 0.16)
+                        if v < 0.22 or s < 0.16:
+                            continue
+
+                        # 活力度得分公式：重度加权饱和度，优先拾取明快鲜活的色彩
+                        score = (s * 1.6 + v * 0.5) * (count ** 0.5)
+                        if score > max_score:
+                            max_score = score
+                            best_color = (h, s, v)
+
+                    # 3. 如果整张图为黑白纯色唱片（如单色/古典黑胶），进行智能提亮保底
+                    if not best_color and color_counts:
+                        top_idx = max(color_counts, key=lambda x: x[0])[1]
+                        r = palette[top_idx * 3]
+                        g = palette[top_idx * 3 + 1]
+                        b = palette[top_idx * 3 + 2]
+                        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+                        best_color = (h, s, max(v, 0.85))
+
+                    if best_color:
+                        h, s, v = best_color
+
+                        # 4. 🚀【核心发光保底】：Dark Mode 霓虹增益
+                        # 确保饱和度至少 0.65，亮度至少 0.85，让波形条在黑底上具备通透的自发光质感
+                        s = max(s, 0.65)
+                        v = max(v, 0.85)
+
+                        final_r, final_g, final_b = colorsys.hsv_to_rgb(h, s, v)
+                        hex_c = f"#{int(final_r * 255):02x}{int(final_g * 255):02x}{int(final_b * 255):02x}"
+                        self._color_cache[clean_url] = hex_c
+                        self._update_color(hex_c)
+                        return
+            except Exception as e:
+                app_logger.debug(f"[MPRIS] 封面颜色活力提取异常: {e}")
+
             self._update_color("#22c55e")
 
         threading.Thread(target=_bg_calc, daemon=True).start()

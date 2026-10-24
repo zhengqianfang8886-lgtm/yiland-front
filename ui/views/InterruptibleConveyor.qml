@@ -8,13 +8,21 @@ Item {
     id: conveyorRoot
     clip: true
 
-    property string currentKey: "time"
+    // 🚀【核心修复】：默认键值与主配置对齐，杜绝查找不到组件的白屏/黑块
+    property string currentKey: "hardware"
     property var keyToComponentMap: ({})
 
     property string activeKey: currentKey
     property string departingKey: ""
     property real slideOffset: 0.0
     property int slideDir: 1
+
+    // 🚀【核心修复】：当外部直接绑定修改 currentKey 时，无缝同步至 activeKey
+    onCurrentKeyChanged: {
+        if (activeKey !== currentKey && departingKey === "") {
+            activeKey = currentKey
+        }
+    }
 
     function switchTo(newKey, explicitDir) {
         if (newKey === activeKey && departingKey === "") return

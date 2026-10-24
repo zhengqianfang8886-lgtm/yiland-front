@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: IslandTransientHub.qml (自适应弹性尺寸中枢)
+// 📄 File: ui/shell/IslandTransientHub.qml
+// 🌟 统一瞬态载荷中枢 (单一事实源 Payload 中心 · 扩充语音输入规格)
 // ==========================================
 import QtQuick
 
@@ -8,7 +9,14 @@ Item {
 
     property string activeKey: ""
     property int activePriority: 0
-    property var activePayload: ({})
+    property var activePayload: ({
+        title: "",
+        subtitle: "",
+        icon: "🔔",
+        avatar: "",
+        value: 50,
+        color: "#818cf8"
+    })
     readonly property bool hasActiveTransient: activeKey !== ""
 
     signal transientActivated(string key, var meta, var payload)
@@ -18,56 +26,61 @@ Item {
     property var registry: ({
         "CALL": {
             prio: 100, defaultDuration: 0,
-            widthMode: "fixed", w: 320, h: 44, r: 22
+            w: 320, h: 46, r: 23
+        },
+        "VOICE_INPUT": {
+            prio: 80, defaultDuration: 0,
+            w: 320, h: 42, r: 21
         },
         "SEDENTARY": {
             prio: 50, defaultDuration: 0,
-            widthMode: "fixed", w: 420, h: 108, r: 26
+            w: 420, h: 112, r: 26
         },
         "ALERT": {
             prio: 40, defaultDuration: 3500,
-            widthMode: "custom", w: -1, h: 48, r: 24,
-            calcWidth: function(contentW) { return Math.min(420, Math.max(160, contentW + 28)) },
-            calcHeight: function(isLong) { return isLong ? 64 : 48 }
+            w: -1, h: 50, r: 25,
+            calcWidth: function(contentW) { return Math.min(420, Math.max(196, contentW + 36)) },
+            calcHeight: function(isLong) { return isLong ? 66 : 50 }
         },
         "OSD": {
             prio: 30, defaultDuration: 1500,
-            widthMode: "content", w: 0, h: 34, r: 17
+            w: -1, h: 38, r: 19
         },
         "WORKSPACE": {
             prio: 20, defaultDuration: 800,
-            widthMode: "custom", w: -1, h: 34, r: 17,
-            calcWidth: function(contentW) { return Math.max(170, Math.min(260, contentW + 28)) }
+            w: 210, h: 38, r: 19
         },
-        // 🚀【核心修复】：MEDIA_PEEK 绝对不再粗暴锁死窄宽，而是跟随实际内容自动留足富余
         "MEDIA_PEEK": {
             prio: 10, defaultDuration: 3500,
-            widthMode: "custom", w: -1, h: 34, r: 17,
-            calcWidth: function(contentW) { return Math.max(210, contentW) }
+            w: -1, h: 38, r: 19
         }
     })
 
-    function registerTransient(key, descriptor) {
-        var copy = Object.assign({}, registry)
-        copy[key] = Object.assign({ prio: 10, defaultDuration: 2000, widthMode: "content", w: 0, h: 34, r: 17 }, descriptor)
-        registry = copy
-    }
-
     function getMeta(key) {
-        return registry[key] || { prio: 0, defaultDuration: 1500, widthMode: "content", w: 0, h: 34, r: 17 }
+        return registry[key] || { prio: 0, defaultDuration: 1500, w: -1, h: 38, r: 19 }
     }
 
     function push(key, customDurationMs, payload) {
         var meta = getMeta(key)
         if (!meta) return false
 
+        // 高优先级打断低优先级
         if (hasActiveTransient && meta.prio < activePriority) {
             return false
         }
 
         activeKey = key
         activePriority = meta.prio
-        activePayload = payload || {}
+
+        var p = payload || {}
+        activePayload = {
+            title: p.title || "",
+            subtitle: p.subtitle || "",
+            icon: p.icon || "🔔",
+            avatar: p.avatar || "",
+            value: (p.value !== undefined) ? p.value : 50,
+            color: p.color || "#818cf8"
+        }
 
         var dur = (customDurationMs !== undefined && customDurationMs >= 0) ? customDurationMs : meta.defaultDuration
 
@@ -89,7 +102,7 @@ Item {
         var oldKey = activeKey
         activeKey = ""
         activePriority = 0
-        activePayload = ({})
+        activePayload = { title: "", subtitle: "", icon: "🔔", avatar: "", value: 50, color: "#818cf8" }
 
         if (oldKey !== "") {
             transientDismissed(oldKey)
@@ -101,31 +114,5 @@ Item {
         id: leaseTimer
         repeat: false
         onTriggered: hubRoot.dismiss()
-    }
-
-    function resolveGeometry(normalW, dynamicArgs) {
-        if (!hasActiveTransient) {
-            return { w: normalW, h: 34, r: 17 }
-        }
-
-        var meta = getMeta(activeKey)
-        var targetW = normalW
-        var targetH = meta.h
-        var targetR = meta.r
-
-        if (meta.widthMode === "fixed") {
-            targetW = meta.w
-        } else if (meta.widthMode === "custom" && typeof meta.calcWidth === "function") {
-            var contentW = (dynamicArgs && dynamicArgs.contentWidth !== undefined) ? dynamicArgs.contentWidth : normalW
-            targetW = meta.calcWidth(contentW)
-        } else {
-            targetW = normalW
-        }
-
-        if (typeof meta.calcHeight === "function") {
-            targetH = meta.calcHeight(dynamicArgs ? dynamicArgs.isLongAlert : false)
-        }
-
-        return { w: Math.round(targetW), h: targetH, r: targetR }
     }
 }

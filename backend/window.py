@@ -1,13 +1,13 @@
 # ==========================================
 # 📄 File: backend/window.py
-# 🌟 窗口物理掩码穿透与安全剪贴板监听器
+# 🌟 窗口物理掩码穿透与安全剪贴板监听器 (PAL 适配重构版)
 # ==========================================
 import shutil
 import hashlib
 import subprocess
-from PySide6.QtCore import QObject, Signal, QRect
-from PySide6.QtGui import QRegion, QGuiApplication
+from PySide6.QtCore import QObject, Signal
 from backend.utils import CONCEAL_MIME_TYPES
+from backend.platform import detect_platform
 
 
 class WindowManagerService(QObject):
@@ -18,68 +18,55 @@ class WindowManagerService(QObject):
         self.view = view
         self._pool = executor
         self.config = config
+        self.platform = detect_platform()
         self._last_applied_sig = ""
         self._last_clip_hash = ""
-        self._setup_clipboard_listener()
+
+        # 启动平台自适应剪贴板监听
+        self.platform.start_clipboard_monitor(self._on_platform_clipboard_changed)
 
     def set_precise_bounding_mask(self, x: int, y: int, w: int, h: int):
-        """精准建立单矩形安全交互窗口，其余透明区域放行鼠标穿透"""
+        """精准建立交互窗口，其余透明区域放行鼠标穿透"""
         sig = f"{x},{y},{w},{h}"
         if sig == self._last_applied_sig:
             return
         self._last_applied_sig = sig
-
-        if w <= 0 or h <= 0:
-            self.set_passthrough()
-            return
-
-        mask_region = QRegion(QRect(x, y, w, h))
-        self.view.setMask(mask_region)
+        self.platform.apply_input_mask(self.view, x, y, w, h)
 
     def set_passthrough(self):
         """完全穿透"""
         if self._last_applied_sig == "PASS":
             return
         self._last_applied_sig = "PASS"
-        self.view.setMask(QRegion(0, 0, 1, 1))
+        self.platform.set_passthrough(self.view)
 
     def clear_mask(self):
         """全开交互通道"""
         if self._last_applied_sig == "FULL":
             return
         self._last_applied_sig = "FULL"
-        self.view.setMask(QRegion(0, 0, self.view.width(), self.view.height()))
+        self.platform.clear_input_mask(self.view)
 
-    def _setup_clipboard_listener(self):
-        clipboard = QGuiApplication.clipboard()
-        clipboard.dataChanged.connect(self._on_clipboard_changed)
-
-    def _on_clipboard_changed(self):
+    def _on_platform_clipboard_changed(self, text: str, has_image: bool, formats: set):
         if self.config and not getattr(self.config, "clipboardMonitorEnabled", True):
             return
-        clipboard = QGuiApplication.clipboard()
-        mime = clipboard.mimeData()
-        if not mime:
-            return
-        formats = set(mime.formats())
 
         if formats.intersection(CONCEAL_MIME_TYPES):
             self.clipboardTriggered.emit("🔐", "密码凭据", "已安全复制保密数据 · [已脱敏]", 1400)
             return
 
-        if mime.hasImage():
+        if has_image:
             self.clipboardTriggered.emit("🖼️", "截图/图像", "已复制到剪贴板", 1300)
             return
 
-        if mime.hasText():
-            raw_text = clipboard.text()
-            if not raw_text or len(raw_text) > 100000:
+        if text:
+            if len(text) > 100000:
                 return
-            content_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
             if content_hash == self._last_clip_hash:
                 return
             self._last_clip_hash = content_hash
-            clean_text = raw_text.strip()
+            clean_text = text.strip()
             count = len(clean_text)
             if count == 0:
                 return

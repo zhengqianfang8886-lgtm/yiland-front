@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: main.py
-# 🌟 生产级桌面启动中枢 (注册 image://tray 内存图像提供者)
+# 🌟 生产级桌面启动中枢 (PAL 平台自适应抽象版)
 # ==========================================
 import sys
 import os
@@ -21,6 +21,7 @@ from backend.config import ConfigManager
 from backend.bridge import IslandBridge
 from backend.core.backend import DirectIslandBackend
 from backend.theme import theme
+from backend.platform import detect_platform
 
 from PySide6.QtCore import QUrl, QTimer, Qt
 from PySide6.QtGui import QPixmapCache, QGuiApplication, QSurfaceFormat
@@ -55,7 +56,8 @@ def start_backend_event_loop(bridge: IslandBridge):
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    app_logger.info("Alcove Island (Strict Non-Focus Mode) 启动中...")
+    platform = detect_platform()
+    app_logger.info(f"Alcove Island 启动中... 当前平台驱动: [{platform.platform_name}]")
 
     surface_format = QSurfaceFormat()
     surface_format.setAlphaBufferSize(8)
@@ -65,6 +67,9 @@ def main():
     QSurfaceFormat.setDefaultFormat(surface_format)
 
     app = QGuiApplication(sys.argv)
+    app.setApplicationName("alcove-island")
+    app.setDesktopFileName("alcove-island")
+
     config = ConfigManager()
     theme.set_config(config)
 
@@ -75,15 +80,11 @@ def main():
     sigint_timer.timeout.connect(lambda: None)
 
     view = QQuickView()
+    view.setTitle("Alcove Island")
     view.setColor("transparent")
 
-    view.setFlags(
-        Qt.WindowType.FramelessWindowHint | 
-        Qt.WindowType.WindowStaysOnTopHint | 
-        Qt.WindowType.Tool |
-        Qt.WindowType.WindowDoesNotAcceptFocus | 
-        Qt.WindowType.BypassWindowManagerHint
-    )
+    # 赋予兼容窗口标志
+    view.setFlags(platform.get_window_flags())
 
     engine = view.engine()
     engine.addImportPath(os.path.join(BASE_DIR, "ui"))
@@ -103,12 +104,9 @@ def main():
         screen = app.primaryScreen()
         if not screen: return
         base_rect = screen.geometry() if config.anchorMode == "screen" else screen.availableGeometry()
-        view.setGeometry(
-            base_rect.x() + (base_rect.width() - FIXED_W) // 2 + config.offsetX,
-            base_rect.y() + config.topMargin,
-            FIXED_W,
-            FIXED_H,
-        )
+        target_x = base_rect.x() + (base_rect.width() - FIXED_W) // 2 + config.offsetX
+        target_y = base_rect.y() + config.topMargin
+        platform.apply_window_position(view, screen, target_x, target_y, FIXED_W, FIXED_H)
 
     update_view_position()
     config.topMarginChanged.connect(lambda _: update_view_position())
@@ -133,9 +131,15 @@ def main():
         sys.exit(1)
 
     view.show()
+    update_view_position()
+
+    # 🚀【核心时序守卫】：Wayland 异步映射窗口，主事件循环就绪后连续补发两次位置校准
+    QTimer.singleShot(100, update_view_position)
+    QTimer.singleShot(500, update_view_position)
+
     trim_memory()
 
-    app_logger.info("✨ 零焦点系统级悬浮岛就绪，进入 GUI 主事件循环")
+    app_logger.info(f"✨ 零焦点系统级悬浮岛就绪 [{platform.platform_name}]，进入 GUI 主事件循环")
     sys.exit(app.exec())
 
 
