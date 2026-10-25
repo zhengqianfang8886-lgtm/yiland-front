@@ -1,13 +1,13 @@
 // ==========================================
 // 📄 File: ui/components/compact/CompactClockView.qml
-// 🌟 纯正苹果数字排版 · 同级合法基线吸附无警告版
+// 🌟 纯正苹果数字排版 · 44px 舒适可读性升级版 (实用占大头 + 零抖动)
 // ==========================================
 import QtQuick
 
 Row {
     id: clockRoot
-    spacing: 5
-    height: 22
+    spacing: 7
+    height: 26
     anchors.verticalCenter: parent.verticalCenter
 
     property string chosenFont: ""
@@ -24,90 +24,174 @@ Row {
     readonly property bool hasSec: (typeof Config !== "undefined" && Config.showSeconds) && clockRoot.displaySeconds !== ""
     readonly property bool hasPeriod: (typeof Config !== "undefined" && Config.timeFormat === "12h") && clockRoot.displayPeriod !== ""
 
+    // =========================================================================
+    // 1. 纯真非等宽字模度量引擎 (任意字体自适应 12px 秒数槽位)
+    // =========================================================================
+    property int maxDigitWidth: 8
+    property int colonWidth: 4
+
+    TextMetrics {
+        id: secMeasurer
+        font.family: clockRoot.displayFont
+        font.pixelSize: 12
+        font.weight: Font.DemiBold
+    }
+
+    function updateSecMetrics() {
+        var maxW = 0;
+        for (var i = 0; i <= 9; i++) {
+            secMeasurer.text = "" + i;
+            if (secMeasurer.width > maxW) {
+                maxW = secMeasurer.width;
+            }
+        }
+        secMeasurer.text = ":";
+        colonWidth = Math.max(3, Math.ceil(secMeasurer.width));
+        maxDigitWidth = Math.max(7, Math.ceil(maxW));
+    }
+
+    onDisplayFontChanged: updateSecMetrics()
+    Component.onCompleted: updateSecMetrics()
+
+    readonly property string cleanSeconds: {
+        if (!clockRoot.displaySeconds) return "00";
+        var s = clockRoot.displaySeconds.replace(/^:/, "").trim();
+        if (s.length === 0) return "00";
+        if (s.length === 1) return "0" + s;
+        return s.slice(-2);
+    }
+    readonly property string secTen: cleanSeconds.charAt(0)
+    readonly property string secUnit: cleanSeconds.charAt(1)
+
+    // 适配放大后的物理占宽
     readonly property int allocatedWidth: {
-        var base = 52;
-        if (clockRoot.hasDate) base += 76;
-        if (clockRoot.hasSec) base += 24;
-        if (clockRoot.hasPeriod) base += 18;
-        if (clockRoot.isCapsLock) base += 10;
+        var base = 62;
+        if (clockRoot.hasDate) base += 86;
+        if (clockRoot.hasSec) base += (clockRoot.colonWidth + clockRoot.maxDigitWidth * 2 + clockRoot.spacing);
+        if (clockRoot.hasPeriod) base += 22;
+        if (clockRoot.isCapsLock) base += 12;
         return base;
     }
 
-    // 1. 公历日期 (低饱和灰阶)
+    // =========================================================================
+    // 2. 公历日期 (放大至 12.5px，增强实用性)
+    // =========================================================================
     Row {
         id: dateBox
         visible: clockRoot.hasDate
-        spacing: 5
+        spacing: 6
         anchors.verticalCenter: parent.verticalCenter
 
         Text {
             text: clockRoot.displayDate
-            color: Qt.rgba(255, 255, 255, 0.50)
+            color: Qt.rgba(255, 255, 255, 0.65)
             font.family: clockRoot.effectiveFont
-            font.pixelSize: 11
+            font.pixelSize: 13
             font.weight: Font.Medium
             anchors.verticalCenter: parent.verticalCenter
         }
 
         Rectangle {
-            width: 2.5; height: 2.5; radius: 1.25
-            color: Qt.rgba(255, 255, 255, 0.20)
+            width: 3; height: 3; radius: 1.5
+            color: Qt.rgba(255, 255, 255, 0.25)
             anchors.verticalCenter: parent.verticalCenter
         }
     }
 
-    // 2. CapsLock 琥珀微晶点
+    // =========================================================================
+    // 3. CapsLock 琥珀微晶点
+    // =========================================================================
     Item {
         id: capsBox
         visible: clockRoot.isCapsLock
-        width: 6
-        height: 14
+        width: 8
+        height: 16
         anchors.verticalCenter: parent.verticalCenter
 
         Rectangle {
             anchors.centerIn: parent
-            width: 4.5; height: 4.5; radius: 2.25
+            width: 5; height: 5; radius: 2.5
             color: "#f59e0b"
             antialiasing: true
         }
     }
 
-    // 3. 核心时间 (直接作为同级节点，方便兄弟元素合法基线对齐)
+    // =========================================================================
+    // 4. 核心时间 (放大至 18px，突出第一视觉焦点)
+    // =========================================================================
     Text {
         id: timeText
         anchors.verticalCenter: parent.verticalCenter
         text: clockRoot.displayTime
         color: "#ffffff"
         font.family: clockRoot.displayFont
-        font.pixelSize: 15
+        font.pixelSize: 18
         font.weight: Font.Bold
-        font.letterSpacing: 0.4
-        font.features: { "tnum": 1 }
+        font.letterSpacing: 0.5
         renderType: Text.QtRendering
     }
 
-    // 4. 秒数指示 (同级兄弟节点，合法 baseline 吸附)
-    Text {
-        id: secText
+    // =========================================================================
+    // 5. 秒数机械槽位 (升级至 12px，槽位自适应定死，零抖动)
+    // =========================================================================
+    Row {
+        id: secContainer
         visible: clockRoot.hasSec
-        text: ":" + clockRoot.displaySeconds.replace(/^:/, "")
-        color: Qt.rgba(255, 255, 255, 0.45)
-        font.family: clockRoot.displayFont
-        font.pixelSize: 11
-        font.weight: Font.DemiBold
-        font.features: { "tnum": 1 }
+        spacing: 0
         anchors.baseline: timeText.baseline
-        renderType: Text.QtRendering
+        baselineOffset: dummySecText.baselineOffset > 0 ? dummySecText.baselineOffset : 10
+
+        Text {
+            id: dummySecText
+            visible: false
+            text: "0"
+            font.family: clockRoot.displayFont
+            font.pixelSize: 12
+            font.weight: Font.DemiBold
+            renderType: Text.QtRendering
+        }
+
+        Text {
+            width: clockRoot.colonWidth
+            height: dummySecText.height
+            horizontalAlignment: Text.AlignHCenter
+            text: ":"
+            color: Qt.rgba(255, 255, 255, 0.45)
+            font: dummySecText.font
+            renderType: Text.QtRendering
+        }
+
+        Text {
+            width: clockRoot.maxDigitWidth
+            height: dummySecText.height
+            horizontalAlignment: Text.AlignHCenter
+            text: clockRoot.secTen
+            color: Qt.rgba(255, 255, 255, 0.45)
+            font: dummySecText.font
+            renderType: Text.QtRendering
+        }
+
+        Text {
+            width: clockRoot.maxDigitWidth
+            height: dummySecText.height
+            horizontalAlignment: Text.AlignHCenter
+            text: clockRoot.secUnit
+            color: Qt.rgba(255, 255, 255, 0.45)
+            font: dummySecText.font
+            renderType: Text.QtRendering
+        }
     }
 
-    // 5. 12小时制 AM/PM 微标 (同级兄弟节点，合法 baseline 吸附)
+    // =========================================================================
+    // 6. 12小时制 AM/PM 微标
+    // =========================================================================
     Text {
         id: periodBox
         visible: clockRoot.hasPeriod
         text: clockRoot.displayPeriod
-        color: Qt.rgba(255, 255, 255, 0.35)
+        color: Qt.rgba(255, 255, 255, 0.40)
         font.family: clockRoot.effectiveFont
-        font.pixelSize: 8
+        font.pixelSize: 9
         font.weight: Font.Bold
         font.capitalization: Font.AllUppercase
         anchors.baseline: timeText.baseline

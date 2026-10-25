@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (展开释放大感应区 · 收缩秒锁紧掩码版)
+// 🌟 灵动岛主壳体 · 44px 高度舒适触控版
 // =========================================================================
 import QtQuick
 import "../core"
@@ -41,8 +41,9 @@ Item {
         onTriggered: capsuleRoot.commitPrecisionMask()
     }
 
-    width: Math.max(180, motionPod.currentWidth)
-    height: Math.max(38, motionPod.currentHeight)
+    // 🚀 基础高度由 38 提升至 44
+    width: Math.max(200, motionPod.currentWidth)
+    height: Math.max(44, motionPod.currentHeight)
     y: motionPod.currentY
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
@@ -51,23 +52,23 @@ Item {
         if (!fsm) return;
 
         var tY = normalTopMargin;
-        var tW = (compactView && compactView.naturalWidth > 0) ? compactView.naturalWidth : 188;
-        var tH = 38;
-        var tR = 19;
+        var tW = (compactView && compactView.naturalWidth > 0) ? compactView.naturalWidth : 210;
+        var tH = 44;
+        var tR = 22;
 
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
-                tW = 180; tH = 38; tR = 19;
-                tY = -(tH - 4.5);
+                tW = 190; tH = 44; tR = 22;
+                tY = -(tH - 5.0);
                 break;
 
             case IslandFsm.State.Compact:
             case IslandFsm.State.Interacting:
             case IslandFsm.State.Overlay:
-                tW = Math.max(188, compactView.naturalWidth);
-                tH = (fsm.activeTransientKey === "SEDENTARY") ? 112 : 
-                     (fsm.activeTransientKey === "CALL" ? 46 : 
-                     (fsm.activeTransientKey === "ALERT" ? 52 : 38));
+                tW = Math.max(200, compactView.naturalWidth);
+                tH = (fsm.activeTransientKey === "SEDENTARY") ? 116 : 
+                     (fsm.activeTransientKey === "CALL" ? 50 : 
+                     (fsm.activeTransientKey === "ALERT" ? 56 : 44));
                 tR = Math.min(26, tH / 2);
                 tY = normalTopMargin;
                 break;
@@ -110,12 +111,10 @@ Item {
         }
     }
 
-    // 🚀【掩码流转关键】：展开时彻底放开掩码让 680x480 感应区生效；收缩时秒速锁死在小胶囊！
     function commitPrecisionMask() {
         maskSettleWatchdog.stop();
         if (typeof Bridge === "undefined") return;
 
-        // 展开态：清除掩码，让大卡片四周的透明大视口 100% 具备点击感知
         if (capsuleRoot.isCurrentExpanded) {
             Bridge.openFullCorridorForMotion();
             return;
@@ -148,7 +147,6 @@ Item {
         }
     }
 
-    // 紧凑态视图
     Item {
         anchors.fill: parent
         clip: true
@@ -165,7 +163,6 @@ Item {
         }
     }
 
-    // 小胶囊手势感应
     CapsuleSensorArea {
         id: sensorArea
         anchors.fill: parent
@@ -174,7 +171,6 @@ Item {
         isExpanded: capsuleRoot.isCurrentExpanded
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
 
-        // 🚀【拖拽切桌面通道】：将手势传感器的信号直通给 compactView
         onScrubStarted: {
             if (compactView) compactView.isScrubbing = true;
         }
@@ -211,7 +207,6 @@ Item {
         }
     }
 
-    // 展开态大卡片 (独享顶层事件)
     Item {
         anchors.fill: parent
         anchors.margins: 12
