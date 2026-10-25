@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: calendar/CalendarManagerDrawer.qml
+// 📄 File: ui/components/calendar/CalendarManagerDrawer.qml
+// 🌟 事项设置抽屉 (注入焦点诊断探针版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -8,7 +9,7 @@ Rectangle {
     id: drawerRoot
     anchors.fill: parent
     color: "#181820"
-    radius: Theme.radiusCard
+    radius: (typeof Theme !== "undefined") ? Theme.radiusCard : 16
     z: 50
 
     property string effectiveFont: ""
@@ -25,7 +26,6 @@ Rectangle {
         anchors.margins: 8
         spacing: 6
 
-        // 顶栏标题
         Item {
             width: parent.width
             height: 18
@@ -71,7 +71,15 @@ Rectangle {
                 font.family: drawerRoot.effectiveFont
                 clip: true
                 selectByMouse: true
+                activeFocusOnTab: true
 
+                // 🚀【按键雷达 2】：输入框焦点与按键探测
+                onActiveFocusChanged: {
+                    console.log("[CalendarDrawer:Input] 🎯 输入框 activeFocus 变为 -> " + activeFocus);
+                }
+                Keys.onPressed: (event) => {
+                    console.log("[CalendarDrawer:Input] ⌨️ 输入框捕获按键 -> key=" + event.key + ", text=" + event.text);
+                }
                 Keys.onReturnPressed: commitAdd()
 
                 Text {
@@ -81,6 +89,13 @@ Rectangle {
                     font.family: drawerRoot.effectiveFont
                     visible: !input.text && !input.activeFocus
                     anchors.verticalCenter: parent.verticalCenter
+                }
+
+                TapHandler {
+                    onTapped: {
+                        console.log("[CalendarDrawer:Input] 点击了输入框，强制索取焦点 forceActiveFocus()");
+                        input.forceActiveFocus();
+                    }
                 }
             }
 
@@ -99,15 +114,11 @@ Rectangle {
                     color: input.text.trim().length > 0 ? "white" : Qt.rgba(1, 1, 1, 0.3)
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: commitAdd()
-                }
+                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: commitAdd() }
             }
         }
 
-        // 事项列表
         Item {
             width: parent.width
             height: parent.height - 56
@@ -119,15 +130,17 @@ Rectangle {
                 model: drawerRoot.habitsList
 
                 delegate: Rectangle {
-                    width: parent.width - 4
+                    id: habitRowItem
+                    width: ListView.view.width - 4
                     height: 22
                     radius: 4
                     readonly property bool isSel: (drawerRoot.currentHabitIndex === index)
-                    color: isSel ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.22) : (itemHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04))
+                    color: isSel ? Qt.rgba(16 / 255, 185 / 255, 129 / 255, 0.22) : (rowHover.hovered ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.04))
                     border.color: isSel ? "#10b981" : "transparent"
                     border.width: 1
 
-                    HoverHandler { id: itemHover }
+                    HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: drawerRoot.habitSelected(index) }
 
                     Row {
                         anchors.fill: parent
@@ -140,26 +153,30 @@ Rectangle {
                             font.weight: isSel ? Font.Black : Font.DemiBold
                             font.family: drawerRoot.effectiveFont
                             elide: Text.ElideRight
-                            width: parent.width - 16
+                            width: parent.width - 18
                             anchors.verticalCenter: parent.verticalCenter
                         }
 
-                        Text {
-                            text: "✕"
-                            color: delHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.3)
-                            font.pixelSize: 8
-                            font.weight: Font.Bold
+                        Rectangle {
+                            width: 14
+                            height: 14
+                            radius: 7
                             anchors.verticalCenter: parent.verticalCenter
+                            color: delHover.hovered ? Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.25) : "transparent"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "✕"
+                                color: delHover.hovered ? "#ef4444" : Qt.rgba(1, 1, 1, 0.35)
+                                font.pixelSize: 8
+                                font.weight: Font.Bold
+                            }
+
                             HoverHandler { id: delHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: drawerRoot.habitDeleted(modelData.id) }
+                            TapHandler {
+                                onTapped: drawerRoot.habitDeleted(modelData.id)
+                            }
                         }
-                    }
-
-                    MouseArea {
-                        anchors.left: parent.left; anchors.right: parent.right; anchors.rightMargin: 16
-                        anchors.top: parent.top; anchors.bottom: parent.bottom
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: drawerRoot.habitSelected(index)
                     }
                 }
             }

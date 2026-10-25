@@ -1,6 +1,6 @@
 // ==========================================
-// 📄 File: timer/TimerSegmentedBar.qml
-// 🌟 鼠标悬停意图识别（即停即切）分段器
+// 📄 File: ui/components/timer/TimerSegmentedBar.qml
+// 🌟 鼠标悬停意图识别（即停即切）分段器 (时序安全加固版)
 // ==========================================
 import QtQuick
 
@@ -19,29 +19,27 @@ Rectangle {
 
     signal switchRequested(string targetType)
 
-    // 🚀【意图识别时间窗口】：120ms 为人体工程学黄金悬停阈值（既灵敏又防误掠过）
+    // 人体工程学意图识别时间窗口 (120ms)
     readonly property int intentDwellInterval: 120
 
-    // 倒计时意图识别定时器
     Timer {
         id: cdIntentTimer
         interval: segBarRoot.intentDwellInterval
         repeat: false
         onTriggered: {
             if (!segBarRoot.isRunning && segBarRoot.isCountUp && cdHover.hovered) {
-                segBarRoot.switchRequested("countdown")
+                segBarRoot.switchRequested("countdown");
             }
         }
     }
 
-    // 正向计时意图识别定时器
     Timer {
         id: swIntentTimer
         interval: segBarRoot.intentDwellInterval
         repeat: false
         onTriggered: {
             if (!segBarRoot.isRunning && !segBarRoot.isCountUp && swHover.hovered) {
-                segBarRoot.switchRequested("stopwatch")
+                segBarRoot.switchRequested("stopwatch");
             }
         }
     }
@@ -66,7 +64,7 @@ Rectangle {
         anchors.fill: parent
 
         // ---------------------------------------------------------------------
-        // 【左标签】：倒计时 (支持悬停意图识别)
+        // 【左标签】：倒计时
         // ---------------------------------------------------------------------
         Item {
             width: parent.width / 2
@@ -87,29 +85,26 @@ Rectangle {
                 cursorShape: segBarRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
                 onHoveredChanged: {
                     if (hovered) {
-                        // 🚀 指针移入且当前处于正向计时状态，开启 120ms 意图识别
                         if (!segBarRoot.isRunning && segBarRoot.isCountUp) {
-                            cdIntentTimer.restart()
+                            cdIntentTimer.restart();
                         }
                     } else {
-                        // 指针滑出，立即取消切换意图
-                        cdIntentTimer.stop()
+                        cdIntentTimer.stop();
                     }
                 }
             }
 
-            // 支持即时点击保底（无需等待 120ms）
             TapHandler {
                 enabled: !segBarRoot.isRunning
                 onTapped: {
-                    cdIntentTimer.stop()
-                    segBarRoot.switchRequested("countdown")
+                    cdIntentTimer.stop();
+                    segBarRoot.switchRequested("countdown");
                 }
             }
         }
 
         // ---------------------------------------------------------------------
-        // 【右标签】：正向计时 (支持悬停意图识别)
+        // 【右标签】：正向计时
         // ---------------------------------------------------------------------
         Item {
             width: parent.width / 2
@@ -130,23 +125,20 @@ Rectangle {
                 cursorShape: segBarRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
                 onHoveredChanged: {
                     if (hovered) {
-                        // 🚀 指针移入且当前处于倒计时状态，开启 120ms 意图识别
                         if (!segBarRoot.isRunning && !segBarRoot.isCountUp) {
-                            swIntentTimer.restart()
+                            swIntentTimer.restart();
                         }
                     } else {
-                        // 指针滑出，立即取消切换意图
-                        swIntentTimer.stop()
+                        swIntentTimer.stop();
                     }
                 }
             }
 
-            // 支持即时点击保底（无需等待 120ms）
             TapHandler {
                 enabled: !segBarRoot.isRunning
                 onTapped: {
-                    swIntentTimer.stop()
-                    segBarRoot.switchRequested("stopwatch")
+                    swIntentTimer.stop();
+                    segBarRoot.switchRequested("stopwatch");
                 }
             }
         }

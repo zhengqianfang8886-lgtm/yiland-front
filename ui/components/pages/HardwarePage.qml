@@ -26,16 +26,22 @@ Item {
             hwPageRoot.isMicMuted = micMuted
         }
         function onVolumeChanged(val) {
-            // 🔊【音量日志触发点 11】：硬件页面响应全局音量变动
+            // 过滤重复相同数值，避免多次脏刷
+            if (hwPageRoot.currentVolume === val) return;
             console.log("[HardwarePage] 收到 onVolumeChanged 信号 -> currentVolume 从 " + hwPageRoot.currentVolume + " 更新为 " + val)
             hwPageRoot.currentVolume = val
         }
-        function onBrightnessChanged(val) { hwPageRoot.currentBrightness = val }
+        function onBrightnessChanged(val) { 
+            if (hwPageRoot.currentBrightness === val) return;
+            hwPageRoot.currentBrightness = val 
+        }
         function onOsdTriggered(icon, label, val) {
             if (label === "Volume") {
+                if (hwPageRoot.currentVolume === val) return;
                 console.log("[HardwarePage] 收到 onOsdTriggered(Volume) -> " + val + "%")
                 hwPageRoot.currentVolume = val
             } else if (label === "Display") {
+                if (hwPageRoot.currentBrightness === val) return;
                 hwPageRoot.currentBrightness = val
             }
         }

@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: main.py
-# 🌟 生产级桌面启动中枢 (PAL 平台自适应抽象版)
+# 🌟 生产级桌面启动中枢 (680x480 透明模态大视口升级版)
 # ==========================================
 import sys
 import os
@@ -23,7 +23,7 @@ from backend.core.backend import DirectIslandBackend
 from backend.theme import theme
 from backend.platform import detect_platform
 
-from PySide6.QtCore import QUrl, QTimer, Qt
+from PySide6.QtCore import QUrl, QTimer, Qt, QSize
 from PySide6.QtGui import QPixmapCache, QGuiApplication, QSurfaceFormat
 from PySide6.QtQuick import QQuickView
 
@@ -79,12 +79,17 @@ def main():
     sigint_timer.start(1000)
     sigint_timer.timeout.connect(lambda: None)
 
+    # 🚀【核心升级】：为灵动岛预留宽裕的 680x480 透明感应视口
+    VIEW_W, VIEW_H = 680, 480
+
     view = QQuickView()
     view.setTitle("Alcove Island")
     view.setColor("transparent")
-
-    # 赋予兼容窗口标志
     view.setFlags(platform.get_window_flags())
+
+    view.setMinimumSize(QSize(VIEW_W, VIEW_H))
+    view.setMaximumSize(QSize(VIEW_W, VIEW_H))
+    view.resize(QSize(VIEW_W, VIEW_H))
 
     engine = view.engine()
     engine.addImportPath(os.path.join(BASE_DIR, "ui"))
@@ -98,15 +103,13 @@ def main():
 
     backend, backend_loop = start_backend_event_loop(bridge)
 
-    FIXED_W, FIXED_H = 460, 280
-
     def update_view_position():
         screen = app.primaryScreen()
         if not screen: return
         base_rect = screen.geometry() if config.anchorMode == "screen" else screen.availableGeometry()
-        target_x = base_rect.x() + (base_rect.width() - FIXED_W) // 2 + config.offsetX
+        target_x = base_rect.x() + (base_rect.width() - VIEW_W) // 2 + config.offsetX
         target_y = base_rect.y() + config.topMargin
-        platform.apply_window_position(view, screen, target_x, target_y, FIXED_W, FIXED_H)
+        platform.apply_window_position(view, screen, target_x, target_y, VIEW_W, VIEW_H)
 
     update_view_position()
     config.topMarginChanged.connect(lambda _: update_view_position())
@@ -133,7 +136,6 @@ def main():
     view.show()
     update_view_position()
 
-    # 🚀【核心时序守卫】：Wayland 异步映射窗口，主事件循环就绪后连续补发两次位置校准
     QTimer.singleShot(100, update_view_position)
     QTimer.singleShot(500, update_view_position)
 

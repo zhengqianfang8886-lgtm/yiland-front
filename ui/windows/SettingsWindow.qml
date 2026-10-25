@@ -1,11 +1,11 @@
-import "../components/settings"
 // ==========================================
-// 📄 File: SettingsWindow.qml
-// 🌟 灵动岛全局偏好设置主视窗（完整独立窗口版）
+// 📄 File: ui/windows/SettingsWindow.qml
+// 🌟 灵动岛全局偏好设置主视窗（完整独立窗口规范导入版）
 // ==========================================
 import QtQuick
 import QtQuick.Controls
-
+import QtQuick.Window
+import "../components/settings"
 
 Window {
     id: settingsWin
@@ -15,6 +15,10 @@ Window {
     visible: false
     color: "#0f172a"
     flags: Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowTitleHint
+
+    onClosing: {
+        settingsWin.visible = false;
+    }
 
     // 快捷关闭支持
     Shortcut {

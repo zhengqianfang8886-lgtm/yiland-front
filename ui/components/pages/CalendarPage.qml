@@ -1,3 +1,7 @@
+// ==========================================
+// 📄 File: ui/components/pages/CalendarPage.qml
+// 🌟 日历日程打卡主页面 (后端直通零卡顿 · 彻底剔除废弃 JS 版)
+// ==========================================
 import QtQuick
 import "../calendar"
 
@@ -5,11 +9,11 @@ Rectangle {
     id: calRoot
     anchors.fill: parent
     color: "#14141a"
-    radius: Theme.radiusCard
+    radius: (typeof Theme !== "undefined") ? Theme.radiusCard : 16
 
     property string chosenFont: ""
-    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
-    readonly property string effectiveMonoFont: Theme.displayMonoFont
+    readonly property string effectiveFont: (chosenFont !== "") ? chosenFont : ((typeof Theme !== "undefined") ? Theme.activeFont : "")
+    readonly property string effectiveMonoFont: (typeof Theme !== "undefined") ? Theme.displayMonoFont : "Monospace"
 
     readonly property var todayDate: new Date()
     property int calYear: todayDate.getFullYear()
@@ -27,7 +31,7 @@ Rectangle {
     property var habitsList: []
     property int currentHabitIndex: 0
     property bool isManagingHabits: false
-    readonly property var currentHabit: (habitsList.length > 0 && currentHabitIndex < habitsList.length) ? habitsList[currentHabitIndex] : null
+    readonly property var currentHabit: (habitsList && habitsList.length > 0 && currentHabitIndex < habitsList.length) ? habitsList[currentHabitIndex] : null
     property var checkRecords: ({})
 
     function formatDateStr(y, m, d) {
@@ -44,9 +48,9 @@ Rectangle {
         return days[new Date(selYear, selMonth, selDay).getDay()];
     }
 
-    // 🚀【核心重构】：所有数据库操作直通 Bridge 后端，零 GUI 线程卡顿
+    // 后端 SQLite 存储驱动直通
     function reloadHabits() {
-        if (typeof Bridge === "undefined") return;
+        if (typeof Bridge === "undefined" || !Bridge.getHabits) return;
         habitsList = Bridge.getHabits();
         if (currentHabitIndex >= habitsList.length) {
             currentHabitIndex = Math.max(0, habitsList.length - 1);
@@ -55,12 +59,18 @@ Rectangle {
     }
 
     function reloadMonthRecords() {
-        if (!currentHabit || typeof Bridge === "undefined") { checkRecords = {}; return; }
+        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.getMonthRecords) { 
+            checkRecords = ({}); 
+            return; 
+        }
         checkRecords = Bridge.getMonthRecords(currentHabit.id, calYear, calMonth);
     }
 
     function toggleSelectedDay() {
-        if (!currentHabit || typeof Bridge === "undefined") { isManagingHabits = true; return; }
+        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.toggleHabitRecord) { 
+            isManagingHabits = true; 
+            return; 
+        }
         Bridge.toggleHabitRecord(currentHabit.id, selectedDateStr);
         reloadMonthRecords();
     }
@@ -105,6 +115,7 @@ Rectangle {
 
     property real wheelAccum: 0
     Timer { id: wheelResetTimer; interval: 260; onTriggered: calRoot.wheelAccum = 0 }
+
     function handleWheelStep(deltaY) {
         wheelResetTimer.restart();
         calRoot.wheelAccum += deltaY;
@@ -165,7 +176,7 @@ Rectangle {
         Rectangle {
             width: 128
             height: parent.height
-            radius: Theme.radiusCard
+            radius: (typeof Theme !== "undefined") ? Theme.radiusCard : 16
             color: "#181820"
             border.color: Qt.rgba(1, 1, 1, 0.08)
             border.width: 1
@@ -200,14 +211,14 @@ Rectangle {
                 currentHabitIndex: calRoot.currentHabitIndex
                 onCloseRequested: calRoot.isManagingHabits = false
                 onHabitCreated: (name) => {
-                    if (typeof Bridge !== "undefined") {
+                    if (typeof Bridge !== "undefined" && Bridge.addHabit) {
                         calRoot.habitsList = Bridge.addHabit(name, "📌");
                         calRoot.currentHabitIndex = calRoot.habitsList.length - 1;
                         calRoot.reloadMonthRecords();
                     }
                 }
                 onHabitDeleted: (id) => {
-                    if (typeof Bridge !== "undefined") {
+                    if (typeof Bridge !== "undefined" && Bridge.deleteHabit) {
                         calRoot.habitsList = Bridge.deleteHabit(id);
                         calRoot.currentHabitIndex = Math.max(0, calRoot.currentHabitIndex - 1);
                         calRoot.reloadMonthRecords();

@@ -1,626 +1,457 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 方案 A 微胶囊流体灌浆计时器 · 挂载语音动态视口版
-// ==========================================
+// 🌟 紧凑态视口 (完美融合：高级磨砂视觉 + 凸透镜拖拽桌面完全复活版)
+// =========================================================================
 import QtQuick
-import QtQuick.Shapes
+import "../components/capsule"
 import "../components/compact"
 
 Item {
     id: compactRoot
+    anchors.fill: parent
+
+    property var fsm: null
+    property var relay: null
+    property var timeService: null
+
+    // 🚀【核心复活】：向外暴露拖拽状态，与父级手势传感器完全打通
+    property bool isScrubbing: false
+    property bool isScrubCanceling: false
 
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
     readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
 
-    property bool isCapsuleHovered: false
+    readonly property bool hasActiveTransient: fsm ? (fsm.activeTransientKey !== "") : false
+    readonly property string currentKey: fsm ? fsm.activeTransientKey : ""
+    readonly property var currentPayload: (fsm && fsm.activePayload) ? fsm.activePayload : ({})
 
-    property string activeTransient: ""
-    property string status: "Paused"
-    property bool isCalling: false
-    property bool isExpanded: false
+    readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
+    readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
+    readonly property bool hasActiveTimer: (typeof Bridge !== "undefined") && (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted)
 
-    property bool isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
-    property bool isNumLock: (typeof Bridge !== "undefined" && Bridge.isNumLock !== undefined) ? Bridge.isNumLock : false
+    // 🚀【视觉优化】：外边距由 24 优化到 28，间距拉开到 10，解决局促感
+    readonly property int fixedOuterPadding: 28
+    readonly property int fixedInterSpacing: 10
 
-    property string wsName: ""
-    property int wsCurrent: 0
-    property int wsTotal: 4
-    property var wsList: []
+    property int cachedOsdValue: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
+    property string cachedOsdIcon: "🔊"
 
-    property bool isScrubbing: false
-    property bool isScrubCanceling: false
+    onCurrentPayloadChanged: {
+        if (currentPayload && currentPayload.value !== undefined) {
+            cachedOsdValue = currentPayload.value;
+        }
+        if (currentPayload && currentPayload.icon) {
+            cachedOsdIcon = currentPayload.icon;
+        }
+    }
 
-    property string osdIcon: "🔊"
-    property int osdValue: 50
-    property string alertTitle: ""
-    property string alertSubtitle: ""
-    property string alertAvatar: ""
-    property string alertIcon: "🔔"
-    property string callTitle: ""
-    property string callSubtitle: ""
-    property string callAvatar: ""
+    function getSixBandValue(idx) {
+        if (!compactRoot.relay) return 0.2;
+        var s1 = compactRoot.relay.spec1 || 0.2;
+        var s2 = compactRoot.relay.spec2 || 0.2;
+        var s3 = compactRoot.relay.spec3 || 0.2;
+        var s4 = compactRoot.relay.spec4 || 0.2;
+        
+        switch (idx) {
+            case 0: return Math.max(0.18, Math.min(1.0, s1 * 0.82));
+            case 1: return Math.max(0.20, Math.min(1.0, s1));
+            case 2: return Math.max(0.24, Math.min(1.0, s2));
+            case 3: return Math.max(0.24, Math.min(1.0, s3));
+            case 4: return Math.max(0.20, Math.min(1.0, s4));
+            case 5: return Math.max(0.18, Math.min(1.0, (s3 + s4) * 0.52));
+            default: return 0.2;
+        }
+    }
 
-    property string displayDate: ""
-    property string displayTime: "04:53"
-    property string displaySeconds: ""
-    property string displayPeriod: "pm"
+    // 1. 左侧槽位宽度
+    readonly property int leadingSlotBucket: {
+        var showWs = (typeof Config !== "undefined" && Config.showWorkspaceName !== false);
+        if (!showWs) return 0;
+        var nameStr = (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName.trim() : "";
+        if (/^\d+$/.test(nameStr) || nameStr.length <= 1) return 28;
+        return Math.min(72, Math.max(40, nameStr.length * 9 + 18));
+    }
 
-    readonly property bool isActivelyPlaying: status === "Playing"
-    property bool waveVisible: false
-    property bool hasEverPlayed: false
+    // 2. 中间槽位宽度
+    readonly property int centerSlotBucket: (clockView && clockView.allocatedWidth > 0) ? clockView.allocatedWidth : 52
 
-    onIsActivelyPlayingChanged: {
-        if (isActivelyPlaying) {
-            hasEverPlayed = true
-            musicHideGraceTimer.stop()
-            waveVisible = true
-        } else {
-            if (hasEverPlayed && waveVisible) {
-                musicHideGraceTimer.restart()
+    // 3. 右侧微模块宽度
+    readonly property int timerSlotWidth: hasActiveTimer ? 58 : 0
+    readonly property int noticeBadgeSlotWidth: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 34 : 28) : 0
+    readonly property int musicWaveSlotWidth: isMusicPlaying ? 34 : 0
+
+    readonly property int trailingSlotBucket: {
+        var w = 0;
+        var activeCount = 0;
+        if (timerSlotWidth > 0) { w += timerSlotWidth; activeCount++; }
+        if (noticeBadgeSlotWidth > 0) { w += noticeBadgeSlotWidth; activeCount++; }
+        if (musicWaveSlotWidth > 0) { w += musicWaveSlotWidth; activeCount++; }
+        if (activeCount > 1) { w += (activeCount - 1) * 6; }
+        return w;
+    }
+
+    // 4. 自然宽度：拖拽时固定展开为宽裕的标尺视口 (300px)
+    readonly property int naturalWidth: {
+        if (compactRoot.isScrubbing) return 300;
+
+        if (hasActiveTransient) {
+            if (currentKey === "CALL") return 320;
+            if (currentKey === "VOICE_INPUT" || currentKey === "VOICE") return 320;
+            if (currentKey === "SEDENTARY") return 420;
+            if (currentKey === "ALERT") return 280;
+            if (currentKey === "WORKSPACE") return 240;
+            if (currentKey === "OSD") return 200;
+            if (currentKey === "MEDIA_PEEK") {
+                var titleLen = (currentPayload && currentPayload.title) ? currentPayload.title.length : 0;
+                return Math.min(360, Math.max(250, 110 + titleLen * 13));
             }
         }
+
+        var sum = fixedOuterPadding;
+        var validSlots = 0;
+        if (leadingSlotBucket > 0) { sum += leadingSlotBucket; validSlots++; }
+        sum += centerSlotBucket; validSlots++;
+        if (trailingSlotBucket > 0) { sum += trailingSlotBucket; validSlots++; }
+        sum += (validSlots - 1) * fixedInterSpacing;
+
+        return (sum % 2 === 0) ? sum : (sum + 1);
     }
 
-    Timer {
-        id: musicHideGraceTimer
-        interval: 4000
-        repeat: false
-        onTriggered: {
-            if (!compactRoot.isActivelyPlaying) compactRoot.waveVisible = false
-        }
+    // 供外层传感器调用的拖拽代理方法
+    function handleScrubMove(mx, my) {
+        if (wsView) wsView.updateCursorByMouseX(mx);
+    }
+    function getScrubTargetIndex() {
+        return wsView ? wsView.scrubHoverIndex : 0;
     }
 
-    property color dominantColor: "#22c55e"
-    property real spec1: 0.2
-    property real spec2: 0.2
-    property real spec3: 0.2
-    property real spec4: 0.2
-
-    readonly property int barsCount: (typeof Config !== "undefined" && Config.musicVisualizerBars !== undefined) ?
-                                     Math.max(3, Math.min(8, Config.musicVisualizerBars)) : 5
-    readonly property real barW: 4.0
-    readonly property real barGap: 2.5
-    readonly property real barMaxH: 16.0
-    readonly property int fullWaveWidth: Math.ceil((barsCount * barW) + ((barsCount - 1) * barGap))
-
-    function getBarScale(index, total) {
-        if (!isActivelyPlaying) return 0.22
-        if (total <= 1) return spec1
-        var t = index / (total - 1)
-        var pos = t * 3.0
-        var i0 = Math.floor(pos)
-        var i1 = Math.min(3, i0 + 1)
-        var frac = pos - i0
-        var sArr = [spec1, spec2, spec3, spec4]
-        var val = sArr[i0] * (1.0 - frac) + sArr[i1] * frac
-        var resonance = 0.85 + 0.35 * Math.sin(t * Math.PI)
-        return Math.max(0.15, Math.min(1.0, val * resonance))
-    }
-
-    property bool timerActive: false
-    property string timerFormattedText: "25:00"
-    property bool timerIsPaused: false
-    property bool timerIsCompleted: false
-    property real timerProgress: 1.0
-
-    property int unreadNotifCount: 0
-    property string latestNotifAvatar: ""
-    property int memoryPercent: 0
-    property int continuousSitMinutes: 45
-
-    signal sedentaryRested()
-    signal sedentarySnooze()
-    signal requestExpandTab(string tabName)
-    signal toggleTimer()
-
-    readonly property int displayWsNumber: {
-        var n = Number(wsCurrent)
-        if (isNaN(n)) return 0
-        if (wsName && /^\d+$/.test(wsName.trim())) return Number(wsName.trim())
-        return n
-    }
-
-    readonly property bool showWsBadge: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) && (compactRoot.wsName !== "" || compactRoot.displayWsNumber > 0)
-    readonly property int slotWidthWs: showWsBadge ? Math.max(22, Math.ceil(wsBadgeDummy.implicitWidth + 14)) : 0
-
-    Text {
-        id: wsBadgeDummy
-        text: compactRoot.wsName ? compactRoot.wsName : ("" + compactRoot.displayWsNumber)
-        font.pixelSize: 11
-        font.weight: Font.Black
-        font.family: compactRoot.displayFont
-        visible: false
-    }
-
-    readonly property int slotWidthWave: compactRoot.waveVisible ? compactRoot.fullWaveWidth : 0
-    readonly property int slotWidthMem: (!compactRoot.waveVisible && compactRoot.memoryPercent >= ((typeof Config !== "undefined" && Config.memoryThreshold) ? Config.memoryThreshold : 75)) ? 18 : 0
-    readonly property int slotWidthClock: Math.ceil(clockView.implicitWidth)
-
-    property bool numLockToastActive: false
-    property bool numLockActiveState: false
-    readonly property int slotWidthNumLock: numLockToastActive ? Math.ceil(numLockTextDummy.implicitWidth + 14) : 0
-
-    Text {
-        id: numLockTextDummy
-        text: compactRoot.numLockActiveState ? "123 ON" : "123 OFF"
-        font.pixelSize: 10
-        font.weight: Font.Black
-        font.family: compactRoot.displayFont
-        visible: false
-    }
-
-    readonly property int slotWidthTimer: compactRoot.timerActive ? 56 : 0
-    readonly property int slotWidthNotif: compactRoot.unreadNotifCount > 0 ? Math.max(18, notifBadgeText.implicitWidth + 9) : 0
-
-    readonly property bool showExpandBtn: compactRoot.isCapsuleHovered && !compactRoot.isCalling && (compactRoot.activeTransient === "" || compactRoot.activeTransient === "MEDIA_PEEK")
-    readonly property int slotWidthExpandBtn: showExpandBtn ? 22 : 0
-
-    readonly property int naturalPillWidth: {
-        if (compactRoot.activeTransient === "VOICE_INPUT") return 320
-        var slots = []
-        if (slotWidthWs > 0) slots.push(slotWidthWs)
-        if (slotWidthWave > 0) slots.push(slotWidthWave)
-        else if (slotWidthMem > 0) slots.push(slotWidthMem)
-        if (slotWidthClock > 0) slots.push(slotWidthClock)
-        if (slotWidthNumLock > 0) slots.push(slotWidthNumLock)
-        if (slotWidthTimer > 0) slots.push(slotWidthTimer)
-        if (slotWidthNotif > 0) slots.push(slotWidthNotif)
-        if (slotWidthExpandBtn > 0) slots.push(slotWidthExpandBtn)
-
-        var total = 16 + 16
-        for (var i = 0; i < slots.length; i++) {
-            total += slots[i]
-            if (i < slots.length - 1) total += 10
-        }
-        return Math.max(180, Math.ceil(total / 2) * 2)
-    }
-
-    readonly property int wsContentImplicitWidth: wsView.contentImplicitWidth
-    readonly property int alertContentImplicitWidth: alertView.implicitContentWidth
-    readonly property bool isAlertActive: (activeTransient === "ALERT") && !isCalling
-    readonly property bool isOsdMode: (activeTransient === "OSD" && !isCalling && !isExpanded)
-
-    readonly property color alertThemeColor: {
-        if (alertIcon === "⏰") return Theme.timer
-        if (["bluetooth", "ᛒ", "🎧", "🖱️", "⌨️", "📱"].indexOf(alertIcon) !== -1) return Theme.bluetooth
-        if (alertIcon === "🛡️") return Theme.network
-        if (alertIcon === "📞") return Theme.media
-        return Theme.notification
-    }
-
-    property bool numLockInitialized: false
-    onIsNumLockChanged: {
-        if (!numLockInitialized) {
-            numLockInitialized = true
-            return
-        }
-        compactRoot.numLockActiveState = isNumLock
-        compactRoot.numLockToastActive = true
-        numLockLifecycleAnim.restart()
-    }
-
-    SequentialAnimation {
-        id: numLockLifecycleAnim
-        PauseAnimation { duration: 950 }
-        ParallelAnimation {
-            NumberAnimation { target: numLockToastItem; property: "opacity"; to: 0.0; duration: 250 }
-            NumberAnimation { target: numLockToastItem; property: "scale"; to: 0.7; duration: 250 }
-        }
-        ScriptAction {
-            script: {
-                compactRoot.numLockToastActive = false
-                numLockToastItem.opacity = 1.0
-                numLockToastItem.scale = 1.0
-            }
-        }
-    }
-
-    CompactSedentaryView {
-        id: sedentaryView
-        chosenFont: compactRoot.effectiveFont
-        continuousSitMinutes: compactRoot.continuousSitMinutes
-        visible: opacity > 0.001
-        opacity: (compactRoot.activeTransient === "SEDENTARY" && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-        onSedentaryRested: compactRoot.sedentaryRested()
-        onSedentarySnooze: compactRoot.sedentarySnooze()
-    }
-
-    CompactCallView {
-        id: callView
-        chosenFont: compactRoot.effectiveFont
-        callTitle: compactRoot.callTitle; callSubtitle: compactRoot.callSubtitle; callAvatar: compactRoot.callAvatar
-        isCalling: compactRoot.isCalling
-        visible: opacity > 0.001
-        opacity: (compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 150 } }
-    }
-
-    CompactWorkspaceView {
-        id: wsView
-        anchors.fill: parent
-        chosenFont: compactRoot.effectiveFont
-        wsName: compactRoot.wsName
-        wsTotal: compactRoot.wsTotal
-        wsList: compactRoot.wsList
-        displayWsNumber: compactRoot.displayWsNumber
-        isScrubbing: compactRoot.isScrubbing
-        isScrubCanceling: compactRoot.isScrubCanceling
-        visible: opacity > 0.001
-        opacity: ((compactRoot.activeTransient === "WORKSPACE" || compactRoot.isScrubbing) && !compactRoot.isCalling && !compactRoot.isExpanded) ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 120 } }
-    }
-
-    CompactOsdView {
-        id: osdView
-        anchors.fill: parent
-        chosenFont: compactRoot.effectiveFont
-        osdIcon: compactRoot.osdIcon
-        osdValue: compactRoot.osdValue
-        visible: opacity > 0.001
-        opacity: compactRoot.isOsdMode ? 1.0 : 0.0
-        scale: compactRoot.isOsdMode ? 1.0 : 0.88
-        Behavior on opacity { NumberAnimation { duration: compactRoot.isOsdMode ? 140 : 110 } }
-    }
-
-    CompactAlertView {
-        id: alertView
-        chosenFont: compactRoot.effectiveFont
-        alertTitle: compactRoot.alertTitle; alertSubtitle: compactRoot.alertSubtitle; alertAvatar: compactRoot.alertAvatar
-        alertThemeColor: compactRoot.alertThemeColor
-        isAlertActive: !compactRoot.isExpanded && compactRoot.isAlertActive
-    }
-
-    // 挂载端侧语音组件
-    CompactVoiceView {
-        id: voiceView
-        chosenFont: compactRoot.effectiveFont
-        isListening: (compactRoot.activeTransient === "VOICE_INPUT" && !compactRoot.isExpanded)
-        voiceLevel: (typeof Bridge !== "undefined" && Bridge.voiceInputLevel !== undefined) ? Bridge.voiceInputLevel : 0.2
-        streamText: (typeof Bridge !== "undefined" && Bridge.voiceInputText !== undefined) ? Bridge.voiceInputText : ""
-        onStopRequested: if (typeof Bridge !== "undefined") Bridge.stopVoiceInput()
-    }
-
+    // =========================================================================
+    // 视图层
+    // =========================================================================
     Item {
-        id: contentViewport
         anchors.fill: parent
-        readonly property bool isNormal: (!compactRoot.isExpanded &&
-                                          (compactRoot.activeTransient === "" || compactRoot.activeTransient === "MEDIA_PEEK") &&
-                                          !compactRoot.isCalling &&
-                                          !compactRoot.isScrubbing &&
-                                          compactRoot.activeTransient !== "VOICE_INPUT")
-        visible: opacity > 0.001
-        opacity: isNormal ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        clip: true
 
+        // ---------------------------------------------------------------------
+        // A. 常态流水线 (拖拽中或有弹窗时平滑隐去)
+        // ---------------------------------------------------------------------
         Row {
-            id: pipelineRow
+            id: flowPipeline
             anchors.centerIn: parent
-            spacing: 10
+            spacing: compactRoot.fixedInterSpacing
+            visible: !compactRoot.hasActiveTransient && !compactRoot.isScrubbing
+            opacity: (!compactRoot.hasActiveTransient && !compactRoot.isScrubbing) ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 150 } }
 
-            Rectangle {
-                id: wsSlot
-                visible: compactRoot.showWsBadge
-                width: compactRoot.slotWidthWs
-                height: 20
-                radius: 6
+            // 左侧：空间药丸
+            Item {
+                id: wsSlotItem
                 anchors.verticalCenter: parent.verticalCenter
-                color: wsBadgeHover.hovered ? Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.35) : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.20)
-                border.color: wsBadgeHover.hovered ? Theme.workspace : Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.6)
-                border.width: 1
+                visible: compactRoot.leadingSlotBucket > 0
+                width: compactRoot.leadingSlotBucket
+                height: 20
                 clip: true
 
-                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 10
+                    color: wsHover.hovered ? Qt.rgba(255, 255, 255, 0.16) : Qt.rgba(255, 255, 255, 0.08)
+                    border.color: wsHover.hovered ? Qt.rgba(255, 255, 255, 0.35) : Qt.rgba(255, 255, 255, 0.12)
+                    border.width: 1
 
-                Text {
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -0.5
-                    text: compactRoot.wsName ? compactRoot.wsName : ("" + compactRoot.displayWsNumber)
-                    color: "white"
-                    font.pixelSize: 11
-                    font.weight: Font.Black
-                    font.family: compactRoot.displayFont
-                }
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                    Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                HoverHandler { id: wsBadgeHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler {
-                    onTapped: if (typeof Bridge !== "undefined") Bridge.switchWorkspaceNext()
-                }
-                WheelHandler {
-                    onWheel: (event) => {
-                        if (typeof Bridge !== "undefined") {
-                            if (event.angleDelta.y > 0) Bridge.switchWorkspacePrev()
-                            else Bridge.switchWorkspaceNext()
-                        }
+                    Text {
+                        anchors.centerIn: parent
+                        width: parent.width - 6
+                        text: (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName : (compactRoot.relay ? compactRoot.relay.wsCurrent : "1")
+                        color: "#f1f5f9"
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                        font.family: compactRoot.displayFont
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        renderType: Text.QtRendering
                     }
+
+                    HoverHandler { id: wsHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: if (typeof Bridge !== "undefined") Bridge.switchWorkspaceNext() }
                 }
             }
 
-            Item {
-                id: mediaSlot
+            // 中间：时钟核心
+            CompactClockView {
+                id: clockView
                 anchors.verticalCenter: parent.verticalCenter
-                width: compactRoot.slotWidthWave > 0 ? compactRoot.slotWidthWave : compactRoot.slotWidthMem
-                height: 22
-                visible: width > 0
-                clip: true
+                chosenFont: compactRoot.effectiveFont
+                isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
+                displayDate: compactRoot.timeService ? compactRoot.timeService.displayDate : ""
+                displayTime: compactRoot.timeService ? compactRoot.timeService.displayTime : "12:00"
+                displaySeconds: compactRoot.timeService ? compactRoot.timeService.displaySeconds : ""
+                displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
+            }
 
-                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+            // 右侧组合槽位
+            Row {
+                id: trailingCombinedRow
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+                visible: compactRoot.trailingSlotBucket > 0
 
-                Item {
-                    id: waveWrapper
-                    anchors.centerIn: parent
-                    width: compactRoot.fullWaveWidth
-                    height: compactRoot.barMaxH
-                    opacity: compactRoot.waveVisible ? (compactRoot.isActivelyPlaying ? 1.0 : 0.85) : 0.0
-                    scale: compactRoot.waveVisible ? 1.0 : 0.5
-                    visible: opacity > 0.01
+                // 专注倒计时微囊
+                Rectangle {
+                    width: compactRoot.timerSlotWidth
+                    height: 20
+                    radius: 10
+                    visible: compactRoot.hasActiveTimer
+                    color: Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.16)
+                    border.color: Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.5)
+                    border.width: 1
+                    anchors.verticalCenter: parent.verticalCenter
 
-                    Behavior on opacity { NumberAnimation { duration: 200 } }
-                    Behavior on scale { NumberAnimation { duration: 240; easing.type: Easing.OutBack } }
+                    Text {
+                        anchors.centerIn: parent
+                        text: {
+                            if (typeof Bridge === "undefined") return "25:00";
+                            var sec = Bridge.timerType === "stopwatch" ? Bridge.timerElapsedSec : Bridge.timerRemainingSec;
+                            var m = Math.floor(sec / 60);
+                            var s = sec % 60;
+                            return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+                        }
+                        color: "#fdba74"
+                        font.family: compactRoot.displayFont
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        font.features: { "tnum": 1 }
+                        renderType: Text.QtRendering
+                    }
+
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: if (typeof Bridge !== "undefined") Bridge.toggleTimerPause() }
+                }
+
+                // 消息未读微囊
+                Rectangle {
+                    id: unreadBadgePod
+                    width: compactRoot.noticeBadgeSlotWidth
+                    height: 20
+                    radius: 10
+                    visible: compactRoot.unreadNoticeCount > 0
+                    color: notifTipHover.hovered ? Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32) : Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.18)
+                    border.color: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.5)
+                    border.width: 1
+                    anchors.verticalCenter: parent.verticalCenter
 
                     Row {
                         anchors.centerIn: parent
-                        spacing: compactRoot.barGap
-                        height: compactRoot.barMaxH
+                        spacing: 2
+                        Text { text: "💬"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
+                        Text {
+                            text: compactRoot.unreadNoticeCount
+                            color: "white"
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.family: compactRoot.displayFont
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    HoverHandler { id: notifTipHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "notification" })
+                    }
+                }
+
+                // 独立 6 柱动态声谱
+                Item {
+                    id: musicWaveIsland
+                    width: compactRoot.musicWaveSlotWidth
+                    height: 22
+                    visible: compactRoot.isMusicPlaying
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 2.2
 
                         Repeater {
-                            model: compactRoot.waveVisible ? compactRoot.barsCount : 0
+                            model: 6
                             Rectangle {
-                                width: compactRoot.barW
-                                height: compactRoot.barMaxH
-                                radius: compactRoot.barW / 2
-                                color: compactRoot.dominantColor
+                                width: 2.5
+                                height: 13
+                                radius: 1.25
+                                color: compactRoot.relay ? compactRoot.relay.dominantColor : "#22c55e"
                                 anchors.verticalCenter: parent.verticalCenter
-
-                                Behavior on color { ColorAnimation { duration: 240 } }
-
                                 transform: Scale {
-                                    origin.y: compactRoot.barMaxH / 2
-                                    yScale: compactRoot.getBarScale(index, compactRoot.barsCount)
-
-                                    Behavior on yScale {
-                                        NumberAnimation {
-                                            duration: 70
-                                            easing.type: Easing.OutQuad
-                                        }
+                                    origin.y: 6.5
+                                    yScale: {
+                                        if (!compactRoot.isMusicPlaying) return 0.15;
+                                        return compactRoot.getSixBandValue(index);
                                     }
+                                    Behavior on yScale { NumberAnimation { duration: 75; easing.type: Easing.OutQuad } }
                                 }
                             }
                         }
                     }
 
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: compactRoot.requestExpandTab("media") }
-                }
-
-                Item {
-                    anchors.centerIn: parent
-                    visible: !compactRoot.waveVisible && (compactRoot.memoryPercent >= ((typeof Config !== "undefined" && Config.memoryThreshold) ? Config.memoryThreshold : 75))
-                    width: 18; height: 18
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: "⚡"
-                        font.pixelSize: 12
-                        color: compactRoot.memoryPercent >= 85 ? Theme.danger : Theme.clock
-                    }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (typeof Bridge !== "undefined") Bridge.openSystemMonitor()
-                    }
-                }
-            }
-
-            Item {
-                id: clockSlot
-                anchors.verticalCenter: parent.verticalCenter
-                width: clockView.implicitWidth
-                height: 24
-
-                CompactClockView {
-                    id: clockView
-                    anchors.centerIn: parent
-                    chosenFont: compactRoot.effectiveFont
-                    isCapsLock: compactRoot.isCapsLock
-                    displayDate: compactRoot.displayDate
-                    displayTime: compactRoot.displayTime
-                    displaySeconds: compactRoot.displaySeconds
-                    displayPeriod: compactRoot.displayPeriod
-                }
-            }
-
-            Item {
-                id: numLockSlot
-                anchors.verticalCenter: parent.verticalCenter
-                width: compactRoot.slotWidthNumLock
-                height: 20
-                visible: width > 0
-                clip: true
-
-                Behavior on width {
-                    NumberAnimation { duration: 300; easing.type: Easing.OutBack; easing.overshoot: 1.08 }
-                }
-
-                Rectangle {
-                    id: numLockToastItem
-                    anchors.centerIn: parent
-                    width: Math.ceil(numLockText.implicitWidth + 12)
-                    height: 20
-                    radius: 10
-
-                    color: compactRoot.numLockActiveState ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.22) : Qt.rgba(1, 1, 1, 0.12)
-                    border.color: compactRoot.numLockActiveState ? "#34d399" : Qt.rgba(1, 1, 1, 0.35)
-                    border.width: 1
-
-                    Text {
-                        id: numLockText
-                        anchors.centerIn: parent
-                        text: compactRoot.numLockActiveState ? "123 ON" : "123 OFF"
-                        color: compactRoot.numLockActiveState ? "#34d399" : "#9ca3af"
-                        font.pixelSize: 10
-                        font.weight: Font.Black
-                        font.family: compactRoot.displayFont
-                    }
-                }
-            }
-
-            Item {
-                id: timerSlot
-                anchors.verticalCenter: parent.verticalCenter
-                width: compactRoot.slotWidthTimer
-                height: 20
-                visible: width > 0
-                clip: true
-
-                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-
-                readonly property color timerAccent: compactRoot.timerIsPaused ? "#f59e0b" :
-                                                      (compactRoot.timerIsCompleted ? "#10b981" : "#f97316")
-
-                Rectangle {
-                    id: timerPillBody
-                    anchors.fill: parent
-                    radius: 10
-                    color: Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.12)
-                    border.color: timerHover.hovered ? timerSlot.timerAccent :
-                                  Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.38)
-                    border.width: 1
-                    clip: true
-
-                    Behavior on border.color { ColorAnimation { duration: 150 } }
-                    Behavior on color { ColorAnimation { duration: 200 } }
-
-                    Rectangle {
-                        id: progressFill
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        radius: 10
-
-                        width: compactRoot.timerIsCompleted ? parent.width :
-                               Math.round(parent.width * Math.min(1.0, Math.max(0.0, compactRoot.timerProgress)))
-
-                        color: Qt.rgba(timerSlot.timerAccent.r, timerSlot.timerAccent.g, timerSlot.timerAccent.b, 0.32)
-
-                        Behavior on width {
-                            NumberAnimation {
-                                duration: 350
-                                easing.type: Easing.OutCubic
-                            }
-                        }
-                        Behavior on color { ColorAnimation { duration: 200 } }
-                    }
-
-                    Row {
-                        anchors.centerIn: parent
-                        spacing: 3
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: compactRoot.timerIsCompleted ? "✓" : (compactRoot.timerIsPaused ? "⏸" : "")
-                            visible: text !== ""
-                            color: compactRoot.timerIsCompleted ? "#6ee7b7" : "#fcd34d"
-                            font.pixelSize: 8
-                            font.weight: Font.Black
-                        }
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: compactRoot.timerFormattedText
-                            color: compactRoot.timerIsCompleted ? "#6ee7b7" :
-                                   (compactRoot.timerIsPaused ? "#fcd34d" : "#ffffff")
-                            font.family: compactRoot.displayFont
-                            font.pixelSize: 11
-                            font.weight: Font.Black
-                            font.letterSpacing: 0.3
-                            font.features: { "tnum": 1 }
-                        }
-                    }
-                }
-
-                HoverHandler { id: timerHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: compactRoot.toggleTimer() }
-            }
-
-            Rectangle {
-                id: notifSlot
-                anchors.verticalCenter: parent.verticalCenter
-                width: compactRoot.slotWidthNotif
-                height: 18
-                radius: 9
-                color: "#6366f1"
-                visible: width > 0
-                clip: true
-
-                Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-
-                Text {
-                    id: notifBadgeText
-                    anchors.centerIn: parent
-                    text: compactRoot.unreadNotifCount > 99 ? "99+" : compactRoot.unreadNotifCount
-                    color: "white"
-                    font.pixelSize: 10
-                    font.weight: Font.Black
-                    font.family: compactRoot.displayFont
-                }
-
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: compactRoot.requestExpandTab("notification") }
-            }
-
-            Item {
-                id: expandSlot
-                anchors.verticalCenter: parent.verticalCenter
-                width: compactRoot.slotWidthExpandBtn
-                height: 20
-                visible: width > 0
-                clip: true
-
-                Behavior on width {
-                    NumberAnimation {
-                        duration: 300
-                        easing.type: Easing.OutBack
-                        easing.overshoot: 1.08
-                    }
-                }
-
-                Rectangle {
-                    id: chevronPill
-                    anchors.centerIn: parent
-                    width: 22
-                    height: 20
-                    radius: 10
-                    scale: chevronTap.pressed ? 0.90 : (chevronHover.hovered ? 1.06 : 1.0)
-                    opacity: compactRoot.showExpandBtn ? 1.0 : 0.0
-
-                    color: chevronTap.pressed ?
-                           Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.38) :
-                           (chevronHover.hovered ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.22) : Qt.rgba(1, 1, 1, 0.08))
-                    border.color: chevronHover.hovered ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.18)
-                    border.width: 1
-
-                    Behavior on scale { NumberAnimation { duration: 120 } }
-                    Behavior on color { ColorAnimation { duration: 140 } }
-                    Behavior on border.color { ColorAnimation { duration: 140 } }
-                    Behavior on opacity { NumberAnimation { duration: 220 } }
-
-                    Text {
-                        anchors.centerIn: parent
-                        anchors.verticalCenterOffset: 0.5
-                        text: "▾"
-                        color: chevronHover.hovered ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.70)
-                        font.pixelSize: 10
-                        font.weight: Font.Black
-                    }
-
-                    HoverHandler { id: chevronHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
-                        id: chevronTap
-                        onTapped: compactRoot.requestExpandTab("hardware")
+                        onTapped: if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media" })
                     }
                 }
             }
         }
+
+        // ---------------------------------------------------------------------
+        // B. 🚀【核心复活】：拖拽桌面标尺视图 (Scrubbing / Transient 共同宿主)
+        // ---------------------------------------------------------------------
+        CompactWorkspaceView {
+            id: wsView
+            anchors.fill: parent
+            chosenFont: compactRoot.effectiveFont
+            wsName: compactRoot.relay ? compactRoot.relay.wsName : ""
+            wsTotal: compactRoot.relay ? compactRoot.relay.wsTotal : 4
+            wsList: compactRoot.relay ? compactRoot.relay.wsList : []
+            displayWsNumber: compactRoot.relay ? compactRoot.relay.wsCurrent : 1
+
+            // 联动拖拽状态
+            isScrubbing: compactRoot.isScrubbing
+            isScrubCanceling: compactRoot.isScrubCanceling
+
+            visible: opacity > 0.001
+            opacity: (compactRoot.isScrubbing || (compactRoot.hasActiveTransient && compactRoot.currentKey === "WORKSPACE")) ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 130 } }
+        }
+    }
+
+    // 瞬态视图插槽
+    Item {
+        id: mediaPeekView
+        anchors.fill: parent
+        anchors.leftMargin: 12
+        anchors.rightMargin: 12
+        clip: true
+        visible: opacity > 0.001
+        opacity: (!compactRoot.isScrubbing && compactRoot.hasActiveTransient && compactRoot.currentKey === "MEDIA_PEEK") ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        Row {
+            anchors.fill: parent
+            spacing: 8
+
+            Rectangle {
+                width: 20; height: 20; radius: 5
+                anchors.verticalCenter: parent.verticalCenter
+                color: Qt.rgba(255, 255, 255, 0.08)
+                Text { anchors.centerIn: parent; text: "🎵"; font.pixelSize: 11 }
+            }
+
+            Column {
+                width: parent.width - 20 - 8 - 42 - 8
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 1
+                clip: true
+
+                Text {
+                    text: (compactRoot.currentPayload && compactRoot.currentPayload.title) ? compactRoot.currentPayload.title : "正在播放"
+                    color: "#ffffff"
+                    font.family: compactRoot.effectiveFont
+                    font.pixelSize: 11
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                    width: parent.width
+                }
+                Text {
+                    text: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle) ? compactRoot.currentPayload.subtitle : "音乐媒体"
+                    color: (compactRoot.currentPayload && compactRoot.currentPayload.color) ? compactRoot.currentPayload.color : "#22c55e"
+                    font.family: compactRoot.effectiveFont
+                    font.pixelSize: 9
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                    width: parent.width
+                }
+            }
+
+            Row {
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2.2
+                Repeater {
+                    model: 6
+                    Rectangle {
+                        width: 2.5; height: 13; radius: 1.25
+                        color: (compactRoot.currentPayload && compactRoot.currentPayload.color) ? compactRoot.currentPayload.color : "#22c55e"
+                        anchors.verticalCenter: parent.verticalCenter
+                        transform: Scale {
+                            origin.y: 6.5
+                            yScale: compactRoot.getSixBandValue(index)
+                            Behavior on yScale { NumberAnimation { duration: 75 } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    CompactAlertView {
+        id: alertView
+        anchors.fill: parent
+        chosenFont: compactRoot.effectiveFont
+        isAlertActive: !compactRoot.isScrubbing && compactRoot.hasActiveTransient && compactRoot.currentKey === "ALERT"
+        alertTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title) || ""
+        alertSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle) || ""
+        alertAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar) || ""
+        alertThemeColor: (compactRoot.currentPayload && compactRoot.currentPayload.color) || Theme.notification
+    }
+
+    CompactOsdView {
+        id: osdView
+        anchors.fill: parent
+        chosenFont: compactRoot.effectiveFont
+        osdIcon: (compactRoot.hasActiveTransient && compactRoot.currentKey === "OSD")
+                 ? ((compactRoot.currentPayload && compactRoot.currentPayload.icon) || compactRoot.cachedOsdIcon)
+                 : compactRoot.cachedOsdIcon
+        osdValue: (compactRoot.hasActiveTransient && compactRoot.currentKey === "OSD")
+                  ? ((compactRoot.currentPayload && compactRoot.currentPayload.value !== undefined) ? compactRoot.currentPayload.value : compactRoot.cachedOsdValue)
+                  : compactRoot.cachedOsdValue
+        visible: opacity > 0.001
+        opacity: (!compactRoot.isScrubbing && compactRoot.hasActiveTransient && compactRoot.currentKey === "OSD") ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 120 } }
+    }
+
+    CompactCallView {
+        id: callView
+        anchors.fill: parent
+        chosenFont: compactRoot.effectiveFont
+        isCalling: !compactRoot.isScrubbing && compactRoot.hasActiveTransient && compactRoot.currentKey === "CALL"
+        callTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title) || ""
+        callSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle) || ""
+        callAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar) || ""
+        visible: opacity > 0.001
+        opacity: isCalling ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+    }
+
+    CompactVoiceView {
+        id: voiceView
+        anchors.fill: parent
+        chosenFont: compactRoot.effectiveFont
+        isListening: !compactRoot.isScrubbing && compactRoot.hasActiveTransient && (compactRoot.currentKey === "VOICE_INPUT" || compactRoot.currentKey === "VOICE")
+        voiceLevel: (typeof Bridge !== "undefined" && Bridge.voiceInputLevel !== undefined) ? Bridge.voiceInputLevel : 0.2
+        streamText: (typeof Bridge !== "undefined" && Bridge.voiceInputText !== undefined) ? Bridge.voiceInputText : ""
+        onStopRequested: if (typeof Bridge !== "undefined") Bridge.stopVoiceInput()
+    }
+
+    CompactSedentaryView {
+        id: sedentaryView
+        anchors.fill: parent
+        chosenFont: compactRoot.effectiveFont
+        continuousSitMinutes: 45
+        visible: opacity > 0.001
+        opacity: (!compactRoot.isScrubbing && compactRoot.hasActiveTransient && compactRoot.currentKey === "SEDENTARY") ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+        onSedentaryRested: if (compactRoot.fsm) compactRoot.fsm.dismissTransient("SEDENTARY")
+        onSedentarySnooze: if (compactRoot.fsm) compactRoot.fsm.dismissTransient("SEDENTARY")
     }
 }

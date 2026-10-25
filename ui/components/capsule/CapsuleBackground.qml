@@ -1,6 +1,4 @@
-// ==========================================
-// 📄 File: capsule/CapsuleBackground.qml (触感呼吸动效完整版)
-// ==========================================
+// ui/components/capsule/CapsuleBackground.qml
 import QtQuick
 
 Item {
@@ -14,7 +12,6 @@ Item {
 
     readonly property bool hasAccent: accentColor.a > 0.001
 
-    // 🚀【专属触觉微反馈】：切换固定/隐藏时，边框产生一次极其通透自然的微光流动，纯物理材质反馈，无任何杂标
     property real modePulseOpacity: 0.0
     property color modePulseColor: "#ffffff"
 
@@ -28,35 +25,46 @@ Item {
         }
     }
 
-    // 对外触发切换动画的接口
     function triggerModeHaptic(isAnchored) {
         modePulseColor = isAnchored ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.6)
         modePulseAnim.restart()
     }
 
-    // 1. 底板实体黑底
+    // 1. 实体黑底（增加极度微弱的背景漫反射，不与壁纸生硬割裂）
     Rectangle {
         anchors.fill: parent
-        anchors.margins: 1
-        radius: Math.max(0, bgRoot.capsuleRadius - 1)
-        color: "#0a0c12"
-        border.color: bgRoot.hasAccent ? bgRoot.accentColor : Qt.rgba(255, 255, 255, 0.14)
-        border.width: 1
+        radius: bgRoot.capsuleRadius
+        color: "#08090d" // 稍带极微弱冷调的深黑
         antialiasing: true
         smooth: true
+
+        // 🚀【核心改进】：去掉刺眼的实色粗线，改用高级半透明高光微边（即使有 accentColor，也只施加 25% 柔和微光）
+        border.color: bgRoot.hasAccent ? 
+                      Qt.rgba(bgRoot.accentColor.r, bgRoot.accentColor.g, bgRoot.accentColor.b, 0.35) : 
+                      Qt.rgba(255, 255, 255, 0.12)
+        border.width: 1
     }
 
-    // 2. 物理触感外边缘光环（零图标，仅凭光影告知用户状态）
+    // 2. 内部 0.5px 仿玻璃高光内衬 (Inner Rim)
     Rectangle {
         anchors.fill: parent
         anchors.margins: 1
         radius: Math.max(0, bgRoot.capsuleRadius - 1)
+        color: "transparent"
+        border.color: Qt.rgba(255, 255, 255, 0.05)
+        border.width: 1
+        antialiasing: true
+    }
+
+    // 3. 触感光环
+    Rectangle {
+        anchors.fill: parent
+        radius: bgRoot.capsuleRadius
         color: "transparent"
         border.color: bgRoot.modePulseColor
         border.width: 1.5
         opacity: bgRoot.modePulseOpacity
         visible: opacity > 0.01
         antialiasing: true
-        smooth: true
     }
 }

@@ -1,6 +1,6 @@
 // ==========================================
-// 📄 File: InterruptibleConveyor.qml
-// 🌟 零卡顿可打断传送带引擎 (Dual-Slot Conveyor)
+// 📄 File: ui/views/InterruptibleConveyor.qml
+// 🌟 零卡顿可打断传送带引擎 (Dual-Slot Conveyor 防空健壮版)
 // ==========================================
 import QtQuick
 
@@ -8,7 +8,6 @@ Item {
     id: conveyorRoot
     clip: true
 
-    // 🚀【核心修复】：默认键值与主配置对齐，杜绝查找不到组件的白屏/黑块
     property string currentKey: "hardware"
     property var keyToComponentMap: ({})
 
@@ -17,36 +16,34 @@ Item {
     property real slideOffset: 0.0
     property int slideDir: 1
 
-    // 🚀【核心修复】：当外部直接绑定修改 currentKey 时，无缝同步至 activeKey
     onCurrentKeyChanged: {
         if (activeKey !== currentKey && departingKey === "") {
-            activeKey = currentKey
+            activeKey = currentKey;
         }
     }
 
     function switchTo(newKey, explicitDir) {
-        if (newKey === activeKey && departingKey === "") return
+        if (!newKey || (newKey === activeKey && departingKey === "")) return;
 
-        slideDir = explicitDir !== undefined && explicitDir !== 0 ? explicitDir : 1
+        slideDir = explicitDir !== undefined && explicitDir !== 0 ? explicitDir : 1;
 
-        // 保留连续位移初值，拒绝强行归零
-        departingKey = activeKey
-        activeKey = newKey
+        departingKey = activeKey;
+        activeKey = newKey;
 
-        slideAnim.stop()
-        slideAnim.from = slideDir > 0 ? width : -width
-        slideAnim.to = 0
-        slideAnim.start()
+        slideAnim.stop();
+        slideAnim.from = slideDir > 0 ? width : -width;
+        slideAnim.to = 0;
+        slideAnim.start();
     }
 
     NumberAnimation {
         id: slideAnim
         target: conveyorRoot
         property: "slideOffset"
-        duration: Theme.animFast
+        duration: (typeof Theme !== "undefined") ? Theme.animFast : 160
         easing.type: Easing.OutCubic
         onFinished: {
-            conveyorRoot.departingKey = ""
+            conveyorRoot.departingKey = "";
         }
     }
 
@@ -56,7 +53,7 @@ Item {
         width: parent.width; height: parent.height
         visible: conveyorRoot.departingKey !== ""
         x: conveyorRoot.slideOffset - (conveyorRoot.slideDir > 0 ? conveyorRoot.width : -conveyorRoot.width)
-        sourceComponent: conveyorRoot.keyToComponentMap[conveyorRoot.departingKey] || null
+        sourceComponent: (conveyorRoot.keyToComponentMap && conveyorRoot.departingKey) ? conveyorRoot.keyToComponentMap[conveyorRoot.departingKey] : null
     }
 
     // 槽位 2：正在入场的激活视图
@@ -64,6 +61,6 @@ Item {
         id: activeLoader
         width: parent.width; height: parent.height
         x: conveyorRoot.slideOffset
-        sourceComponent: conveyorRoot.keyToComponentMap[conveyorRoot.activeKey] || null
+        sourceComponent: (conveyorRoot.keyToComponentMap && conveyorRoot.activeKey) ? conveyorRoot.keyToComponentMap[conveyorRoot.activeKey] : null
     }
 }

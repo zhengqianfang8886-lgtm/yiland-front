@@ -1,321 +1,233 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 胶囊主壳 (彻底解耦视口显示与动画执行)
-// ==========================================
+// 🌟 灵动岛主壳体 (展开释放大感应区 · 收缩秒锁紧掩码版)
+// =========================================================================
 import QtQuick
-import QtQuick.Controls
+import "../core"
 import "../views"
 import "../components/capsule"
 
 Item {
     id: capsuleRoot
 
-    property real capsuleRadius: 19
-    property real capsuleScaleX: 1.0
-    property real capsuleScaleY: 1.0
-    property real islandOffsetX: 0
-
+    property var fsm: null
     property var relay: null
     property var timeService: null
-    property var enabledTabs: []
-    property string chosenFont: ""
-    readonly property string effectiveFont: chosenFont !== "" ? chosenFont : Theme.activeFont
 
     property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
+    property real islandOffsetX: 0
 
-    signal sedentaryRested()
-    signal sedentarySnooze()
-    signal requestExpand(string tabName)
+    readonly property bool isCurrentExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
+
+    HoverHandler {
+        id: capsuleBodyHover
+        blocking: false
+        enabled: !capsuleRoot.isCurrentExpanded
+    }
+
+    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || capsuleBodyHover.hovered || (sensorArea && sensorArea.isPointerHovered)
+
     signal requestSettings()
 
-    width: 180; height: 38
-    y: normalTopMargin
+    PhysicsMotionPod {
+        id: motionPod
+        onMotionSettled: capsuleRoot.commitPrecisionMask()
+    }
+
+    Timer {
+        id: maskSettleWatchdog
+        interval: 320
+        repeat: false
+        onTriggered: capsuleRoot.commitPrecisionMask()
+    }
+
+    width: Math.max(180, motionPod.currentWidth)
+    height: Math.max(38, motionPod.currentHeight)
+    y: motionPod.currentY
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
 
-    transform: Scale {
-        origin.x: capsuleRoot.width / 2
-        origin.y: capsuleRoot.height / 2
-        xScale: capsuleRoot.capsuleScaleX
-        yScale: capsuleRoot.capsuleScaleY
-    }
+    function resolveAndExpress() {
+        if (!fsm) return;
 
-    IslandStageController {
-        id: stage
-        onStageGeometryRequested: (isModeSwitch) => capsuleRoot.resolveAndApplyGeometry(isModeSwitch)
-        onModeSwitchTriggered: (isAnchored) => capsuleBackground.triggerModeHaptic(isAnchored)
-    }
+        var tY = normalTopMargin;
+        var tW = (compactView && compactView.naturalWidth > 0) ? compactView.naturalWidth : 188;
+        var tH = 38;
+        var tR = 19;
 
-    IslandMotionCoordinator {
-        id: coordinator
-        targetHost: capsuleRoot
-        stageCtrl: stage
-        goalHeight: 38
-        goalRadius: 19
-        goalWidth: 180
-        onMotionStarted: if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion()
-        onMotionSettled: capsuleRoot.commitSettledMask()
-    }
+        switch (fsm.currentState) {
+            case IslandFsm.State.Hidden:
+                tW = 180; tH = 38; tR = 19;
+                tY = -(tH - 4.5);
+                break;
 
-    readonly property alias isSettled: coordinator.isSettled
-    readonly property alias stageEngine: stage
+            case IslandFsm.State.Compact:
+            case IslandFsm.State.Interacting:
+            case IslandFsm.State.Overlay:
+                tW = Math.max(188, compactView.naturalWidth);
+                tH = (fsm.activeTransientKey === "SEDENTARY") ? 112 : 
+                     (fsm.activeTransientKey === "CALL" ? 46 : 
+                     (fsm.activeTransientKey === "ALERT" ? 52 : 38));
+                tR = Math.min(26, tH / 2);
+                tY = normalTopMargin;
+                break;
 
-    readonly property bool isLongAlert: {
-        var t = stage.activePayload.title || ""
-        var sub = stage.activePayload.subtitle || ""
-        return (stage.activeOverlayKey === "ALERT") && ((t.length + sub.length) > 24 || sub.indexOf("\n") !== -1)
-    }
-
-    // 🚀【架构级解耦】：是否真正隐藏，不仅看坐标，还要看动画引擎是否彻底停息
-    readonly property bool isPhysicallyDeepTucked: (stage.baseMode === stage.modeTUCKED) && 
-                                                  (stage.presentState === stage.stateREST) &&
-                                                  (capsuleRoot.y < 0) &&
-                                                  !coordinator.isAnimating
-
-    readonly property bool isExpandedState: (stage.presentState === stage.stateEXPANDED)
-    readonly property bool isCompactContentVisible: !isPhysicallyDeepTucked && !isExpandedState
-
-    onIsPhysicallyDeepTuckedChanged: {
-        if (typeof Bridge !== "undefined" && Bridge.setUiActive) {
-            Bridge.setUiActive(!isPhysicallyDeepTucked)
-        }
-        if (timeService) {
-            timeService.isTucked = isPhysicallyDeepTucked
-        }
-    }
-
-    function resolveAndApplyGeometry(isModeSwitch) {
-        var tY = normalTopMargin
-        var tW = 180
-        var tH = 38
-        var tR = 19
-
-        if (isExpandedState) {
-            tW = 420; tH = 240; tR = 24; tY = normalTopMargin
-        } else if (stage.activeOverlayKey === "CALL") {
-            tW = 320; tH = 46; tR = 23
-        } else if (stage.activeOverlayKey === "VOICE_INPUT") {
-            tW = 320; tH = 42; tR = 21
-        } else if (stage.activeOverlayKey === "SEDENTARY") {
-            tW = 420; tH = 112; tR = 26
-        } else if (stage.activeOverlayKey === "ALERT") {
-            tW = Math.round(Math.min(420, Math.max(196, compactCapsuleView.alertContentImplicitWidth + 36)))
-            tH = capsuleRoot.isLongAlert ? 66 : 50
-            tR = 25
-        } else if (stage.activeOverlayKey === "WORKSPACE") {
-            tW = 210; tH = 38; tR = 19
-        } else {
-            var dynamicW = (compactCapsuleView && compactCapsuleView.naturalPillWidth > 0) ? compactCapsuleView.naturalPillWidth : 180
-            tW = Math.max(180, dynamicW)
-            tH = 38; tR = 19
+            case IslandFsm.State.Expanded:
+                tW = 420; tH = 240; tR = 24;
+                tY = normalTopMargin;
+                break;
         }
 
-        if ((stage.baseMode === stage.modeTUCKED) && (stage.presentState === stage.stateREST)) {
-            tY = -(tH - 4.5)
+        var willMove = (Math.abs(motionPod.targetY - tY) > 0.5 ||
+                        Math.abs(motionPod.targetWidth - tW) > 0.5 ||
+                        Math.abs(motionPod.targetHeight - tH) > 0.5);
+
+        if (willMove) {
+            if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
+                Bridge.openFullCorridorForMotion();
+            }
+            maskSettleWatchdog.restart();
         }
 
-        if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
-            Bridge.openFullCorridorForMotion()
-        }
-
-        coordinator.syncAndAnimate(tY, tW, tH, tR, isModeSwitch === true)
+        motionPod.expressGeometry(tY, tW, tH, tR);
     }
 
-    function commitMaskTarget(targetW, targetH) {
-        if (typeof Bridge === "undefined" || !Bridge.applySettledMask) return
-        var capX = Math.round((parent.width - targetW) / 2 + islandOffsetX)
-        var safePad = 8
-        Bridge.applySettledMask(Math.max(0, capX - safePad), 0, targetW + safePad * 2, targetH + safePad * 2)
+    Component.onCompleted: resolveAndExpress()
+
+    Connections {
+        target: capsuleRoot.fsm
+        function onStateChanged(oldState, newState, ctx) {
+            capsuleRoot.resolveAndExpress();
+        }
     }
 
     Connections {
-        target: compactCapsuleView
-        enabled: !capsuleRoot.isExpandedState
-        function onNaturalPillWidthChanged() {
-            if (capsuleRoot.isPhysicallyDeepTucked) {
-                if (Math.abs(capsuleRoot.width - compactCapsuleView.naturalPillWidth) >= 2) {
-                    capsuleRoot.resolveAndApplyGeometry(false)
-                }
-            } else {
-                capsuleRoot.resolveAndApplyGeometry(false)
+        target: compactView
+        function onNaturalWidthChanged() {
+            if (capsuleRoot.fsm && !capsuleRoot.isCurrentExpanded) {
+                capsuleRoot.resolveAndExpress();
             }
         }
     }
 
-    function commitSettledMask() {
-        if (typeof Bridge === "undefined" || !Bridge.applySettledMask) return
-        if (!coordinator.isSettled) return
+    // 🚀【掩码流转关键】：展开时彻底放开掩码让 680x480 感应区生效；收缩时秒速锁死在小胶囊！
+    function commitPrecisionMask() {
+        maskSettleWatchdog.stop();
+        if (typeof Bridge === "undefined") return;
 
-        var capW = Math.round(capsuleRoot.width)
-        var capX = Math.round((parent.width - capW) / 2 + islandOffsetX)
-        var safePad = 6
-
-        if (capsuleRoot.isPhysicallyDeepTucked) {
-            Bridge.applySettledMask(Math.max(0, capX - safePad), 0, capW + safePad * 2, 8)
-            return
+        // 展开态：清除掩码，让大卡片四周的透明大视口 100% 具备点击感知
+        if (capsuleRoot.isCurrentExpanded) {
+            Bridge.openFullCorridorForMotion();
+            return;
         }
 
-        var targetH = Math.round(capsuleRoot.y + capsuleRoot.height)
-        Bridge.applySettledMask(Math.max(0, capX - safePad), 0, capW + safePad * 2, targetH + safePad)
-    }
+        var capW = Math.round(capsuleRoot.width);
+        var capX = Math.round((parent.width - capW) / 2 + islandOffsetX);
+        var safePadH = 4;
 
-    Behavior on islandOffsetX {
-        NumberAnimation { duration: 240; easing.type: Easing.OutBack; easing.overshoot: 1.12 }
-    }
-    function goHome() { islandOffsetX = 0 }
+        if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
+            Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, 10);
+            return;
+        }
 
-    readonly property color currentEffectiveAccent: {
-        if (stage.activeOverlayKey === "CALL") return Theme.media
-        if (stage.activeOverlayKey === "VOICE_INPUT") return "#38bdf8"
-        if (stage.activeOverlayKey === "SEDENTARY") return Qt.rgba(52/255, 211/255, 153/255, 1.0)
-        if (stage.activeOverlayKey === "ALERT") return stage.activePayload.color || Theme.notification
-        if (relay && relay.status === "Playing" && !isExpandedState) return relay.dominantColor
-        return Qt.rgba(0, 0, 0, 0)
+        var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 2);
+        Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
     CapsuleBackground {
-        id: capsuleBackground
-        capsuleRadius: capsuleRoot.capsuleRadius
-        accentColor: capsuleRoot.currentEffectiveAccent
-        isHovered: sensorArea.isPointerHovered
+        id: bg
+        capsuleRadius: motionPod.currentRadius
+        accentColor: {
+            if (fsm && fsm.activePayload && fsm.activePayload.color) {
+                return fsm.activePayload.color;
+            }
+            if (relay && relay.status === "Playing" && !capsuleRoot.isCurrentExpanded) {
+                return relay.dominantColor;
+            }
+            return "transparent";
+        }
     }
 
+    // 紧凑态视图
     Item {
-        id: opticalAperture
         anchors.fill: parent
         clip: true
-        // 🚀 确保在动画完整结束前，视口必须大开，杜绝画面截断
-        visible: !capsuleRoot.isPhysicallyDeepTucked
+        visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+        enabled: visible
+        opacity: visible ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 120 } }
 
         CompactCapsuleView {
-            id: compactCapsuleView
-            anchors.fill: parent
-
-            visible: opacity > 0.001
-            opacity: capsuleRoot.isCompactContentVisible ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: 130 } }
-
-            chosenFont: capsuleRoot.effectiveFont
-            activeTransient: stage.activeOverlayKey
-            isCalling: stage.activeOverlayKey === "CALL"
-
-            alertIcon: stage.activePayload.icon
-            alertTitle: stage.activePayload.title
-            alertSubtitle: stage.activePayload.subtitle
-            alertAvatar: stage.activePayload.avatar
-            osdIcon: stage.activePayload.icon
-            osdValue: stage.activePayload.value
-
-            dominantColor: relay ? relay.dominantColor : "#22c55e"
-            spec1: relay ? relay.spec1 : 0.2
-            spec2: relay ? relay.spec2 : 0.2
-            spec3: relay ? relay.spec3 : 0.2
-            spec4: relay ? relay.spec4 : 0.2
-            status: relay ? relay.status : "Paused"
-
-            wsName: relay ? relay.wsName : ""
-            wsCurrent: relay ? relay.wsCurrent : 1
-            wsTotal: relay ? relay.wsTotal : 4
-            wsList: relay ? relay.wsList : []
-
-            displayDate: timeService ? timeService.displayDate : ""
-            displayTime: timeService ? timeService.displayTime : "12:00"
-            displaySeconds: timeService ? timeService.displaySeconds : ""
-            displayPeriod: timeService ? timeService.displayPeriod : ""
-
-            unreadNotifCount: relay ? relay.unreadCount : 0
-            latestNotifAvatar: relay ? relay.latestNotifAvatar : ""
-            memoryPercent: relay ? relay.memoryPercent : 0
-
-            timerActive: (typeof Bridge !== "undefined") ? (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted) : false
-            timerFormattedText: {
-                if (typeof Bridge === "undefined") return "25:00"
-                var sec = Bridge.timerType === "stopwatch" ? Bridge.timerElapsedSec : Bridge.timerRemainingSec
-                var m = Math.floor(sec / 60)
-                var s = sec % 60
-                return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
-            }
-            timerIsPaused: (typeof Bridge !== "undefined") ? Bridge.timerIsPaused : false
-            timerIsCompleted: (typeof Bridge !== "undefined") ? Bridge.timerIsCompleted : false
-            timerProgress: (typeof Bridge !== "undefined" && Bridge.timerTotalSec > 0) ? (Bridge.timerRemainingSec / Bridge.timerTotalSec) : 1.0
-
-            continuousSitMinutes: 45
-            onSedentaryRested: capsuleRoot.sedentaryRested()
-            onSedentarySnooze: capsuleRoot.sedentarySnooze()
-            onRequestExpandTab: (tab) => capsuleRoot.requestExpand(tab)
-            onToggleTimer: if (typeof Bridge !== "undefined") Bridge.toggleTimerPause()
-        }
-
-        Item {
-            anchors.fill: parent
-            anchors.margins: 12
-            z: 20
-            visible: opacity > 0.001
-            opacity: capsuleRoot.isExpandedState ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: 150 } }
-
-            ExpandedCardView {
-                id: expandedCardView
-                anchors.fill: parent
-                chosenFont: capsuleRoot.effectiveFont
-                enabledTabs: capsuleRoot.enabledTabs
-
-                dominantColor: relay ? relay.dominantColor : "#22c55e"
-                isCalling: stage.activeOverlayKey === "CALL"
-                callTitle: relay ? relay.callTitle : ""
-                callSubtitle: relay ? relay.callSubtitle : ""
-                callAvatar: relay ? relay.callAvatar : ""
-
-                title: relay ? relay.title : ""
-                artist: relay ? relay.artist : ""
-                status: relay ? relay.status : "Paused"
-                artUrl: relay ? relay.artUrl : ""
-                position: relay ? relay.position : 0
-                duration: relay ? relay.duration : 0
-
-                wsCurrent: relay ? relay.wsCurrent : 1
-                wsTotal: relay ? relay.wsTotal : 4
-                wsName: relay ? relay.wsName : ""
-                wsList: relay ? relay.wsList : []
-
-                downSpeedStr: relay ? relay.downSpeedStr : ""
-                upSpeedStr: relay ? relay.upSpeedStr : ""
-                localIp: relay ? relay.localIp : ""
-            }
-
-            Connections {
-                target: expandedCardView
-                ignoreUnknownSignals: true
-                function onStartCollapse() { stage.requestCollapse() }
-                function onRequestSettings() { capsuleRoot.requestSettings() }
-            }
+            id: compactView
+            fsm: capsuleRoot.fsm
+            relay: capsuleRoot.relay
+            timeService: capsuleRoot.timeService
         }
     }
 
+    // 小胶囊手势感应
     CapsuleSensorArea {
         id: sensorArea
         anchors.fill: parent
-        z: 10
-        isExpanded: capsuleRoot.isExpandedState
-        isTucked: capsuleRoot.isPhysicallyDeepTucked
-        isCalling: stage.activeOverlayKey === "CALL"
-        activeTransient: stage.activeOverlayKey
+        visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+        enabled: visible
+        isExpanded: capsuleRoot.isCurrentExpanded
+        isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
 
-        onRequestTuckToggle: stage.toggleTuck()
-        onRequestSettingsWindow: capsuleRoot.requestSettings()
-        onRequestExpand: (tab) => {
-            if (expandedCardView) expandedCardView.expandedTab = tab
-            stage.requestExpand()
+        // 🚀【拖拽切桌面通道】：将手势传感器的信号直通给 compactView
+        onScrubStarted: {
+            if (compactView) compactView.isScrubbing = true;
         }
-        onStartCollapse: stage.requestCollapse()
-        onMoveOffsetRequested: (deltaX) => islandOffsetX = Math.max(-100, Math.min(100, islandOffsetX + deltaX))
-        onDragFinished: (velocityX) => { if (Math.abs(islandOffsetX) < 35) goHome() }
-        onGoHomeRequested: goHome()
+        onScrubMoved: (mx, my) => {
+            if (compactView) {
+                compactView.isScrubCanceling = sensorArea.isScrubCanceling;
+                compactView.handleScrubMove(mx, my);
+            }
+        }
+        onScrubCommitted: {
+            if (compactView) {
+                compactView.isScrubbing = false;
+                var targetIdx = compactView.getScrubTargetIndex();
+                if (typeof Bridge !== "undefined") Bridge.switchWorkspace(targetIdx);
+            }
+        }
+        onScrubCanceled: {
+            if (compactView) compactView.isScrubbing = false;
+        }
+
+        onRequestExpand: (tab) => {
+            if (fsm) fsm.handleIntent("EXPAND", { tab: tab, source: "SensorArea_RequestExpand" });
+        }
+        onRequestTuckToggle: {
+            if (fsm) fsm.handleIntent("TOGGLE_TUCK", { source: "SensorArea_Tuck" });
+        }
+        onRequestSettingsWindow: capsuleRoot.requestSettings()
+
         onWheelScrolled: (deltaY) => {
             if (typeof Bridge !== "undefined") {
-                if (deltaY > 0) Bridge.switchWorkspacePrev()
-                else Bridge.switchWorkspaceNext()
+                if (deltaY > 0) Bridge.switchWorkspacePrev();
+                else Bridge.switchWorkspaceNext();
             }
+        }
+    }
+
+    // 展开态大卡片 (独享顶层事件)
+    Item {
+        anchors.fill: parent
+        anchors.margins: 12
+        clip: true
+        z: 50
+        visible: capsuleRoot.isCurrentExpanded
+        enabled: visible
+        opacity: visible ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 140 } }
+
+        ExpandedCardView {
+            id: expandedView
+            anchors.fill: parent
+            fsm: capsuleRoot.fsm
+            relay: capsuleRoot.relay
+            onRequestSettings: capsuleRoot.requestSettings()
         }
     }
 }

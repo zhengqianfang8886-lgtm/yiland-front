@@ -234,6 +234,28 @@ class ConfigManager(QObject):
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
 
+    # =========================================================================
+    # 🚀【补齐系统字体列表属性】：调用 QFontDatabase 读取原生所有字体
+    # =========================================================================
+    @Property("QStringList", constant=True)
+    def systemFonts(self):
+        if self._system_fonts is None:
+            try:
+                # 获取系统所有可用字体族
+                families = QFontDatabase.families()
+                cleaned = ["系统默认 (Default)"]
+                seen = set()
+                for fam in families:
+                    name = str(fam).strip()
+                    if name and name not in seen and not name.startswith("."):
+                        seen.add(name)
+                        cleaned.append(name)
+                self._system_fonts = cleaned
+            except Exception as e:
+                app_logger.warning(f"[Config] 加载系统字体库失败: {e}")
+                self._system_fonts = ["系统默认 (Default)"]
+        return self._system_fonts
+
     @Property(int, notify=musicVisualizerBarsChanged)
     def musicVisualizerBars(self): return self._musicVisualizerBars
     @musicVisualizerBars.setter

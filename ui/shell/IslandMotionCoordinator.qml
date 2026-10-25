@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandMotionCoordinator.qml
-// 🌟 液态动力学协调器 (管线驱动状态机重构版)
+// 🌟 液态动力学协调器 (管线驱动状态机安全阻尼版)
 // ==========================================
 import QtQuick
 
@@ -16,7 +16,6 @@ Item {
     property real goalRadius: 19
 
     property bool isSettled: true
-    // 🚀【架构重构】：引入显式管线状态枚举，彻底告别布尔值乱飞
     property string activePipeline: "NONE"
     readonly property bool isAnimating: activePipeline !== "NONE"
 
@@ -50,7 +49,6 @@ Item {
         onFinished: { motionCoord.activePipeline = "NONE"; settleDebounceTimer.restart() }
     }
 
-    // 常态小胶囊下沉蓄力回收动画
     SequentialAnimation {
         id: tuckChainPipeline
         onStarted: { motionCoord.activePipeline = "TUCK"; motionCoord.isSettled = false; settleDebounceTimer.stop(); motionCoord.motionStarted() }
@@ -70,12 +68,9 @@ Item {
         onFinished: { motionCoord.activePipeline = "NONE"; settleDebounceTimer.restart() }
     }
 
-    // 🚀【新增】：严格的大卡片 -> 隐藏天花板的【两段式动画链】
     SequentialAnimation {
         id: expandToTuckPipeline
         onStarted: { motionCoord.activePipeline = "EXPAND_TO_TUCK"; motionCoord.isSettled = false; settleDebounceTimer.stop(); motionCoord.motionStarted() }
-        
-        // 阶段一：平滑收缩回标准胶囊形状 (停靠在普通胶囊的高度位)
         ParallelAnimation {
             NumberAnimation { target: motionCoord.targetHost; property: "y"; to: motionCoord.targetHost ? motionCoord.targetHost.normalTopMargin : 8; duration: 240; easing.type: Easing.OutCubic }
             NumberAnimation { target: motionCoord.targetHost; property: "width"; to: motionCoord.goalWidth; duration: 240; easing.type: Easing.OutCubic }
@@ -84,8 +79,6 @@ Item {
             NumberAnimation { target: motionCoord.targetHost; property: "capsuleScaleX"; to: 1.0; duration: 240; easing.type: Easing.OutQuad }
             NumberAnimation { target: motionCoord.targetHost; property: "capsuleScaleY"; to: 1.0; duration: 240; easing.type: Easing.OutQuad }
         }
-        
-        // 阶段二：紧接着无缝钻入天花板隐藏
         ParallelAnimation {
             NumberAnimation { target: motionCoord.targetHost; property: "y"; to: motionCoord.goalY; duration: 180; easing.type: Easing.InCubic }
             NumberAnimation { target: motionCoord.targetHost; property: "width"; to: motionCoord.goalWidth; duration: 180; easing.type: Easing.InCubic }

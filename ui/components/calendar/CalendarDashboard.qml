@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: calendar/CalendarDashboard.qml (支持日期标题微型快速归位)
+// 📄 File: ui/components/calendar/CalendarDashboard.qml
+// 🌟 日历左侧看板 (微型快速归位 · 纯正轻量级 Handlers 版)
 // ==========================================
 import QtQuick
 
@@ -75,7 +76,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
-                // 非今天时，日期旁附带极简快速回弹微标
+                // 非今天时，附带极简快速回弹微标
                 Rectangle {
                     width: 16; height: 16; radius: 8
                     visible: !dashRoot.isAlreadyToday
@@ -99,7 +100,7 @@ Item {
                 text: dashRoot.selWeekdayStr + " · " + (dashRoot.isSelectedDayDone ? "已记录" : "未记录")
                 font.pixelSize: 9
                 font.weight: Font.Bold
-                color: dashRoot.isSelectedDayDone ? "#34d399" : Theme.textMuted
+                color: dashRoot.isSelectedDayDone ? "#34d399" : ((typeof Theme !== "undefined") ? Theme.textMuted : Qt.rgba(1, 1, 1, 0.45))
                 font.family: dashRoot.effectiveFont
                 anchors.horizontalCenter: parent.horizontalCenter
             }
@@ -123,7 +124,7 @@ Item {
                 Text {
                     text: "/" + dashRoot.daysInMonth + " 天"
                     font.pixelSize: 9
-                    color: Theme.textMuted
+                    color: (typeof Theme !== "undefined") ? Theme.textMuted : Qt.rgba(1, 1, 1, 0.45)
                     font.family: dashRoot.effectiveFont
                     anchors.baseline: parent.children[0].baseline
                 }

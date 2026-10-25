@@ -1,199 +1,187 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图与天花板感应网 (音量 OSD 状态压栈日志增强版)
-// ==========================================
+// 🌟 顶级窗口视图 (根除设置窗口焦点死循环闪烁版)
+// =========================================================================
 import QtQuick
 import QtQuick.Controls
+import "../core"
 import "../shell"
-import "../views"
+import "../components/expanded"
 
 Item {
     id: root
-    width: 460
-    height: 280
+    width: 680
+    height: 480
 
-    readonly property string chosenFont: Theme.activeFont
-
-    readonly property var allTabsMeta: ({
-        "hardware": { key: "hardware", name: "控制", color: "#f59e0b" },
-        "workspace": { key: "workspace", name: "桌面", color: Theme.workspace },
-        "media": { key: "media", name: "媒体", color: Theme.textPrimary },
-        "calendar": { key: "calendar", name: "日历", color: Theme.calendar },
-        "timer": { key: "timer", name: "计时", color: Theme.timer },
-        "clock": { key: "clock", name: "时钟", color: Theme.clock },
-        "notification": { key: "notification", name: "通知", color: Theme.notification }
-    })
-
-    function isTabEnabled(key) {
-        if (typeof Config === "undefined") return true
-        if (key === "hardware") return Config.showHardwareTab !== false
-        if (key === "workspace") return Config.showWorkspaceTab !== false
-        if (key === "media") return Config.showMediaTab !== false
-        if (key === "calendar") return Config.showCalendarTab !== false
-        if (key === "timer") return Config.showTimerTab !== false
-        if (key === "clock") return Config.showClockTab !== false
-        if (key === "notification") return Config.showNotificationTab !== false
-        return false
+    focus: true
+    Keys.onPressed: (event) => {
+        console.log("[Island:Window] 🎹 窗口层捕获按键 -> key=" + event.key + ", text=" + event.text);
     }
 
-    readonly property var enabledTabs: {
-        var order = (typeof Config !== "undefined" && Config.tabOrder && Config.tabOrder.length > 0) ?
-                    Config.tabOrder :
-                    ["hardware", "workspace", "media", "calendar", "timer", "clock", "notification"]
-        var list = []
-        for (var i = 0; i < order.length; i++) {
-            var k = order[i]
-            if (isTabEnabled(k) && allTabsMeta[k]) list.push(allTabsMeta[k])
+    Component.onCompleted: {
+        capsule.resolveAndExpress();
+        if (typeof Bridge !== "undefined" && Bridge.setUiActive) {
+            Bridge.setUiActive(fsm.currentState !== IslandFsm.State.Hidden);
         }
-        return list
+        fsm.isHovering = isUserHovering;
     }
 
-    IslandTimeService { id: timeService }
-
-    IslandSedentaryService {
-        id: sedentaryService
-        onRequestAlert: (mins) => {
-            capsule.stageEngine.pushTransient("SEDENTARY", 0, {
-                title: "站立建议",
-                subtitle: "已连续伏案 " + mins + " 分钟",
-                icon: "🧘",
-                color: "#34d399"
-            })
-        }
-        onDismissAlert: {
-            capsule.stageEngine.popTransient("SEDENTARY")
+    Shortcut {
+        sequence: "Escape"
+        enabled: fsm.currentState === IslandFsm.State.Expanded
+        onActivated: {
+            fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" });
         }
     }
 
-    IslandBridgeRelay {
-        id: relay
+    IslandFsm { id: fsm }
 
-        onTriggerOsd: (icon, label, val) => {
-            // 🔊【音量日志触发点 10】：顶层接收并准备将 OSD 压入灵动岛动画瞬态栈
-            if (label === "Volume") {
-                console.log("[Island.qml] 准备呼出胶囊音量 OSD: " + icon + " " + val + "% (持续 1500ms)")
+    IslandTimeService { 
+        id: timeService 
+        isTucked: (fsm.currentState === IslandFsm.State.Hidden)
+    }
+
+    IslandBridgeRelay { id: relay; fsm: fsm }
+
+    Connections {
+        target: fsm
+        function onCurrentStateChanged() {
+            var isVisible = (fsm.currentState !== IslandFsm.State.Hidden);
+            if (typeof Bridge !== "undefined" && Bridge.setUiActive) {
+                Bridge.setUiActive(isVisible);
             }
-            capsule.stageEngine.pushTransient("OSD", 1500, {
-                icon: icon,
-                title: label,
-                subtitle: val + "%",
-                value: val,
-                color: (icon === "🔇") ? "#ef4444" : "#ffffff"
-            })
-        }
-
-        onTriggerWorkspace: (c, t, n) => {
-            if (capsule.islandOffsetX !== 0) capsule.goHome()
-            capsule.stageEngine.pushTransient("WORKSPACE", 800, {
-                icon: "⊞",
-                title: n || ("桌面 " + c),
-                subtitle: c + "/" + t,
-                color: Theme.workspace
-            })
-        }
-
-        onTriggerAlert: (payload, durationMs) => {
-            var isDnd = (typeof Config !== "undefined" && Config.dndEnabled)
-            var isCall = (payload.icon === "📞" || relay.isCalling)
-            if (isDnd && !isCall) return
-
-            if (capsule.islandOffsetX !== 0) capsule.goHome()
-            capsule.stageEngine.pushTransient("ALERT", durationMs, payload)
-        }
-
-        onCallEnded: {
-            capsule.stageEngine.popTransient("CALL")
-            capsule.stageEngine.pushTransient("ALERT", 3000, {
-                icon: "📞",
-                title: "通话已结束",
-                subtitle: "Teams 语音通话",
-                avatar: "",
-                color: "#818cf8"
-            })
         }
     }
+
+    // 🚀【防死锁标志】：打开设置窗口时不进行焦点争夺
+    property bool isSettingsOpen: false
 
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
-        ignoreUnknownSignals: true
-        function onMediaUpdated(t, a, s, u, pos, dur) {
-            if (s === "Playing") {
-                if (capsule.stageEngine.baseMode === capsule.stageEngine.modeTUCKED &&
-                    capsule.stageEngine.presentState === capsule.stageEngine.stateREST) {
-                    capsule.stageEngine.pushTransient("MEDIA_PEEK", 3500, {
-                        icon: "🎵",
-                        title: t,
-                        subtitle: a,
-                        color: relay.dominantColor
-                    })
-                }
+        function onWindowDeactivated() {
+            // 如果正在与设置窗口交互，不要盲目抢焦点
+            if (root.isSettingsOpen) return;
+
+            if (fsm.currentState === IslandFsm.State.Expanded) {
+                console.log("[Island] 🎯 捕获到外部点击失焦 -> 平滑收起大卡片");
+                fsm.handleIntent("COLLAPSE", { source: "Wayland_External_Click_Deactivated" });
+            }
+        }
+    }
+
+    ExpandedSensorCoordinator {
+        id: expandedCoordinator
+        targetCapsule: capsule
+        isExpanded: (fsm.currentState === IslandFsm.State.Expanded)
+        leaveDelayMs: 120
+
+        onRequestCollapse: (reason) => {
+            fsm.handleIntent("COLLAPSE", { source: reason });
+        }
+        onRequestAcquireFocus: {
+            if (root.isSettingsOpen) return;
+            if (typeof Bridge !== "undefined" && Bridge.requestWindowFocus) {
+                Bridge.requestWindowFocus();
+            }
+            root.forceActiveFocus();
+        }
+        onRequestRestoreFocus: {
+            // 🚀【核心加固】：如果是因为去打开偏好设置窗口，绝对不能触发 restorePreviousFocus 抢夺焦点！
+            if (root.isSettingsOpen) return;
+
+            if (typeof Bridge !== "undefined" && Bridge.restorePreviousFocus) {
+                Bridge.restorePreviousFocus();
+            }
+        }
+    }
+
+    IslandCapsule {
+        id: capsule
+        z: 20
+        fsm: fsm
+        relay: relay
+        timeService: timeService
+        onRequestSettings: root.openSettingsWindow()
+    }
+
+    readonly property bool isUserHovering: corridorArea.containsMouse || capsule.isHovered
+
+    onIsUserHoveringChanged: {
+        fsm.isHovering = isUserHovering;
+        if (isUserHovering) {
+            userLeaveDebounce.stop();
+            fsm.handleIntent("USER_ACTIVE", { source: "Hover_Enter" });
+        } else {
+            if (fsm.currentState !== IslandFsm.State.Expanded) {
+                userLeaveDebounce.restart();
+            }
+        }
+    }
+
+    MouseArea {
+        id: corridorArea
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        width: Math.max(188, capsule.width + 16)
+
+        readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
+        enabled: !isExpanded
+        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : Math.max(48, capsule.y + capsule.height + 6))
+
+        z: 5
+        hoverEnabled: true
+        acceptedButtons: Qt.RightButton
+
+        Timer {
+            id: userLeaveDebounce
+            interval: 250
+            repeat: false
+            onTriggered: fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" })
+        }
+
+        onWheel: (wheel) => {
+            userLeaveDebounce.stop();
+            fsm.isHovering = true;
+            if (typeof Bridge !== "undefined") {
+                if (wheel.angleDelta.y > 0) Bridge.switchWorkspacePrev();
+                else Bridge.switchWorkspaceNext();
+            }
+        }
+
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.RightButton) {
+                fsm.handleIntent("TOGGLE_TUCK", { source: "Right_Click_Tuck" });
             }
         }
     }
 
     Loader {
         id: settingsLoader
-        active: false; source: "SettingsWindow.qml"
-        onLoaded: { item.show(); item.raise() }
+        active: false
+        source: "SettingsWindow.qml"
+        onLoaded: {
+            item.visibleChanged.connect(function() {
+                root.isSettingsOpen = item.visible;
+            });
+            item.show();
+            item.raise();
+            item.requestActivate();
+        }
     }
 
+    // 🚀【核心加固】：点击设置时，先安全收回大卡片，立起防争夺标志，再弹出设置窗口
     function openSettingsWindow() {
+        root.isSettingsOpen = true;
+        if (fsm.currentState === IslandFsm.State.Expanded) {
+            fsm.handleIntent("COLLAPSE", { source: "OpenSettings_PreCollapse" });
+        }
+
         if (settingsLoader.status === Loader.Ready && settingsLoader.item) {
-            settingsLoader.item.show(); settingsLoader.item.raise()
+            settingsLoader.item.show();
+            settingsLoader.item.raise();
+            settingsLoader.item.requestActivate();
         } else {
-            settingsLoader.active = true
-        }
-    }
-
-    IslandCapsule {
-        id: capsule
-        anchors.horizontalCenter: parent.horizontalCenter
-        chosenFont: root.chosenFont
-        relay: relay
-        timeService: timeService
-        enabledTabs: root.enabledTabs
-
-        onSedentaryRested: sedentaryService.markRested()
-        onSedentarySnooze: sedentaryService.snooze()
-        onRequestSettings: root.openSettingsWindow()
-    }
-
-    MouseArea {
-        id: ceilingHoverNet
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        width: Math.max(180, capsule.width + 32)
-        z: 99
-
-        readonly property bool isTuckedMode: capsule.stageEngine.baseMode === capsule.stageEngine.modeTUCKED
-        readonly property bool isUserPeeking: capsule.stageEngine.presentState === capsule.stageEngine.statePEEK
-
-        height: isTuckedMode ? (isUserPeeking ? Math.max(52, capsule.y + capsule.height + 12) : 14) : 0
-
-        enabled: isTuckedMode
-        hoverEnabled: true
-        cursorShape: isTuckedMode ? Qt.PointingHandCursor : Qt.ArrowCursor
-        acceptedButtons: Qt.RightButton
-
-        onEntered: {
-            if (isTuckedMode) capsule.stageEngine.userHoverEnter()
-        }
-
-        onPositionChanged: (mouse) => {
-            if (isTuckedMode) {
-                capsule.stageEngine.userHoverEnter()
-                capsule.stageEngine.userHoverKeep()
-            }
-        }
-
-        onExited: {
-            if (isTuckedMode) capsule.stageEngine.userHoverLeave()
-        }
-
-        onClicked: (mouse) => {
-            if (mouse.button === Qt.RightButton) {
-                capsule.stageEngine.toggleTuck()
-            }
+            settingsLoader.active = true;
         }
     }
 }

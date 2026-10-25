@@ -1,17 +1,30 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (集成语音识别通道与属性绑定)
+# 🌟 Qt / QML 统一交互中枢 (集成 Wayland 外部失焦收回事件)
 # ==========================================
 import time
 import atexit
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from PySide6.QtCore import QObject, Signal, Slot, Property, Qt
+from PySide6.QtCore import QObject, Signal, Slot, Property, Qt, QEvent
 from backend.logger import app_logger
 from backend.models import NotificationListModel, BluetoothListModel
 from backend.window import WindowManagerService
 from backend.utils import get_world_time, get_tz_offset_str
+
+
+class WindowEventFilter(QObject):
+    """专门监听窗口激活与失焦的轻量级事件过滤器"""
+    def __init__(self, bridge):
+        super().__init__()
+        self.bridge = bridge
+
+    def eventFilter(self, watched, event):
+        # 🚀【核心】：检测到用户点击了外部任意程序/桌面，窗口失去激活状态
+        if event.type() == QEvent.Type.WindowDeactivate:
+            self.bridge.windowDeactivated.emit()
+        return super().eventFilter(watched, event)
 
 
 class IslandBridge(QObject):
@@ -47,9 +60,11 @@ class IslandBridge(QObject):
     timerUpdated = Signal()
     overlayChanged = Signal()
 
-    # 语音输入专用信号
     voiceInputLevelChanged = Signal(float)
     voiceInputStateChanged = Signal(bool, str)
+
+    # 🚀 点击外部失焦信号
+    windowDeactivated = Signal()
 
     _sig_inproc_event = Signal(str, object)
     _sig_spectrum_event = Signal(float, float, float, float)
@@ -69,10 +84,14 @@ class IslandBridge(QObject):
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged.emit)
 
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
-        self.wm.clipboardTriggered.connect(self.clipboardTriggered)
 
         self._sig_inproc_event.connect(self._handle_inproc_event, Qt.ConnectionType.QueuedConnection)
         self._sig_spectrum_event.connect(self.audioSpectrumUpdated.emit, Qt.ConnectionType.QueuedConnection)
+
+        # 挂载窗口事件过滤器
+        self._event_filter = WindowEventFilter(self)
+        self.view.installEventFilter(self._event_filter)
+
         atexit.register(self.cleanup)
 
     def set_backend(self, backend, loop):
@@ -100,7 +119,6 @@ class IslandBridge(QObject):
             self._backend.state.clear_overlay()
             self.overlayChanged.emit()
 
-    # 语音输入属性与控制方法
     @Property(bool, notify=voiceInputStateChanged)
     def voiceInputActive(self):
         return self._backend.state.voice_input_active if self._backend else False
@@ -331,6 +349,19 @@ class IslandBridge(QObject):
     @Slot(str, result=str)
     def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
 
+    # 🚀 焦点控制
+    @Slot()
+    def requestWindowFocus(self):
+        if hasattr(self.wm.platform, "acquire_interaction_focus"):
+            self.wm.platform.acquire_interaction_focus(self.view)
+        else:
+            self.view.requestActivate()
+
+    @Slot()
+    def restorePreviousFocus(self):
+        if hasattr(self.wm.platform, "restore_previous_focus"):
+            self.wm.platform.restore_previous_focus(self.view)
+
     def post_inproc_event(self, event_type: str, state_obj):
         try:
             self._sig_inproc_event.emit(event_type, state_obj)
@@ -421,8 +452,12 @@ class IslandBridge(QObject):
             t_title = s.last_notify_title.strip() or "新消息"
             t_sub = s.last_notify_content.strip()
             avatar = s.last_notify_avatar
+            
             self._notif_model.add_notification({
                 "id": int(time.time() * 1000), "icon": s.last_notify_icon or "💬",
                 "title": t_title, "content": t_sub, "avatar": avatar, "time": time.strftime("%H:%M"), "read": False
             })
-            self.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)
+
+            is_dnd = getattr(self.config, "dndEnabled", False) if self.config else False
+            if not is_dnd:
+                self.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)

@@ -49,11 +49,27 @@ class MprisModule(BaseModule):
     def set_active(self, active: bool) -> None:
         super().set_active(active)
         if active:
+            # 🚀 唤醒 CAVA 子进程恢复音频采样
+            if self._cava_proc and self._cava_proc.poll() is None:
+                try:
+                    import signal
+                    os.kill(self._cava_proc.pid, signal.SIGCONT)
+                except OSError:
+                    pass
             if not self._dormant_gate.is_set():
                 self._dormant_gate.set()
         else:
+            # 🚀【核心零能耗】：清空声谱并挂起线程，同时让内核对 CAVA 执行物理冷冻 (0% CPU)
             if self._dormant_gate.is_set():
                 self._dormant_gate.clear()
+            if self._cava_proc and self._cava_proc.poll() is None:
+                try:
+                    import signal
+                    os.kill(self._cava_proc.pid, signal.SIGSTOP)
+                except OSError:
+                    pass
+            # 向 UI 发射一次静止归位波形，切断 QML 的动画渲染管线
+            self._emit_spectrum_safe(0.2, 0.2, 0.2, 0.2)
 
     def _unwrap_variant(self, variant: Any) -> Any:
         if hasattr(variant, 'value'): return self._unwrap_variant(variant.value)

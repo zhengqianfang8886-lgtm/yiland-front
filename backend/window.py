@@ -1,12 +1,10 @@
 # ==========================================
 # 📄 File: backend/window.py
-# 🌟 窗口物理掩码穿透与安全剪贴板监听器 (PAL 适配重构版)
+# 🌟 窗口物理掩码穿透服务 (已彻底移除剪贴板监听)
 # ==========================================
 import shutil
-import hashlib
 import subprocess
 from PySide6.QtCore import QObject, Signal
-from backend.utils import CONCEAL_MIME_TYPES
 from backend.platform import detect_platform
 
 
@@ -20,60 +18,34 @@ class WindowManagerService(QObject):
         self.config = config
         self.platform = detect_platform()
         self._last_applied_sig = ""
-        self._last_clip_hash = ""
 
-        # 启动平台自适应剪贴板监听
-        self.platform.start_clipboard_monitor(self._on_platform_clipboard_changed)
+        # 🚀 彻底禁用平台级剪贴板监听，不再启动线程与轮询
 
     def set_precise_bounding_mask(self, x: int, y: int, w: int, h: int):
-        """精准建立交互窗口，其余透明区域放行鼠标穿透"""
         sig = f"{x},{y},{w},{h}"
         if sig == self._last_applied_sig:
             return
         self._last_applied_sig = sig
         self.platform.apply_input_mask(self.view, x, y, w, h)
+        # 🚀【核心加固】：强制刷新渲染管线，让 Wayland 合成器立即收到新的穿透区域
+        if hasattr(self.view, "requestUpdate"):
+            self.view.requestUpdate()
 
     def set_passthrough(self):
-        """完全穿透"""
         if self._last_applied_sig == "PASS":
             return
         self._last_applied_sig = "PASS"
         self.platform.set_passthrough(self.view)
+        if hasattr(self.view, "requestUpdate"):
+            self.view.requestUpdate()
 
     def clear_mask(self):
-        """全开交互通道"""
         if self._last_applied_sig == "FULL":
             return
         self._last_applied_sig = "FULL"
         self.platform.clear_input_mask(self.view)
-
-    def _on_platform_clipboard_changed(self, text: str, has_image: bool, formats: set):
-        if self.config and not getattr(self.config, "clipboardMonitorEnabled", True):
-            return
-
-        if formats.intersection(CONCEAL_MIME_TYPES):
-            self.clipboardTriggered.emit("🔐", "密码凭据", "已安全复制保密数据 · [已脱敏]", 1400)
-            return
-
-        if has_image:
-            self.clipboardTriggered.emit("🖼️", "截图/图像", "已复制到剪贴板", 1300)
-            return
-
-        if text:
-            if len(text) > 100000:
-                return
-            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-            if content_hash == self._last_clip_hash:
-                return
-            self._last_clip_hash = content_hash
-            clean_text = text.strip()
-            count = len(clean_text)
-            if count == 0:
-                return
-            preview = clean_text.replace("\n", " ").replace("\r", " ").strip()
-            if len(preview) > 16:
-                preview = preview[:14] + "..."
-            self.clipboardTriggered.emit("📋", "剪贴板", f"已复制 {count} 字符 · \"{preview}\"", 1300)
+        if hasattr(self.view, "requestUpdate"):
+            self.view.requestUpdate()
 
     def open_system_monitor(self):
         def _open():
@@ -85,7 +57,7 @@ class WindowManagerService(QObject):
                     except Exception:
                         pass
             for term in ["kitty", "alacritty", "foot", "wezterm", "gnome-terminal", "konsole"]:
-                if shutil.which(term):
+                if shutil.which(cmd):
                     for mon in ["btop", "htop", "top"]:
                         if shutil.which(mon):
                             try:

@@ -1,6 +1,6 @@
 // ==========================================
-// 📄 File: expanded/ExpandedHeaderBar.qml
-// 🌟 展开态顶栏（集成全局偏好设置直接入口）
+// 📄 File: ui/components/expanded/ExpandedHeaderBar.qml
+// 🌟 展开态顶栏 (唯一合法的滚轮切页专属热区版)
 // ==========================================
 import QtQuick
 
@@ -37,9 +37,13 @@ Item {
 
         HoverHandler { id: capsuleHover }
 
+        // 🚀【核心铁律】：这是全系统唯一合法响应滚轮切页的地方！
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onWheel: (event) => barRoot.tabWheel(event)
+            onWheel: (event) => {
+                event.accepted = true;
+                barRoot.tabWheel(event);
+            }
         }
 
         // 左侧模块标题与摘要
@@ -99,7 +103,7 @@ Item {
             }
         }
 
-        // 右侧控制区（导航分段点 + 🚀 常驻偏好设置齿轮）
+        // 右侧控制区 (小圆点指示器 + 设置齿轮)
         Row {
             id: rightControlsRow
             anchors.right: parent.right
@@ -107,7 +111,6 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 8
 
-            // 1. 选项卡槽位点
             Row {
                 id: dotsRow
                 anchors.verticalCenter: parent.verticalCenter
@@ -153,7 +156,7 @@ Item {
 
             Rectangle { width: 1; height: 12; color: Qt.rgba(1, 1, 1, 0.15); anchors.verticalCenter: parent.verticalCenter }
 
-            // 2. 🚀【核心入口】：右上角全局常驻偏好设置按钮
+            // 设置按钮
             Rectangle {
                 id: settingsBtn
                 width: 20; height: 20; radius: 10
