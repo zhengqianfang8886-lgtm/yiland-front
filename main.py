@@ -136,8 +136,8 @@ def main():
     view.show()
     update_view_position()
 
-    QTimer.singleShot(100, update_view_position)
-    QTimer.singleShot(500, update_view_position)
+    QTimer.singleShot(150, update_view_position)
+    QTimer.singleShot(600, update_view_position)
 
     trim_memory()
 

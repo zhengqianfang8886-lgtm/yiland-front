@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/PhysicsMotionPod.qml
-// 🌟 动力学连续物理引擎 (防亚像素抖动 · 掩码死锁断路保护版)
+// 🌟 外框物理形变引擎 (死区滤波 · 动量顺滑减速版)
 // =========================================================================
 import QtQuick
 
@@ -8,15 +8,14 @@ Item {
     id: pod
 
     y: 8
-    width: 188
-    height: 38
+    width: 200
+    height: 44
 
     property real targetY: 8
-    property real targetWidth: 188
-    property real targetHeight: 38
-    property real targetRadius: 19
+    property real targetWidth: 200
+    property real targetHeight: 44
+    property real targetRadius: 22
 
-    // 暴露整型离散像素，阻断频繁微米级浮点更新引发的 QML 树重排
     readonly property int currentY: Math.round(pod.y)
     readonly property int currentWidth: Math.round(pod.width)
     readonly property int currentHeight: Math.round(pod.height)
@@ -66,28 +65,24 @@ Item {
         }
     }
 
-    // 物理尺寸表达入口：偶数化对齐并过滤无效微小震荡
     function expressGeometry(newY, newW, newH, newR) {
         var cleanW = Math.round(newW / 2) * 2;
         var cleanH = Math.round(newH / 2) * 2;
         var cleanY = Math.round(newY);
 
-        var willChange = (Math.abs(targetY - cleanY) >= 1.0 ||
-                          Math.abs(targetWidth - cleanW) >= 1.0 ||
-                          Math.abs(targetHeight - cleanH) >= 1.0 ||
-                          Math.abs(targetRadius - newR) >= 0.5);
+        // 🚀【死区滤波】：如果尺寸变动 <= 3px 且已在目标附近，直接忽略重启动画，彻底消灭 220->222 抖动
+        var deltaW = Math.abs(targetWidth - cleanW);
+        var deltaY = Math.abs(targetY - cleanY);
+        var deltaH = Math.abs(targetHeight - cleanH);
+
+        if (deltaW <= 2 && deltaY <= 1 && deltaH <= 1) {
+            return;
+        }
 
         targetY = cleanY;
         targetWidth = cleanW;
         targetHeight = cleanH;
         targetRadius = newR;
-
-        // 若尺寸完全无变动且未在运动中，立刻向壳层发射就位信号以锁定硬件穿透掩码
-        if (!willChange && !isMoving) {
-            currentRadius = newR;
-            motionSettled();
-            return;
-        }
 
         pod.y = cleanY;
         pod.width = cleanW;

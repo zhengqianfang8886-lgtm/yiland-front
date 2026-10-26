@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandBridgeRelay.qml
-// 🌟 统一事件清洗与中继总线 (免打扰不弹窗·只提示数量·来电穿透双保险版)
+// 🌟 统一事件中继总线 (注入高精度音频消失生命周期探针版)
 // =========================================================================
 import QtQuick
 
@@ -24,12 +24,17 @@ Item {
 
     property bool visualPlaying: false
 
+    onVisualPlayingChanged: {
+        console.log("[AudioDiag:Relay] 🎵 visualPlaying 状态切换 -> " + visualPlaying + " (status=" + status + ", timestamp=" + Date.now() + ")");
+    }
+
     Timer {
         id: pauseDebounceTimer
-        interval: 650
+        interval: 350 // 适度缩短防抖，提高退场干脆度
         repeat: false
         onTriggered: {
             if (relay.status !== "Playing") {
+                console.log("[AudioDiag:Relay] ⏱️ 暂停防抖结束，正式关闭 visualPlaying！");
                 relay.visualPlaying = false;
             }
         }
@@ -62,6 +67,7 @@ Item {
         function onUnreadCountChanged(cnt) { relay.unreadCount = cnt; }
 
         function onMediaUpdated(t, a, s, u, pos, dur) {
+            console.log("[AudioDiag:Bridge] 📡 收到底层媒体状态 -> status=" + s + ", title=" + t);
             var isTrackChanged = (relay.title !== t && t !== "" && t !== "等待播放...");
             relay.title = t; relay.artist = a; relay.status = s; relay.artUrl = u;
             if (dur !== undefined && !isNaN(dur) && Number(dur) > 0) relay.duration = Number(dur);
@@ -72,10 +78,11 @@ Item {
                 pauseDebounceTimer.stop();
                 relay.visualPlaying = true;
             } else {
+                console.log("[AudioDiag:Relay] ⏸️ 捕获到非 Playing 状态，启动暂停倒计时...");
                 pauseDebounceTimer.restart();
             }
 
-            if (s === "Playing" && relay.fsm && relay.fsm.currentState === 0) { // 0: Hidden
+            if (s === "Playing" && relay.fsm && relay.fsm.currentState === 0) {
                 if (!wasPlaying || isTrackChanged) {
                     relay.fsm.postTransient("MEDIA_PEEK", { 
                         title: t, 
@@ -87,7 +94,11 @@ Item {
         }
 
         function onDominantColorUpdated(hex) { relay.dominantColor = hex; }
+
         function onAudioSpectrumUpdated(s1, s2, s3, s4) {
+            // 如果已经不处于播放态，强行切断频谱更新，严禁在收拢动画中途扰乱渲染树
+            if (!relay.visualPlaying && relay.status !== "Playing") return;
+
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4;
         }
 
@@ -115,12 +126,9 @@ Item {
 
         function onWorkspaceListUpdated(list) { relay.wsList = list; }
 
-        // 🚀【核心免打扰拦截】：如果是勿扰模式，消息坚决不弹窗打扰（专注倒计时⏰除外）
         function onAlertTriggered(icon, t, sub, ms, avatar) {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled !== undefined) ? Config.dndEnabled : false;
-            if (isDnd && icon !== "⏰") {
-                return; // 直接拦截弹窗横幅，数量已经在 unreadCount 中更新
-            }
+            if (isDnd && icon !== "⏰") return;
 
             if (relay.fsm) {
                 relay.fsm.postTransient("ALERT", {
@@ -133,14 +141,10 @@ Item {
             }
         }
 
-        // 🚀【来电穿透控制】：勿扰模式下，根据“允许通话”设置决定是否弹出接听卡片
         function onCallIncomingTriggered(title, sub, avatar) {
             var isDnd = (typeof Config !== "undefined" && Config.dndEnabled !== undefined) ? Config.dndEnabled : false;
             var allowCalls = (typeof Config !== "undefined" && Config.dndAllowCalls !== undefined) ? Config.dndAllowCalls : true;
-
-            if (isDnd && !allowCalls) {
-                return; // 勿扰且禁止通话穿透时静默
-            }
+            if (isDnd && !allowCalls) return;
 
             relay.isCalling = true;
             relay.callTitle = title || "Teams 来电";

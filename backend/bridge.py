@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (集成 Wayland 外部失焦收回事件)
+# 🌟 Qt / QML 统一交互中枢 (集成异步习惯打卡与安全事件通信)
 # ==========================================
 import time
 import atexit
@@ -15,13 +15,11 @@ from backend.utils import get_world_time, get_tz_offset_str
 
 
 class WindowEventFilter(QObject):
-    """专门监听窗口激活与失焦的轻量级事件过滤器"""
     def __init__(self, bridge):
         super().__init__()
         self.bridge = bridge
 
     def eventFilter(self, watched, event):
-        # 🚀【核心】：检测到用户点击了外部任意程序/桌面，窗口失去激活状态
         if event.type() == QEvent.Type.WindowDeactivate:
             self.bridge.windowDeactivated.emit()
         return super().eventFilter(watched, event)
@@ -44,7 +42,6 @@ class IslandBridge(QObject):
     brightnessChanged = Signal(int)
     capsLockChanged = Signal(bool)
     numLockChanged = Signal(bool)
-    clipboardTriggered = Signal(str, str, str, int)
 
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
@@ -63,7 +60,11 @@ class IslandBridge(QObject):
     voiceInputLevelChanged = Signal(float)
     voiceInputStateChanged = Signal(bool, str)
 
-    # 🚀 点击外部失焦信号
+    # 🚀 打卡系统完全异步化通信信号 (杜绝 QML 主线程卡顿)
+    habitsLoaded = Signal("QVariantList")
+    monthRecordsLoaded = Signal(str, int, int, "QVariantMap")
+    habitRecordToggled = Signal(str, str, bool)
+
     windowDeactivated = Signal()
 
     _sig_inproc_event = Signal(str, object)
@@ -88,7 +89,6 @@ class IslandBridge(QObject):
         self._sig_inproc_event.connect(self._handle_inproc_event, Qt.ConnectionType.QueuedConnection)
         self._sig_spectrum_event.connect(self.audioSpectrumUpdated.emit, Qt.ConnectionType.QueuedConnection)
 
-        # 挂载窗口事件过滤器
         self._event_filter = WindowEventFilter(self)
         self.view.installEventFilter(self._event_filter)
 
@@ -234,35 +234,60 @@ class IslandBridge(QObject):
         if self._backend and self._backend.timer:
             self.run_async(self._backend.timer.reset())
 
-    @Slot(result="QVariantList")
-    def getHabits(self):
-        if self._backend and self._backend.habits:
-            return self._backend.habits.get_habits()
-        return []
+    # =========================================================================
+    # 🚀 打卡异步化通道实现 (主线程零等待)
+    # =========================================================================
+    @Slot()
+    def requestHabits(self):
+        if not self._backend or not self._backend.habits:
+            self.habitsLoaded.emit([])
+            return
 
-    @Slot(str, str, result="QVariantList")
-    def addHabit(self, name: str, icon: str = "📌"):
-        if self._backend and self._backend.habits:
-            return self._backend.habits.add_habit(name, icon)
-        return []
+        async def _run():
+            data = await self._backend.habits.fetch_habits_async()
+            self.habitsLoaded.emit(data)
+        self.run_async(_run())
 
-    @Slot(str, result="QVariantList")
-    def deleteHabit(self, habit_id: str):
-        if self._backend and self._backend.habits:
-            return self._backend.habits.delete_habit(habit_id)
-        return []
+    @Slot(str, str)
+    def requestAddHabit(self, name: str, icon: str = "📌"):
+        if not self._backend or not self._backend.habits:
+            return
 
-    @Slot(str, int, int, result="QVariantMap")
-    def getMonthRecords(self, habit_id: str, year: int, month: int):
-        if self._backend and self._backend.habits:
-            return self._backend.habits.get_month_records(habit_id, year, month)
-        return {}
+        async def _run():
+            data = await self._backend.habits.add_habit_async(name, icon)
+            self.habitsLoaded.emit(data)
+        self.run_async(_run())
 
-    @Slot(str, str, result=bool)
-    def toggleHabitRecord(self, habit_id: str, date_str: str):
-        if self._backend and self._backend.habits:
-            return self._backend.habits.toggle_record(habit_id, date_str)
-        return False
+    @Slot(str)
+    def requestDeleteHabit(self, habit_id: str):
+        if not self._backend or not self._backend.habits:
+            return
+
+        async def _run():
+            data = await self._backend.habits.delete_habit_async(habit_id)
+            self.habitsLoaded.emit(data)
+        self.run_async(_run())
+
+    @Slot(str, int, int)
+    def requestMonthRecords(self, habit_id: str, year: int, month: int):
+        if not self._backend or not self._backend.habits:
+            self.monthRecordsLoaded.emit(habit_id, year, month, {})
+            return
+
+        async def _run():
+            data = await self._backend.habits.fetch_month_records_async(habit_id, year, month)
+            self.monthRecordsLoaded.emit(habit_id, year, month, data)
+        self.run_async(_run())
+
+    @Slot(str, str)
+    def requestToggleRecord(self, habit_id: str, date_str: str):
+        if not self._backend or not self._backend.habits:
+            return
+
+        async def _run():
+            is_checked = await self._backend.habits.toggle_record_async(habit_id, date_str)
+            self.habitRecordToggled.emit(habit_id, date_str, is_checked)
+        self.run_async(_run())
 
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
@@ -349,7 +374,6 @@ class IslandBridge(QObject):
     @Slot(str, result=str)
     def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
 
-    # 🚀 焦点控制
     @Slot()
     def requestWindowFocus(self):
         if hasattr(self.wm.platform, "acquire_interaction_focus"):
@@ -461,3 +485,24 @@ class IslandBridge(QObject):
             is_dnd = getattr(self.config, "dndEnabled", False) if self.config else False
             if not is_dnd:
                 self.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)
+
+    @Slot(result="QVariantMap")
+    def getSystemHealth(self):
+        """探测当前运行环境各底层驱动是否真实就绪可用"""
+        import shutil
+        has_kwin = (self.wm.platform.platform_name.startswith("KDE"))
+        has_pulse = (self._backend and self._backend.audio and self._backend.audio._running)
+        has_brightness = (self._backend and self._backend.brightness and self._backend.brightness.bus is not None)
+        has_cava = bool(shutil.which("cava"))
+        has_wl_paste = bool(shutil.which("wl-paste"))
+        has_db = bool(self._backend and self._backend.habits)
+
+        return {
+            "platform": self.wm.platform.platform_name,
+            "kwinWorking": bool(has_kwin),
+            "audioWorking": bool(has_pulse),
+            "brightnessWorking": bool(has_brightness),
+            "cavaInstalled": bool(has_cava),
+            "wlPasteInstalled": bool(has_wl_paste),
+            "dbConnected": bool(has_db)
+        }

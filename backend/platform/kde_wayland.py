@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/platform/kde_wayland.py
-# 🌟 KDE Plasma Wayland 原生适配驱动 (磁盘规则大清洗 · 焦点通道彻底打通版)
+# 🌟 KDE Plasma Wayland 严格精准匹配驱动 (杜绝误伤外部窗口版)
 # ==========================================
 import os
 import time
@@ -32,7 +32,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         return "KDE Plasma Wayland"
 
     def get_window_flags(self) -> Qt.WindowType:
-        # 允许窗口接收键盘输入与激活
         return (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
@@ -40,7 +39,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         )
 
     def _clean_and_apply_kwin_rules(self):
-        """🚀【物理大清洗】：彻底清除磁盘 kwinrulesrc 里的历史拒焦残留配置"""
         kw_bin = shutil.which("kwriteconfig6") or shutil.which("kwriteconfig5")
         qdbus_bin = self._find_qdbus()
         if not kw_bin:
@@ -67,9 +65,8 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("skipswitcherrule", "2"),
             ("noborder", "true"),
             ("noborderrule", "2"),
-            # 🚀【核心覆盖】：彻底废除 acceptfocus=false，允许接收焦点
             ("acceptfocus", "true"),
-            ("acceptfocusrule", "0"),  # 0 = 不强制限制
+            ("acceptfocusrule", "0"),
             ("fsplevel", "0"),
             ("fsplevelrule", "0"),
         ]
@@ -83,7 +80,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             if qdbus_bin:
                 subprocess.run([qdbus_bin, "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
-            app_logger.info("✅ KWin 磁盘规则已清洗：键盘输入通道已解除封锁")
+            app_logger.info("✅ KWin 磁盘规则已清洗")
         except Exception as e:
             app_logger.debug(f"[KDE Wayland] 清洗 KWin 规则异常: {e}")
 
@@ -144,7 +141,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                     break
 
             def _cleanup_script():
-                time.sleep(1.5)
+                time.sleep(2.0)
                 if qdbus_bin:
                     subprocess.run(
                         [qdbus_bin, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", unique_name],
@@ -175,6 +172,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         view.setGeometry(target_x, target_y, width, height)
         my_pid = os.getpid()
 
+        # 🚀 彻底剔除 caption 模糊匹配！只锁定 PID 或唯一精准 wmclass，绝不误伤浏览器与其它窗口
         template = """
         (function() {
             var targetPid = __TARGET_PID__;
@@ -186,12 +184,14 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             function configureClient(c) {
                 if (!c) return false;
                 var isTarget = false;
+
+                // 1. 优先通过独占 PID 匹配 (最安全，绝不误伤)
                 if (c.pid && c.pid === targetPid) {
                     isTarget = true;
                 } else {
+                    // 2. 备用精确匹配 wmclass / desktopFileName，严禁匹配 caption (网页标题)
                     var cls = (c.resourceClass || c.desktopFileName || "").toString().toLowerCase();
-                    var cap = (c.caption || "").toString();
-                    if (cls.indexOf("alcove-island") !== -1 || cap.indexOf("Alcove Island") !== -1) {
+                    if (cls === "alcove-island" || cls === "alcove_island") {
                         isTarget = true;
                     }
                 }

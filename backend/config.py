@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/config.py
-# 🌟 生产级配置中心 · 400ms 单稳态防抖原子落盘 (彻底消除 NVMe 碎纸机 Bug)
+# 🌟 生产级配置中心 (集成胶囊高度档位 · 400ms 原子防抖落盘)
 # ==========================================
 import os
 import json
@@ -27,6 +27,8 @@ CONFIG_SCHEMA = {
     "offsetX": {"default": 0, "val": lambda v: int(v)},
     "anchorMode": {"default": "screen", "val": lambda v: str(v) if v in ("screen", "window") else "screen"},
     "capsuleTopMargin": {"default": 6, "val": lambda v: max(0, min(50, int(v)))},
+    # 🚀【新增配置项】：主胶囊高度档位 (32=极简紧凑, 36=平衡推荐, 42=大屏触控)
+    "capsuleHeight": {"default": 36, "val": lambda v: 32 if int(v) <= 33 else (42 if int(v) >= 40 else 36)},
     "expandedTopMargin": {"default": 16, "val": lambda v: max(0, min(100, int(v)))},
     "fontFamily": {"default": "系统默认 (Default)", "val": lambda v: str(v)},
     "timeFormat": {"default": "12h", "val": lambda v: str(v) if v in ("12h", "24h") else "12h"},
@@ -67,6 +69,7 @@ class ConfigManager(QObject):
     offsetXChanged = Signal(int)
     anchorModeChanged = Signal(str)
     capsuleTopMarginChanged = Signal(int)
+    capsuleHeightChanged = Signal(int)
     expandedTopMarginChanged = Signal(int)
     fontFamilyChanged = Signal(str)
     timeFormatChanged = Signal(str)
@@ -109,7 +112,6 @@ class ConfigManager(QObject):
             val = meta["default"]
             setattr(self, f"_{key}", list(val) if isinstance(val, list) else val)
 
-        # 🚀【核心防抖设计】：400ms 磁盘写入防抖定时器，阻断滑块高频连续写盘
         self._save_debounce_timer = QTimer(self)
         self._save_debounce_timer.setSingleShot(True)
         self._save_debounce_timer.setInterval(400)
@@ -125,7 +127,7 @@ class ConfigManager(QObject):
         old_val = getattr(self, f"_{key}")
         if old_val != new_val:
             setattr(self, f"_{key}", new_val)
-            self._save_debounce_timer.start() # 仅触发定时器，绝不立刻同步落盘
+            self._save_debounce_timer.start()
             signal.emit(new_val)
             return True
         return False
@@ -155,11 +157,9 @@ class ConfigManager(QObject):
             app_logger.warning(f"[Config] 配置文件解析异常: {e}")
 
     def save(self):
-        """强制提交保存请求（进入防抖队列）"""
         self._save_debounce_timer.start()
 
     def _do_atomic_save(self):
-        """真正执行单次原子化落盘"""
         try:
             os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
             dump_data = {key: getattr(self, f"_{key}") for key in CONFIG_SCHEMA}
@@ -190,6 +190,12 @@ class ConfigManager(QObject):
     def capsuleTopMargin(self): return self._capsuleTopMargin
     @capsuleTopMargin.setter
     def capsuleTopMargin(self, val): self._set_value("capsuleTopMargin", val, self.capsuleTopMarginChanged)
+
+    # 🚀 胶囊高度属性与信号
+    @Property(int, notify=capsuleHeightChanged)
+    def capsuleHeight(self): return self._capsuleHeight
+    @capsuleHeight.setter
+    def capsuleHeight(self, val): self._set_value("capsuleHeight", val, self.capsuleHeightChanged)
 
     @Property(int, notify=expandedTopMarginChanged)
     def expandedTopMargin(self): return self._expandedTopMargin
@@ -234,14 +240,10 @@ class ConfigManager(QObject):
     @Property(list, constant=True)
     def worldCities(self): return self._world_cities
 
-    # =========================================================================
-    # 🚀【补齐系统字体列表属性】：调用 QFontDatabase 读取原生所有字体
-    # =========================================================================
     @Property("QStringList", constant=True)
     def systemFonts(self):
         if self._system_fonts is None:
             try:
-                # 获取系统所有可用字体族
                 families = QFontDatabase.families()
                 cleaned = ["系统默认 (Default)"]
                 seen = set()

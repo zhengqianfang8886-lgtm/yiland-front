@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (根除设置窗口焦点死循环闪烁版)
+// 🌟 顶级窗口视图 (运动态感应自锁 · 彻底根除假悬停顿挫版)
 // =========================================================================
 import QtQuick
 import QtQuick.Controls
@@ -14,9 +14,6 @@ Item {
     height: 480
 
     focus: true
-    Keys.onPressed: (event) => {
-        console.log("[Island:Window] 🎹 窗口层捕获按键 -> key=" + event.key + ", text=" + event.text);
-    }
 
     Component.onCompleted: {
         capsule.resolveAndExpress();
@@ -29,9 +26,7 @@ Item {
     Shortcut {
         sequence: "Escape"
         enabled: fsm.currentState === IslandFsm.State.Expanded
-        onActivated: {
-            fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" });
-        }
+        onActivated: fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" })
     }
 
     IslandFsm { id: fsm }
@@ -53,17 +48,13 @@ Item {
         }
     }
 
-    // 🚀【防死锁标志】：打开设置窗口时不进行焦点争夺
     property bool isSettingsOpen: false
 
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         function onWindowDeactivated() {
-            // 如果正在与设置窗口交互，不要盲目抢焦点
             if (root.isSettingsOpen) return;
-
             if (fsm.currentState === IslandFsm.State.Expanded) {
-                console.log("[Island] 🎯 捕获到外部点击失焦 -> 平滑收起大卡片");
                 fsm.handleIntent("COLLAPSE", { source: "Wayland_External_Click_Deactivated" });
             }
         }
@@ -73,11 +64,9 @@ Item {
         id: expandedCoordinator
         targetCapsule: capsule
         isExpanded: (fsm.currentState === IslandFsm.State.Expanded)
-        leaveDelayMs: 120
+        leaveDelayMs: 150
 
-        onRequestCollapse: (reason) => {
-            fsm.handleIntent("COLLAPSE", { source: reason });
-        }
+        onRequestCollapse: (reason) => fsm.handleIntent("COLLAPSE", { source: reason })
         onRequestAcquireFocus: {
             if (root.isSettingsOpen) return;
             if (typeof Bridge !== "undefined" && Bridge.requestWindowFocus) {
@@ -86,9 +75,7 @@ Item {
             root.forceActiveFocus();
         }
         onRequestRestoreFocus: {
-            // 🚀【核心加固】：如果是因为去打开偏好设置窗口，绝对不能触发 restorePreviousFocus 抢夺焦点！
             if (root.isSettingsOpen) return;
-
             if (typeof Bridge !== "undefined" && Bridge.restorePreviousFocus) {
                 Bridge.restorePreviousFocus();
             }
@@ -107,6 +94,11 @@ Item {
     readonly property bool isUserHovering: corridorArea.containsMouse || capsule.isHovered
 
     onIsUserHoveringChanged: {
+        // 🚀【核心根治】：当灵动岛正在做物理收缩或形变时，绝对禁止触发 USER_ACTIVE 干扰减速曲线！
+        if (capsule.isMoving) {
+            return;
+        }
+
         fsm.isHovering = isUserHovering;
         if (isUserHovering) {
             userLeaveDebounce.stop();
@@ -122,11 +114,12 @@ Item {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        width: Math.max(188, capsule.width + 16)
+        width: 360
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
-        enabled: !isExpanded
-        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : Math.max(48, capsule.y + capsule.height + 6))
+        // 🚀 形变运动中自动挂起走廊感应，杜绝收缩边缘擦过引发假触控
+        enabled: !isExpanded && !capsule.isMoving
+        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : 54)
 
         z: 5
         hoverEnabled: true
@@ -134,9 +127,13 @@ Item {
 
         Timer {
             id: userLeaveDebounce
-            interval: 250
+            interval: 220
             repeat: false
-            onTriggered: fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" })
+            onTriggered: {
+                if (!capsule.isMoving) {
+                    fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" });
+                }
+            }
         }
 
         onWheel: (wheel) => {
@@ -163,13 +160,10 @@ Item {
             item.visibleChanged.connect(function() {
                 root.isSettingsOpen = item.visible;
             });
-            item.show();
-            item.raise();
-            item.requestActivate();
+            item.openCentered(); // 🚀 在屏幕正中心独立弹出！
         }
     }
 
-    // 🚀【核心加固】：点击设置时，先安全收回大卡片，立起防争夺标志，再弹出设置窗口
     function openSettingsWindow() {
         root.isSettingsOpen = true;
         if (fsm.currentState === IslandFsm.State.Expanded) {
@@ -177,9 +171,7 @@ Item {
         }
 
         if (settingsLoader.status === Loader.Ready && settingsLoader.item) {
-            settingsLoader.item.show();
-            settingsLoader.item.raise();
-            settingsLoader.item.requestActivate();
+            settingsLoader.item.openCentered();
         } else {
             settingsLoader.active = true;
         }

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/CalendarPage.qml
-// 🌟 日历日程打卡主页面 (后端直通零卡顿 · 彻底剔除废弃 JS 版)
+// 🌟 日历日程打卡主页面 (纯异步数据绑定 · 主线程零卡顿版)
 // ==========================================
 import QtQuick
 import "../calendar"
@@ -48,31 +48,60 @@ Rectangle {
         return days[new Date(selYear, selMonth, selDay).getDay()];
     }
 
-    // 后端 SQLite 存储驱动直通
-    function reloadHabits() {
-        if (typeof Bridge === "undefined" || !Bridge.getHabits) return;
-        habitsList = Bridge.getHabits();
-        if (currentHabitIndex >= habitsList.length) {
-            currentHabitIndex = Math.max(0, habitsList.length - 1);
+    // =========================================================================
+    // 🚀【核心改动】：全面接入 Bridge 异步信号通道，绝不阻塞主渲染帧
+    // =========================================================================
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+
+        function onHabitsLoaded(data) {
+            calRoot.habitsList = data || [];
+            if (calRoot.currentHabitIndex >= calRoot.habitsList.length) {
+                calRoot.currentHabitIndex = Math.max(0, calRoot.habitsList.length - 1);
+            }
+            calRoot.reloadMonthRecords();
         }
-        reloadMonthRecords();
+
+        function onMonthRecordsLoaded(habitId, year, month, records) {
+            if (calRoot.currentHabit && calRoot.currentHabit.id === habitId &&
+                calRoot.calYear === year && calRoot.calMonth === month) {
+                calRoot.checkRecords = records || ({});
+            }
+        }
+
+        function onHabitRecordToggled(habitId, dateStr, isChecked) {
+            if (calRoot.currentHabit && calRoot.currentHabit.id === habitId) {
+                var copy = Object.assign({}, calRoot.checkRecords);
+                if (isChecked) {
+                    copy[dateStr] = true;
+                } else {
+                    delete copy[dateStr];
+                }
+                calRoot.checkRecords = copy;
+            }
+        }
+    }
+
+    function reloadHabits() {
+        if (typeof Bridge !== "undefined" && Bridge.requestHabits) {
+            Bridge.requestHabits();
+        }
     }
 
     function reloadMonthRecords() {
-        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.getMonthRecords) { 
-            checkRecords = ({}); 
-            return; 
+        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.requestMonthRecords) {
+            checkRecords = ({});
+            return;
         }
-        checkRecords = Bridge.getMonthRecords(currentHabit.id, calYear, calMonth);
+        Bridge.requestMonthRecords(currentHabit.id, calYear, calMonth);
     }
 
     function toggleSelectedDay() {
-        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.toggleHabitRecord) { 
-            isManagingHabits = true; 
-            return; 
+        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.requestToggleRecord) {
+            isManagingHabits = true;
+            return;
         }
-        Bridge.toggleHabitRecord(currentHabit.id, selectedDateStr);
-        reloadMonthRecords();
+        Bridge.requestToggleRecord(currentHabit.id, selectedDateStr);
     }
 
     function selectDay(item) {
@@ -211,17 +240,13 @@ Rectangle {
                 currentHabitIndex: calRoot.currentHabitIndex
                 onCloseRequested: calRoot.isManagingHabits = false
                 onHabitCreated: (name) => {
-                    if (typeof Bridge !== "undefined" && Bridge.addHabit) {
-                        calRoot.habitsList = Bridge.addHabit(name, "📌");
-                        calRoot.currentHabitIndex = calRoot.habitsList.length - 1;
-                        calRoot.reloadMonthRecords();
+                    if (typeof Bridge !== "undefined" && Bridge.requestAddHabit) {
+                        Bridge.requestAddHabit(name, "📌");
                     }
                 }
                 onHabitDeleted: (id) => {
-                    if (typeof Bridge !== "undefined" && Bridge.deleteHabit) {
-                        calRoot.habitsList = Bridge.deleteHabit(id);
-                        calRoot.currentHabitIndex = Math.max(0, calRoot.currentHabitIndex - 1);
-                        calRoot.reloadMonthRecords();
+                    if (typeof Bridge !== "undefined" && Bridge.requestDeleteHabit) {
+                        Bridge.requestDeleteHabit(id);
                     }
                 }
                 onHabitSelected: (idx) => {

@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 · 44px 高度舒适触控版
+// 🌟 灵动岛主壳体 (参数化响应式高度 · 终态单一主权版)
 // =========================================================================
 import QtQuick
 import "../core"
@@ -15,14 +15,17 @@ Item {
     property var timeService: null
 
     property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
+    // 🚀【动态高度】：从配置读取 (32 / 36 / 42)
+    readonly property int currentConfigHeight: (typeof Config !== "undefined" && Config.capsuleHeight !== undefined) ? Config.capsuleHeight : 36
     property real islandOffsetX: 0
 
     readonly property bool isCurrentExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
+    readonly property bool isMoving: motionPod.isMoving
 
     HoverHandler {
         id: capsuleBodyHover
         blocking: false
-        enabled: !capsuleRoot.isCurrentExpanded
+        enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving
     }
 
     readonly property bool isHovered: capsuleRoot.isCurrentExpanded || capsuleBodyHover.hovered || (sensorArea && sensorArea.isPointerHovered)
@@ -36,14 +39,13 @@ Item {
 
     Timer {
         id: maskSettleWatchdog
-        interval: 320
+        interval: 140
         repeat: false
-        onTriggered: capsuleRoot.commitPrecisionMask()
+        onTriggered: capsuleRoot.executeActualMaskCommit()
     }
 
-    // 🚀 基础高度由 38 提升至 44
-    width: Math.max(200, motionPod.currentWidth)
-    height: Math.max(44, motionPod.currentHeight)
+    width: Math.max(160, motionPod.currentWidth)
+    height: Math.max(currentConfigHeight, motionPod.currentHeight)
     y: motionPod.currentY
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
@@ -52,24 +54,24 @@ Item {
         if (!fsm) return;
 
         var tY = normalTopMargin;
-        var tW = (compactView && compactView.naturalWidth > 0) ? compactView.naturalWidth : 210;
-        var tH = 44;
-        var tR = 22;
+        var tW = 210;
+        var tH = currentConfigHeight;
+        var tR = Math.round(tH / 2);
 
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
-                tW = 190; tH = 44; tR = 22;
+                tW = 180; tH = currentConfigHeight; tR = Math.round(tH / 2);
                 tY = -(tH - 5.0);
                 break;
 
             case IslandFsm.State.Compact:
             case IslandFsm.State.Interacting:
             case IslandFsm.State.Overlay:
-                tW = Math.max(200, compactView.naturalWidth);
+                tW = (compactView && compactView.naturalWidth > 0) ? compactView.naturalWidth : 210;
                 tH = (fsm.activeTransientKey === "SEDENTARY") ? 116 : 
                      (fsm.activeTransientKey === "CALL" ? 50 : 
-                     (fsm.activeTransientKey === "ALERT" ? 56 : 44));
-                tR = Math.min(26, tH / 2);
+                     (fsm.activeTransientKey === "ALERT" ? 56 : currentConfigHeight));
+                tR = Math.min(26, Math.round(tH / 2));
                 tY = normalTopMargin;
                 break;
 
@@ -87,7 +89,7 @@ Item {
             if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                 Bridge.openFullCorridorForMotion();
             }
-            maskSettleWatchdog.restart();
+            maskSettleWatchdog.stop();
         }
 
         motionPod.expressGeometry(tY, tW, tH, tR);
@@ -111,8 +113,19 @@ Item {
         }
     }
 
+    // 监听高度设置变更
+    Connections {
+        target: (typeof Config !== "undefined") ? Config : null
+        function onCapsuleHeightChanged(h) {
+            capsuleRoot.resolveAndExpress();
+        }
+    }
+
     function commitPrecisionMask() {
-        maskSettleWatchdog.stop();
+        maskSettleWatchdog.restart();
+    }
+
+    function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
         if (capsuleRoot.isCurrentExpanded) {
@@ -167,7 +180,7 @@ Item {
         id: sensorArea
         anchors.fill: parent
         visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
-        enabled: visible
+        enabled: visible && !capsuleRoot.isMoving
         isExpanded: capsuleRoot.isCurrentExpanded
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
 
