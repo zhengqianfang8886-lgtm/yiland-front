@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/HardwarePage.qml
-// 🌟 硬件控制页 (音量调控全动作日志埋点版)
+// 🌟 硬件控制页 (滑条绝对定位赋值 · 彻底根除暴冲爆音版)
 // ==========================================
 import QtQuick
 
@@ -26,9 +26,7 @@ Item {
             hwPageRoot.isMicMuted = micMuted
         }
         function onVolumeChanged(val) {
-            // 过滤重复相同数值，避免多次脏刷
             if (hwPageRoot.currentVolume === val) return;
-            console.log("[HardwarePage] 收到 onVolumeChanged 信号 -> currentVolume 从 " + hwPageRoot.currentVolume + " 更新为 " + val)
             hwPageRoot.currentVolume = val
         }
         function onBrightnessChanged(val) { 
@@ -38,7 +36,6 @@ Item {
         function onOsdTriggered(icon, label, val) {
             if (label === "Volume") {
                 if (hwPageRoot.currentVolume === val) return;
-                console.log("[HardwarePage] 收到 onOsdTriggered(Volume) -> " + val + "%")
                 hwPageRoot.currentVolume = val
             } else if (label === "Display") {
                 if (hwPageRoot.currentBrightness === val) return;
@@ -125,7 +122,7 @@ Item {
             }
         }
 
-        // 2. Display
+        // 2. Display 亮度条
         Column {
             width: parent.width
             spacing: 5
@@ -181,11 +178,16 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
 
+                    // 🚀【绝对定位赋值】：无论鼠标拖多快，只发送准确比例，杜绝暴冲
                     function updateBrightness(mouseX) {
                         var ratio = Math.max(0.05, Math.min(1.0, mouseX / displayTrack.width))
                         var target = Math.round(ratio * 100)
                         if (typeof Bridge !== "undefined") {
-                            Bridge.adjustHardware(1, target - hwPageRoot.currentBrightness)
+                            if (Bridge.setHardware) {
+                                Bridge.setHardware(1, target)
+                            } else {
+                                Bridge.adjustHardware(1, target - hwPageRoot.currentBrightness)
+                            }
                         }
                     }
 
@@ -200,7 +202,7 @@ Item {
             }
         }
 
-        // 3. Sound
+        // 3. Sound 音量条
         Column {
             width: parent.width
             spacing: 5
@@ -256,13 +258,16 @@ Item {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
 
+                    // 🚀【绝对定位赋值】：直接调用 setHardware(0, target)，拖拽手感如丝顺滑，彻底消灭 100% 暴冲
                     function updateVolume(mouseX) {
                         var ratio = Math.max(0.0, Math.min(1.0, mouseX / soundTrack.width))
                         var target = Math.round(ratio * 100)
-                        // 🔊【音量日志触发点 12】：硬件控制卡片中拖拽滑条触发音量设定
-                        console.log("[HardwarePage] 滑条交互拖动调节 -> target: " + target + "% (当前: " + hwPageRoot.currentVolume + "%)")
                         if (typeof Bridge !== "undefined") {
-                            Bridge.adjustHardware(0, target - hwPageRoot.currentVolume)
+                            if (Bridge.setHardware) {
+                                Bridge.setHardware(0, target)
+                            } else {
+                                Bridge.adjustHardware(0, target - hwPageRoot.currentVolume)
+                            }
                         }
                     }
 
@@ -272,8 +277,6 @@ Item {
                         wheel.accepted = true
                         var step = (typeof Config !== "undefined" && Config.volumeStep !== undefined) ? Config.volumeStep : 5
                         var delta = wheel.angleDelta.y > 0 ? step : -step
-                        // 🔊【音量日志触发点 13】：硬件控制卡片中在滑轨上滚轮调音
-                        console.log("[HardwarePage] 滚轮悬停调节音量 -> delta: " + delta + "%")
                         if (typeof Bridge !== "undefined") Bridge.adjustHardware(0, delta)
                     }
                 }

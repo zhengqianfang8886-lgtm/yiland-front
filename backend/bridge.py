@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (集成异步习惯打卡与安全事件通信)
+# 🌟 Qt / QML 统一交互中枢 (集成平铺网格隐形透传通道)
 # ==========================================
 import time
 import atexit
@@ -50,8 +50,11 @@ class IslandBridge(QObject):
     callEndedTriggered = Signal()
     unreadCountChanged = Signal(int)
 
+    # 🚀 网格隐形状态信号
+    gridActiveChanged = Signal(bool)
+
     memoryUpdated = Signal(int, str, str)
-    netSpeedUpdated = Signal(str, str, str, str)
+    netSpeedUpdated = Signal(str, str, str, str, str, str)
     batteryUpdated = Signal(int, bool)
 
     timerUpdated = Signal()
@@ -63,6 +66,7 @@ class IslandBridge(QObject):
     habitsLoaded = Signal("QVariantList")
     monthRecordsLoaded = Signal(str, int, int, "QVariantMap")
     habitRecordToggled = Signal(str, str, bool)
+    calendarGridLoaded = Signal(int, int, "QVariantList")
 
     windowDeactivated = Signal()
 
@@ -105,6 +109,11 @@ class IslandBridge(QObject):
         if hasattr(self, "_notif_model"):
             self._notif_model.clearAll()
         self._pool.shutdown(wait=False, cancel_futures=True)
+
+    # 🚀 供 QML 绑定的平铺网格状态属性
+    @Property(bool, notify=gridActiveChanged)
+    def isGridActive(self):
+        return self._backend.state.is_desktop_grid_active if self._backend else False
 
     @Property("QVariantMap", notify=overlayChanged)
     def activeOverlay(self):
@@ -285,6 +294,17 @@ class IslandBridge(QObject):
             self.habitRecordToggled.emit(habit_id, date_str, is_checked)
         self.run_async(_run())
 
+    @Slot(int, int, str)
+    def requestCalendarGrid(self, year: int, month: int, habit_id: str):
+        if not self._backend or not self._backend.habits:
+            self.calendarGridLoaded.emit(year, month, [])
+            return
+
+        async def _run():
+            grid = await self._backend.habits.generate_calendar_grid_async(year, month, habit_id)
+            self.calendarGridLoaded.emit(year, month, grid)
+        self.run_async(_run())
+
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         if not self._backend: return
@@ -292,6 +312,14 @@ class IslandBridge(QObject):
             self.run_async(self._backend.audio.set_delta(delta))
         elif mode == 1 and self._backend.brightness:
             self.run_async(self._backend.brightness.set_delta(delta))
+
+    @Slot(int, int)
+    def setHardware(self, mode: int, target_val: int):
+        if not self._backend: return
+        if mode == 0 and self._backend.audio:
+            self.run_async(self._backend.audio.set_volume(target_val))
+        elif mode == 1 and self._backend.brightness:
+            self.run_async(self._backend.brightness.set_brightness(target_val))
 
     @Slot(int)
     def toggleHardwareMute(self, mode: int):
@@ -332,6 +360,11 @@ class IslandBridge(QObject):
     def switchWorkspaceNext(self):
         if self._backend and self._backend.workspace:
             self.run_async(self._backend.workspace.switch_workspace("next"))
+
+    @Slot()
+    def toggleDesktopGrid(self):
+        if self._backend and self._backend.workspace:
+            self.run_async(self._backend.workspace.toggle_desktop_grid())
 
     @Slot()
     def answerTeamsCall(self):
@@ -396,6 +429,12 @@ class IslandBridge(QObject):
 
     @Slot(str, object)
     def _handle_inproc_event(self, event_type: str, s):
+        # 🚀 平铺网格状态变动派发
+        if event_type in ("GRID_STATE_CHANGED", "FULL_SYNC"):
+            self.gridActiveChanged.emit(s.is_desktop_grid_active)
+            if s.is_desktop_grid_active:
+                self.setPassthrough()
+
         if event_type == "VOICE_INPUT_LEVEL":
             self.voiceInputLevelChanged.emit(s.voice_input_level)
             return
@@ -406,8 +445,6 @@ class IslandBridge(QObject):
             overlay = s.get_overlay_dict()
             if overlay.get("key"):
                 self.view.raise_()
-                # 🚀【P0 核心修复】：绝对不能在这里调用 clear_mask()！
-                # 掩码边界由 QML 视图层的真实物理尺寸严格计算并原子提交，杜绝空气墙死锁
             self.overlayChanged.emit()
             if overlay.get("key") == "ALERT":
                 self.alertTriggered.emit(
@@ -452,7 +489,11 @@ class IslandBridge(QObject):
             self.memoryUpdated.emit(s.memory_percent, s.memory_used_gb, s.memory_total_gb)
 
         if event_type in ("NET_SPEED_UPDATE", "FULL_SYNC"):
-            self.netSpeedUpdated.emit(s.net_down_speed, s.net_up_speed, s.net_down_compact, s.net_up_compact)
+            self.netSpeedUpdated.emit(
+                s.net_down_val, s.net_down_unit,
+                s.net_up_val, s.net_up_unit,
+                s.net_down_compact, s.net_up_compact
+            )
 
         if event_type in ("BATTERY_UPDATE", "FULL_SYNC"):
             self.batteryUpdated.emit(s.battery_pct, s.battery_charging)

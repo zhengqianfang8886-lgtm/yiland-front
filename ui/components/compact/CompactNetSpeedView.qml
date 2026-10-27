@@ -1,19 +1,24 @@
 // =========================================================================
 // 📄 File: ui/components/compact/CompactNetSpeedView.qml
-// 🌟 双层微堆叠网速药丸 (零抖动 · 等宽字模 · 智能降噪高空间利用率版)
+// 🌟 纯结构化微堆叠网速药丸 (零 JS 解析 · 绝对等宽对齐 · 纳秒级响应版)
 // =========================================================================
 import QtQuick
 
 Item {
     id: netRoot
-    width: 46
-    height: 22
+    width: 68
+    height: 24
 
     property string fontFam: "Monospace"
+
+    // 🚀【直连结构化字段】：不再需要任何 trim/split/substring 操作
+    property string downVal: "0"
+    property string downUnit: "B/s"
+    property string upVal: "0"
+    property string upUnit: "B/s"
     property string downCompact: "0B"
     property string upCompact: "0B"
 
-    // 智能流量活跃判定：若上下行皆为 0B 或极低，进入低对比度静默态
     readonly property bool isTrafficActive: (downCompact !== "0B" && downCompact !== "0K") || 
                                            (upCompact !== "0B" && upCompact !== "0K")
 
@@ -22,85 +27,138 @@ Item {
     Rectangle {
         id: bgPill
         anchors.fill: parent
-        radius: 11
+        radius: 12
         antialiasing: true
 
-        // 活跃时带微弱青绿内衬，静默时为深黑微透明
-        color: netRoot.isTrafficActive ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.09) : Qt.rgba(255, 255, 255, 0.05)
-        border.color: netHover.hovered ? "#34d399" : (netRoot.isTrafficActive ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.28) : Qt.rgba(255, 255, 255, 0.10))
+        color: netRoot.isTrafficActive ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.08) : Qt.rgba(255, 255, 255, 0.04)
+        border.color: netHover.hovered ? "#34d399" : (netRoot.isTrafficActive ? Qt.rgba(52 / 255, 211 / 255, 153 / 255, 0.25) : "transparent")
         border.width: 1
 
         Behavior on color { ColorAnimation { duration: 150 } }
         Behavior on border.color { ColorAnimation { duration: 150 } }
 
-        // =====================================================================
-        // 上层：下载通道 (RX) - 翠绿 #34d399
-        // =====================================================================
-        Item {
-            anchors.top: parent.top
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: 11
+        Column {
+            anchors.centerIn: parent
+            spacing: 0
 
-            Row {
-                anchors.centerIn: parent
-                spacing: 2
+            // =================================================================
+            // 上层：上传 (TX) - 冰蓝 #38bdf8
+            // =================================================================
+            Item {
+                width: netRoot.width
+                height: 11
 
-                Text {
-                    text: "↓"
-                    color: netRoot.isTrafficActive ? "#34d399" : Qt.rgba(255, 255, 255, 0.35)
-                    font.family: netRoot.fontFam
-                    font.pixelSize: 8
-                    font.weight: Font.Black
-                    anchors.verticalCenter: parent.verticalCenter
-                    renderType: Text.QtRendering
-                }
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 0
 
-                Text {
-                    text: netRoot.downCompact
-                    color: netRoot.isTrafficActive ? "#34d399" : Qt.rgba(255, 255, 255, 0.45)
-                    font.family: netRoot.fontFam
-                    font.pixelSize: 9
-                    font.weight: Font.Black
-                    font.features: { "tnum": 1 } // 🚀 严格等宽数字，彻底根除跳动
-                    anchors.verticalCenter: parent.verticalCenter
-                    renderType: Text.QtRendering
+                    // 箭头指示
+                    Item {
+                        width: 10; height: 11
+                        Text {
+                            anchors.centerIn: parent
+                            text: "↑"
+                            color: netRoot.isTrafficActive ? "#38bdf8" : Qt.rgba(255, 255, 255, 0.35)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 8
+                            font.weight: Font.Black
+                            renderType: Text.QtRendering
+                        }
+                    }
+
+                    Item { width: 2; height: 11 }
+
+                    // 数值槽位 (定宽 30px 右对齐，等宽字模)
+                    Item {
+                        width: 30; height: 11
+                        Text {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: netRoot.upVal
+                            color: netRoot.isTrafficActive ? "#f0f9ff" : Qt.rgba(255, 255, 255, 0.45)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 10
+                            font.weight: Font.Black
+                            font.features: { "tnum": 1 }
+                            renderType: Text.QtRendering
+                        }
+                    }
+
+                    Item { width: 2; height: 11 }
+
+                    // 单位槽位 (定宽 20px 左对齐)
+                    Item {
+                        width: 20; height: 11
+                        Text {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: netRoot.upUnit
+                            color: netRoot.isTrafficActive ? Qt.rgba(125 / 255, 211 / 255, 252 / 255, 0.75) : Qt.rgba(255, 255, 255, 0.30)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 8
+                            font.weight: Font.Bold
+                            renderType: Text.QtRendering
+                        }
+                    }
                 }
             }
-        }
 
-        // =====================================================================
-        // 下层：上传通道 (TX) - 冰蓝 #38bdf8
-        // =====================================================================
-        Item {
-            anchors.bottom: parent.bottom
-            anchors.left: parent.left
-            anchors.right: parent.right
-            height: 11
+            // =================================================================
+            // 下层：下载 (RX) - 翠绿 #34d399
+            // =================================================================
+            Item {
+                width: netRoot.width
+                height: 11
 
-            Row {
-                anchors.centerIn: parent
-                spacing: 2
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 0
 
-                Text {
-                    text: "↑"
-                    color: netRoot.isTrafficActive ? "#38bdf8" : Qt.rgba(255, 255, 255, 0.30)
-                    font.family: netRoot.fontFam
-                    font.pixelSize: 8
-                    font.weight: Font.Black
-                    anchors.verticalCenter: parent.verticalCenter
-                    renderType: Text.QtRendering
-                }
+                    Item {
+                        width: 10; height: 11
+                        Text {
+                            anchors.centerIn: parent
+                            text: "↓"
+                            color: netRoot.isTrafficActive ? "#34d399" : Qt.rgba(255, 255, 255, 0.35)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 8
+                            font.weight: Font.Black
+                            renderType: Text.QtRendering
+                        }
+                    }
 
-                Text {
-                    text: netRoot.upCompact
-                    color: netRoot.isTrafficActive ? "#38bdf8" : Qt.rgba(255, 255, 255, 0.40)
-                    font.family: netRoot.fontFam
-                    font.pixelSize: 9
-                    font.weight: Font.Black
-                    font.features: { "tnum": 1 }
-                    anchors.verticalCenter: parent.verticalCenter
-                    renderType: Text.QtRendering
+                    Item { width: 2; height: 11 }
+
+                    Item {
+                        width: 30; height: 11
+                        Text {
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: netRoot.downVal
+                            color: netRoot.isTrafficActive ? "#ecfdf5" : Qt.rgba(255, 255, 255, 0.50)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 10
+                            font.weight: Font.Black
+                            font.features: { "tnum": 1 }
+                            renderType: Text.QtRendering
+                        }
+                    }
+
+                    Item { width: 2; height: 11 }
+
+                    Item {
+                        width: 20; height: 11
+                        Text {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: netRoot.downUnit
+                            color: netRoot.isTrafficActive ? Qt.rgba(110 / 255, 231 / 255, 183 / 255, 0.75) : Qt.rgba(255, 255, 255, 0.30)
+                            font.family: netRoot.fontFam
+                            font.pixelSize: 8
+                            font.weight: Font.Bold
+                            renderType: Text.QtRendering
+                        }
+                    }
                 }
             }
         }

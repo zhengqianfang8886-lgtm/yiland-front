@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/platform/kde_wayland.py
-# 🌟 KDE Plasma Wayland 专属驱动 (KWin 全屏反劫持 · 突破 F11 遮挡版)
+# 🌟 KDE Plasma Wayland 专属驱动 (KWin 系统 Dock 面板定性 · 平铺网格彻底免疫版)
 # ==========================================
 import os
 import time
@@ -35,7 +35,8 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         return (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.Tool |
+            Qt.WindowType.BypassWindowManagerHint
         )
 
     def _find_qdbus(self) -> Optional[str]:
@@ -55,6 +56,9 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("Description", "Alcove Island HUD Shield"),
             ("wmclass", "alcove-island"),
             ("wmclassmatch", "1"),
+            # 🚀【核心定性】：声明窗口类型为 Dock 面板 (type=2)，平铺网格在内核层面直接跳过面板
+            ("types", "2"),
+            ("typesrule", "2"),
             ("layer", "overlay"),
             ("layerrule", "2"),
             ("above", "true"),
@@ -69,6 +73,10 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("skiptaskbarrule", "2"),
             ("skipswitcher", "true"),
             ("skipswitcherrule", "2"),
+            ("skippager", "true"),
+            ("skippagerrule", "2"),
+            ("skipoverview", "true"),
+            ("skipoverviewrule", "2"),
             ("noborder", "true"),
             ("noborderrule", "2"),
             ("acceptfocus", "true"),
@@ -86,7 +94,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             if qdbus_bin:
                 subprocess.run([qdbus_bin, "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
-            app_logger.info("✅ KWin 磁盘规则已刷新 (Overlay 图层激活)")
+            app_logger.info("✅ KWin 磁盘规则已刷新 (系统 Dock 面板定性激活 · 彻底屏蔽网格缩略图)")
         except Exception as e:
             app_logger.debug(f"[KDE Wayland] 清洗 KWin 规则异常: {e}")
 
@@ -193,11 +201,20 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                 }
 
                 if (isTarget) {
+                    // 🚀【核心赋值】：让 KWin 判定其为不可缩放的系统 Dock/Panel
+                    try {
+                        if (typeof c.dock !== "undefined") c.dock = true;
+                    } catch(e) {}
+
                     c.onAllDesktops = true;
                     c.keepAbove = true;
                     c.skipTaskbar = true;
                     c.skipPager = true;
                     c.skipSwitcher = true;
+
+                    if (typeof c.skipOverview !== "undefined") {
+                        c.skipOverview = true;
+                    }
 
                     function lockDown() {
                         try {
@@ -339,7 +356,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         view.setMask(QRegion(0, 0, int(view.width()), int(view.height())))
 
     def set_passthrough(self, view: QQuickView) -> None:
-        # 🚀【P0 核心修复】：标准 Wayland 穿透规范：传入空 QRegion() 立即通知合成器解除点击拦截
         view.setMask(QRegion())
 
     def start_clipboard_monitor(self, on_changed_callback: Callable[[str, bool, set], None]) -> None:

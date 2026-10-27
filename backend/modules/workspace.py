@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/workspace.py
-# 🌟 原生虚拟桌面监听与切换 (KWin / Hyprland / X11)
+# 🌟 原生虚拟桌面监听与切换 (极速 30ms 物理拔除时序版)
 # ==========================================
 import os
 import json
@@ -163,10 +163,20 @@ class WorkspaceModule(BaseModule):
             "type='signal',interface='org.kde.KWin.VirtualDesktopManager',member='desktopCreated',path='/VirtualDesktopManager'",
             "type='signal',interface='org.kde.KWin.VirtualDesktopManager',member='desktopRemoved',path='/VirtualDesktopManager'",
             "type='signal',interface='org.kde.KWin.VirtualDesktopManager',member='countChanged',path='/VirtualDesktopManager'",
-            "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/VirtualDesktopManager'"
+            "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/VirtualDesktopManager'",
+            "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/Effects'"
         ]
 
         def on_dbus_signal(msg: Message):
+            if msg.path == "/Effects" and msg.member == "PropertiesChanged":
+                async def check_effect_status():
+                    is_active = await self._check_if_grid_active()
+                    if self.state.is_desktop_grid_active != is_active:
+                        self.state.is_desktop_grid_active = is_active
+                        self.notify("GRID_STATE_CHANGED")
+                asyncio.create_task(check_effect_status())
+                return
+
             if msg.member in ("desktopCreated", "desktopRemoved", "countChanged") or (
                 msg.member == "PropertiesChanged" and ("desktops" in str(msg.body) or "count" in str(msg.body))
             ):
@@ -192,6 +202,10 @@ class WorkspaceModule(BaseModule):
                         for w in self.state.workspaces:
                             w["active"] = (w["id"] == new_id)
                         self.notify("WORKSPACE_CHANGED")
+
+                    if self.state.is_desktop_grid_active:
+                        self.state.is_desktop_grid_active = False
+                        self.notify("GRID_STATE_CHANGED")
 
                 asyncio.create_task(handle_current_change())
 
@@ -298,6 +312,85 @@ class WorkspaceModule(BaseModule):
             return proc.returncode == 0
 
         return False
+
+    async def _check_if_grid_active(self) -> bool:
+        if not self.bus:
+            return False
+        try:
+            reply = await self.bus.call(
+                Message(
+                    destination="org.kde.KWin",
+                    path="/Effects",
+                    interface="org.freedesktop.DBus.Properties",
+                    member="Get",
+                    signature="ss",
+                    body=["org.kde.kwin.Effects", "activeEffects"]
+                )
+            )
+            if reply.message_type != MessageType.ERROR and reply.body:
+                active_list = self._unwrap_variant(reply.body[0])
+                if isinstance(active_list, (list, tuple)):
+                    return any(name in active_list for name in ("desktopgrid", "overview", "presentwindows"))
+        except Exception:
+            pass
+        return False
+
+    async def _grid_watchdog_loop(self):
+        while self.state.is_desktop_grid_active:
+            await asyncio.sleep(0.3)
+            is_active = await self._check_if_grid_active()
+            if not is_active:
+                self.state.is_desktop_grid_active = False
+                self.notify("GRID_STATE_CHANGED")
+                break
+
+    async def toggle_desktop_grid(self) -> bool:
+        """🚀 时序隐形触发核心：极速 30ms 物理拔除后呼出平铺网格"""
+        if not self.bus:
+            return False
+
+        if not self.state.is_desktop_grid_active:
+            self.state.is_desktop_grid_active = True
+            self.notify("GRID_STATE_CHANGED")
+            # 🌟 缩短至 30ms 极速缓冲，提升触发手感
+            await asyncio.sleep(0.03)
+
+        success = False
+        try:
+            reply = await self.bus.call(
+                Message(
+                    destination="org.kde.kglobalaccel",
+                    path="/component/kwin",
+                    interface="org.kde.kglobalaccel.Component",
+                    member="invokeShortcut",
+                    signature="s",
+                    body=["ShowDesktopGrid"]
+                )
+            )
+            success = (reply.message_type != MessageType.ERROR)
+        except Exception:
+            pass
+
+        if not success:
+            try:
+                reply = await self.bus.call(
+                    Message(
+                        destination="org.kde.kglobalaccel",
+                        path="/component/kwin",
+                        interface="org.kde.kglobalaccel.Component",
+                        member="invokeShortcut",
+                        signature="s",
+                        body=["Grid View"]
+                    )
+                )
+                success = (reply.message_type != MessageType.ERROR)
+            except Exception:
+                pass
+
+        if self.state.is_desktop_grid_active:
+            asyncio.create_task(self._grid_watchdog_loop())
+
+        return success
 
     async def _sync_hyprland_workspaces(self):
         try:

@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: main.py
-# 🌟 生产级桌面启动中枢 (680x480 透明模态大视口升级版)
+# 🌟 生产级桌面启动中枢 (集成物理级拔除防 W 图标版)
 # ==========================================
 import sys
 import os
@@ -71,6 +71,9 @@ def main():
     app = QGuiApplication(sys.argv)
     app.setApplicationName("alcove-island")
     app.setDesktopFileName("alcove-island")
+    
+    # 🚀【核心防护】：阻止窗口 hide() 时触发程序自杀退出
+    app.setQuitOnLastWindowClosed(False)
 
     config = ConfigManager()
     theme.set_config(config)
@@ -81,7 +84,6 @@ def main():
     sigint_timer.start(1000)
     sigint_timer.timeout.connect(lambda: None)
 
-    # 🚀【核心升级】：为灵动岛预留宽裕的 680x480 透明感应视口
     VIEW_W, VIEW_H = 680, 480
 
     view = QQuickView()
@@ -112,6 +114,16 @@ def main():
         target_x = base_rect.x() + (base_rect.width() - VIEW_W) // 2 + config.offsetX
         target_y = base_rect.y() + config.topMargin
         platform.apply_window_position(view, screen, target_x, target_y, VIEW_W, VIEW_H)
+
+    # 🚀【究极拔除术】：监听到网格开启时，物理销毁 Wayland Surface，彻底消灭 W 图标
+    def handle_grid_state(is_active):
+        if is_active:
+            view.hide()
+        else:
+            view.show()
+            update_view_position()
+
+    bridge.gridActiveChanged.connect(handle_grid_state)
 
     update_view_position()
     config.topMarginChanged.connect(lambda _: update_view_position())

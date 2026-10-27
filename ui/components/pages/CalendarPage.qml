@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/CalendarPage.qml
-// 🌟 日历日程打卡主页面 (纯异步数据绑定 · 主线程零卡顿版)
+// 🌟 纯数据模型驱动日历日程页 (严格当月统计 · 消除超额溢出版)
 // ==========================================
 import QtQuick
 import "../calendar"
@@ -32,6 +32,8 @@ Rectangle {
     property int currentHabitIndex: 0
     property bool isManagingHabits: false
     readonly property var currentHabit: (habitsList && habitsList.length > 0 && currentHabitIndex < habitsList.length) ? habitsList[currentHabitIndex] : null
+    
+    property var calGridModel: []
     property var checkRecords: ({})
 
     function formatDateStr(y, m, d) {
@@ -48,9 +50,6 @@ Rectangle {
         return days[new Date(selYear, selMonth, selDay).getDay()];
     }
 
-    // =========================================================================
-    // 🚀【核心改动】：全面接入 Bridge 异步信号通道，绝不阻塞主渲染帧
-    // =========================================================================
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
 
@@ -59,13 +58,20 @@ Rectangle {
             if (calRoot.currentHabitIndex >= calRoot.habitsList.length) {
                 calRoot.currentHabitIndex = Math.max(0, calRoot.habitsList.length - 1);
             }
-            calRoot.reloadMonthRecords();
+            calRoot.requestGridFromBackend();
         }
 
-        function onMonthRecordsLoaded(habitId, year, month, records) {
-            if (calRoot.currentHabit && calRoot.currentHabit.id === habitId &&
-                calRoot.calYear === year && calRoot.calMonth === month) {
-                calRoot.checkRecords = records || ({});
+        function onCalendarGridLoaded(y, m, grid) {
+            if (calRoot.calYear === y && calRoot.calMonth === m) {
+                calRoot.calGridModel = grid || [];
+                var rec = {};
+                for (var i = 0; i < calRoot.calGridModel.length; i++) {
+                    var cell = calRoot.calGridModel[i];
+                    if (cell.isChecked) {
+                        rec[cell.dateStr] = true;
+                    }
+                }
+                calRoot.checkRecords = rec;
             }
         }
 
@@ -82,18 +88,16 @@ Rectangle {
         }
     }
 
+    function requestGridFromBackend() {
+        if (typeof Bridge === "undefined" || !Bridge.requestCalendarGrid) return;
+        var hId = currentHabit ? currentHabit.id : "";
+        Bridge.requestCalendarGrid(calYear, calMonth, hId);
+    }
+
     function reloadHabits() {
         if (typeof Bridge !== "undefined" && Bridge.requestHabits) {
             Bridge.requestHabits();
         }
-    }
-
-    function reloadMonthRecords() {
-        if (!currentHabit || typeof Bridge === "undefined" || !Bridge.requestMonthRecords) {
-            checkRecords = ({});
-            return;
-        }
-        Bridge.requestMonthRecords(currentHabit.id, calYear, calMonth);
     }
 
     function toggleSelectedDay() {
@@ -112,7 +116,7 @@ Rectangle {
         if (item.month !== calMonth || item.year !== calYear) {
             calYear = item.year;
             calMonth = item.month;
-            updateCalGrid();
+            requestGridFromBackend();
         }
     }
 
@@ -127,19 +131,19 @@ Rectangle {
         selDay = todayDate.getDate();
         calYear = todayDate.getFullYear();
         calMonth = todayDate.getMonth();
-        updateCalGrid();
+        requestGridFromBackend();
     }
 
     function gotoPrevMonth() {
         if (calMonth === 0) { calMonth = 11; calYear--; }
         else { calMonth--; }
-        updateCalGrid();
+        requestGridFromBackend();
     }
 
     function gotoNextMonth() {
         if (calMonth === 11) { calMonth = 0; calYear++; }
         else { calMonth++; }
-        updateCalGrid();
+        requestGridFromBackend();
     }
 
     property real wheelAccum: 0
@@ -155,47 +159,24 @@ Rectangle {
         }
     }
 
-    property var calGridModel: []
-    function updateCalGrid() {
-        var firstIdx = new Date(calYear, calMonth, 1).getDay();
-        var offset = (firstIdx === 0) ? 6 : (firstIdx - 1);
-        var daysInCurrent = new Date(calYear, calMonth + 1, 0).getDate();
-        var daysInPrev = new Date(calYear, calMonth, 0).getDate();
-        var grid = [];
-
-        for (var p = offset - 1; p >= 0; p--) {
-            var prevD = daysInPrev - p;
-            var prevM = calMonth === 0 ? 11 : calMonth - 1;
-            var prevY = calMonth === 0 ? calYear - 1 : calYear;
-            grid.push({ year: prevY, month: prevM, day: prevD, isCurrentMonth: false, isToday: false });
-        }
-        for (var d = 1; d <= daysInCurrent; d++) {
-            grid.push({
-                year: calYear, month: calMonth, day: d, isCurrentMonth: true,
-                isToday: (todayDate.getFullYear() === calYear && todayDate.getMonth() === calMonth && todayDate.getDate() === d)
-            });
-        }
-        var total = grid.length > 35 ? 42 : 35;
-        var rem = total - grid.length;
-        for (var n = 1; n <= rem; n++) {
-            var nextM = calMonth === 11 ? 0 : calMonth + 1;
-            var nextY = calMonth === 11 ? calYear + 1 : calYear;
-            grid.push({ year: nextY, month: nextM, day: n, isCurrentMonth: false, isToday: false });
-        }
-        calGridModel = grid;
-        reloadMonthRecords();
-    }
-
+    // 🚀【核心修复】：只统计当月 (isCurrentMonth == true) 的打卡记录，彻底杜绝 33/31 天溢出
     readonly property int completedCount: {
         var cnt = 0;
-        for (var k in checkRecords) { if (checkRecords[k]) cnt++; }
+        if (calGridModel && calGridModel.length > 0) {
+            for (var i = 0; i < calGridModel.length; i++) {
+                var cell = calGridModel[i];
+                if (cell && cell.isCurrentMonth && checkRecords[cell.dateStr]) {
+                    cnt++;
+                }
+            }
+        }
         return cnt;
     }
     readonly property int daysInMonth: new Date(calYear, calMonth + 1, 0).getDate()
 
     Component.onCompleted: {
         reloadHabits();
-        updateCalGrid();
+        requestGridFromBackend();
     }
 
     Row {
@@ -251,7 +232,7 @@ Rectangle {
                 }
                 onHabitSelected: (idx) => {
                     calRoot.currentHabitIndex = idx;
-                    calRoot.reloadMonthRecords();
+                    calRoot.requestGridFromBackend();
                     calRoot.isManagingHabits = false;
                 }
             }

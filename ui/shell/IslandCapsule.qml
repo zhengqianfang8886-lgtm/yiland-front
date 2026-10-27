@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (展开申请大域 · 终态即时释放 · 注入诊断日志版)
+// 🌟 灵动岛主壳体 (带智能路由直达分发展开版)
 // ==========================================
 import QtQuick
 import "../core"
@@ -13,6 +13,7 @@ Item {
     property var fsm: null
     property var relay: null
     property var timeService: null
+    property var sedentaryService: null
 
     property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
     readonly property int currentConfigHeight: (typeof Config !== "undefined" && Config.capsuleHeight !== undefined) ? Config.capsuleHeight : 36
@@ -20,21 +21,13 @@ Item {
 
     readonly property bool isCurrentExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
     readonly property bool isMoving: motionPod.isMoving
-
-    HoverHandler {
-        id: capsuleBodyHover
-        blocking: false
-        enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving
-    }
-
-    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || capsuleBodyHover.hovered || (sensorArea && sensorArea.isPointerHovered)
+    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || (sensorArea && sensorArea.isPointerHovered)
 
     signal requestSettings()
 
     PhysicsMotionPod {
         id: motionPod
         onMotionSettled: {
-            console.log("[CapsuleDiag] 🏁 形变动画完全静止 -> 执行物理掩码精准收拢");
             capsuleRoot.executeActualMaskCommit();
         }
     }
@@ -56,7 +49,7 @@ Item {
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
                 tW = 180; tH = currentConfigHeight; tR = Math.round(tH / 2);
-                tY = -(tH - 5.0);
+                tY = -(tH - 6.0);
                 break;
 
             case IslandFsm.State.Compact:
@@ -76,9 +69,7 @@ Item {
                 break;
         }
 
-        // 展开时立即向系统放开整块 680x480 大区域用于显示和外围监测
-        if (fsm.currentState === IslandFsm.State.Expanded) {
-            console.log("[CapsuleDiag] 🚀 展开状态确立：申请放开 680x480 完整走廊掩码");
+        if (fsm.currentState !== IslandFsm.State.Hidden) {
             if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                 Bridge.openFullCorridorForMotion();
             }
@@ -92,10 +83,14 @@ Item {
         executeActualMaskCommit();
     }
 
+    // 🚀【核心路由分发】：监听状态变动并直达对应页面
     Connections {
         target: capsuleRoot.fsm
         function onStateChanged(oldState, newState, ctx) {
             capsuleRoot.resolveAndExpress();
+            if (newState === IslandFsm.State.Expanded && ctx && ctx.tab) {
+                expandedView.switchTab(ctx.tab);
+            }
         }
     }
 
@@ -108,32 +103,27 @@ Item {
         }
     }
 
-    // 🚀【收缩完毕立即释放大区域】：将物理掩码精确裁剪在小胶囊轮廓上
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
-        // 处于展开态时维持大区域
         if (capsuleRoot.isCurrentExpanded) {
             Bridge.openFullCorridorForMotion();
             return;
         }
 
-        var safePadH = 4;
+        var safePadH = 6;
 
-        // 潜水状态
         if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
             var tuckW = 180;
             var tuckX = Math.round((parent.width - tuckW) / 2 + islandOffsetX);
-            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 10);
+            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 14);
             return;
         }
 
-        // 常态收缩完成：精准裁剪为当前小胶囊几何尺寸，大区域完全释放给底层桌面！
         var capW = Math.round(capsuleRoot.width);
         var capX = Math.round((parent.width - capW) / 2 + islandOffsetX);
-        var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 2);
+        var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 6);
 
-        console.log("[CapsuleDiag] 🔒 物理掩码落盘: x=" + (capX - safePadH) + ", y=0, w=" + (capW + safePadH * 2) + ", h=" + actualBottomY + " (大区域已完全释放)");
         Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
@@ -154,28 +144,38 @@ Item {
     Item {
         anchors.fill: parent
         clip: true
-        visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
-        enabled: visible
-        opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 120 } }
+        z: 10
+        visible: opacity > 0.001
+        enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+
+        opacity: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)) ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: capsuleRoot.isCurrentExpanded ? 70 : 160
+                easing.type: Easing.OutQuad
+            }
+        }
 
         CompactCapsuleView {
             id: compactView
             fsm: capsuleRoot.fsm
             relay: capsuleRoot.relay
             timeService: capsuleRoot.timeService
+            sedentaryService: capsuleRoot.sedentaryService
         }
     }
 
     CapsuleSensorArea {
         id: sensorArea
         anchors.fill: parent
+        z: 1
         visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
-        enabled: visible && !capsuleRoot.isMoving
+        enabled: visible
         isExpanded: capsuleRoot.isCurrentExpanded
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
 
         onScrubStarted: {
+            if (fsm) fsm.handleIntent("LOCK_SCRUBBING");
             if (compactView) compactView.isScrubbing = true;
         }
         onScrubMoved: (mx, my) => {
@@ -185,6 +185,7 @@ Item {
             }
         }
         onScrubCommitted: {
+            if (fsm) fsm.handleIntent("UNLOCK_SCRUBBING");
             if (compactView) {
                 compactView.isScrubbing = false;
                 var targetIdx = compactView.getScrubTargetIndex();
@@ -192,6 +193,7 @@ Item {
             }
         }
         onScrubCanceled: {
+            if (fsm) fsm.handleIntent("UNLOCK_SCRUBBING");
             if (compactView) compactView.isScrubbing = false;
         }
 
@@ -211,16 +213,22 @@ Item {
         }
     }
 
-    // 420x240 大卡片展示容器 (层级 z: 50，居中且完全不受外围感应环干扰)
     Item {
         anchors.fill: parent
         anchors.margins: 12
         clip: true
         z: 50
-        visible: capsuleRoot.isCurrentExpanded
-        enabled: visible
-        opacity: visible ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        visible: opacity > 0.001
+        enabled: capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving
+
+        opacity: (capsuleRoot.isCurrentExpanded && motionPod.currentWidth >= 380 && motionPod.currentHeight >= 200) ? 1.0 : 0.0
+
+        Behavior on opacity {
+            NumberAnimation {
+                duration: capsuleRoot.isCurrentExpanded ? 140 : 60
+                easing.type: Easing.OutQuad
+            }
+        }
 
         ExpandedCardView {
             id: expandedView

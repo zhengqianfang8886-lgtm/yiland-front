@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandBridgeRelay.qml
-// 🌟 统一事件中继总线 (集成 Netlink STATS64 平滑网速中继)
+// 🌟 统一事件中继总线 (结构化网速 + 零 JS 计算数据透传版)
 // =========================================================================
 import QtQuick
 
@@ -50,9 +50,11 @@ Item {
     property int unreadCount: (typeof Bridge !== "undefined" && Bridge.unreadCount !== undefined) ? Bridge.unreadCount : 0
     property string latestNotifAvatar: (typeof Bridge !== "undefined" && Bridge.latestNotificationAvatar !== undefined) ? Bridge.latestNotificationAvatar : ""
 
-    // 🚀 网速数据总线
-    property string downSpeedStr: "0.0 B/s"
-    property string upSpeedStr: "0.0 B/s"
+    // 🚀【结构化网速属性】：前端直绑，无须任何 split / substring
+    property string netDownVal: "0"
+    property string netDownUnit: "B/s"
+    property string netUpVal: "0"
+    property string netUpUnit: "B/s"
     property string downCompact: "0B"
     property string upCompact: "0B"
     property string localIp: "127.0.0.1"
@@ -64,11 +66,14 @@ Item {
 
         function onUnreadCountChanged(cnt) { relay.unreadCount = cnt; }
 
-        function onNetSpeedUpdated(down_s, up_s, down_c, up_c) {
-            relay.downSpeedStr = down_s;
-            relay.upSpeedStr = up_s;
-            relay.downCompact = down_c;
-            relay.upCompact = up_c;
+        // 接收结构化网速下发
+        function onNetSpeedUpdated(d_val, d_unit, u_val, u_unit, d_compact, u_compact) {
+            relay.netDownVal = d_val;
+            relay.netDownUnit = d_unit;
+            relay.netUpVal = u_val;
+            relay.netUpUnit = u_unit;
+            relay.downCompact = d_compact;
+            relay.upCompact = u_compact;
         }
 
         function onMediaUpdated(t, a, s, u, pos, dur) {

@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandFsm.qml
-// 🌟 核心状态机 (空安全防护 · 悬停与被动弹窗高优先级融合版)
+// 🌟 生产级有限状态机 (支持路由参数传递版)
 // =========================================================================
 import QtQuick
 
@@ -32,7 +32,7 @@ QtObject {
         "VOICE": 80,
         "SEDENTARY": 60,
         "ALERT": 40,
-        "OSD": 30,
+        "OSD": 35,
         "WORKSPACE": 20,
         "MEDIA_PEEK": 10
     })
@@ -43,10 +43,13 @@ QtObject {
     property string activeTransientKey: ""
     property var activePayload: ({})
     property int activePriority: 0
-    property bool isTuckedPreference: false
+    property real currentStartTime: 0
+    property real currentDurationMs: 0
 
-    // 实时同步鼠标当前是否正停留在灵动岛或走廊范围内
+    property bool isTuckedPreference: false
     property bool isHovering: false
+    property bool isScrubbingLocked: false
+    property var transientStack: []
 
     signal stateChanged(int oldState, int newState, var context)
 
@@ -65,15 +68,47 @@ QtObject {
     function postTransient(key, payload, durationMs) {
         var prio = priorityTable[key] || 0;
 
-        if (currentState === IslandFsm.State.Overlay && prio < activePriority) {
-            return false;
+        if (isScrubbingLocked && prio < 100) {
+            transientStack.push({
+                key: key,
+                payload: payload || {},
+                remainingMs: durationMs,
+                priority: prio
+            });
+            return true;
+        }
+
+        if (activeTransientKey !== "") {
+            if (prio < activePriority) {
+                transientStack.push({
+                    key: key,
+                    payload: payload || {},
+                    remainingMs: durationMs,
+                    priority: prio
+                });
+                return false;
+            }
+
+            var elapsed = Date.now() - currentStartTime;
+            var remain = Math.max(0, currentDurationMs - elapsed);
+            if (currentDurationMs > 0 && remain > 800) {
+                transientStack.push({
+                    key: activeTransientKey,
+                    payload: activePayload,
+                    remainingMs: remain,
+                    priority: activePriority
+                });
+            }
+            transientTimer.stop();
         }
 
         activeTransientKey = key;
         activePayload = payload || {};
         activePriority = prio;
+        currentStartTime = Date.now();
+        currentDurationMs = durationMs;
 
-        if (currentState !== IslandFsm.State.Interacting && currentState !== IslandFsm.State.Expanded) {
+        if (currentState !== IslandFsm.State.Expanded) {
             transitionTo(IslandFsm.State.Overlay, { reason: "postTransient(" + key + ")" });
         } else {
             fsm.stateChanged(currentState, currentState, { key: key, payload: activePayload });
@@ -90,12 +125,28 @@ QtObject {
     }
 
     function dismissTransient(key) {
-        if (key && activeTransientKey !== key) return;
+        if (key && activeTransientKey !== key) {
+            for (var i = transientStack.length - 1; i >= 0; i--) {
+                if (transientStack[i].key === key) {
+                    transientStack.splice(i, 1);
+                    break;
+                }
+            }
+            return;
+        }
 
         transientTimer.stop();
         activeTransientKey = "";
         activePayload = ({});
         activePriority = 0;
+        currentDurationMs = 0;
+
+        if (transientStack.length > 0) {
+            transientStack.sort(function(a, b) { return a.priority - b.priority; });
+            var resumed = transientStack.pop();
+            postTransient(resumed.key, resumed.payload, resumed.remainingMs);
+            return;
+        }
 
         if (currentState === IslandFsm.State.Expanded) {
             return;
@@ -114,7 +165,6 @@ QtObject {
 
     function handleIntent(intent, args) {
         var src = (args && args.source) ? args.source : "Unknown";
-        console.log("[IslandFsm] 收到指令 -> intent: " + intent + " | 来源: " + src + " | 当前状态: " + stateName(currentState));
 
         switch (intent) {
             case "USER_ACTIVE":
@@ -135,14 +185,15 @@ QtObject {
                 }
                 break;
 
+            // 🚀【核心修复】：提取并携带目标 tab (如 notification、media)
             case "EXPAND":
                 dismissTransient();
-                transitionTo(IslandFsm.State.Expanded, { reason: "intent_EXPAND", source: src });
+                var targetTab = (args && args.tab) ? args.tab : "hardware";
+                transitionTo(IslandFsm.State.Expanded, { reason: "intent_EXPAND", source: src, tab: targetTab });
                 break;
 
             case "COLLAPSE":
                 if (currentState === IslandFsm.State.Expanded) {
-                    console.log("[IslandFsm] 🚀 执行收回 COLLAPSE (来源: " + src + ")");
                     transitionTo(isTuckedPreference ? IslandFsm.State.Hidden : IslandFsm.State.Compact, { reason: "intent_COLLAPSE", source: src });
                 }
                 break;
@@ -151,6 +202,18 @@ QtObject {
                 isTuckedPreference = !isTuckedPreference;
                 dismissTransient();
                 transitionTo(isTuckedPreference ? IslandFsm.State.Hidden : IslandFsm.State.Compact, { reason: "intent_TOGGLE_TUCK", source: src });
+                break;
+
+            case "LOCK_SCRUBBING":
+                isScrubbingLocked = true;
+                break;
+
+            case "UNLOCK_SCRUBBING":
+                isScrubbingLocked = false;
+                if (activeTransientKey === "" && transientStack.length > 0) {
+                    var queued = transientStack.pop();
+                    postTransient(queued.key, queued.payload, queued.remainingMs);
+                }
                 break;
         }
     }

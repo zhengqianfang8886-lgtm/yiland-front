@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: MediaPage.qml (统一 Token 瘦身版)
+// 📄 File: ui/components/pages/MediaPage.qml
+// 🌟 媒体控制页 (修复本地封面拼接 query 404 变黑 Bug)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -69,11 +70,18 @@ Item {
                     Image {
                         id: coverImg
                         anchors.fill: parent
+                        // 🚀【核心修复】：本地文件绝不能加 ?rev= 参数，避免 Linux 文件系统把 ?rev= 当作文件名找不到文件
                         source: {
                             if (!mediaRoot.artUrl) return ""
-                            var base = mediaRoot.artUrl.indexOf("://") !== -1 ? mediaRoot.artUrl : ("file://" + mediaRoot.artUrl)
-                            var sep = base.indexOf("?") !== -1 ? "&" : "?"
-                            return base + sep + "rev=" + mediaRoot.mediaRevision
+                            var url = mediaRoot.artUrl.trim()
+                            if (url.indexOf("://") === -1) {
+                                url = "file://" + url
+                            }
+                            if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) {
+                                var sep = url.indexOf("?") !== -1 ? "&" : "?"
+                                return url + sep + "rev=" + mediaRoot.mediaRevision
+                            }
+                            return url
                         }
                         fillMode: Image.PreserveAspectCrop
                         sourceSize.width: 96

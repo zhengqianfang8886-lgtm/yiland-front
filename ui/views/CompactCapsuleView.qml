@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 黄金比例舒适边距视口 (防御性零崩溃网速解析 · 11px大字三栏对齐满血版)
+// 🌟 槽位离散量化视口 (通知与波形独立点击直达展开版)
 // =========================================================================
 import QtQuick
 import "../components/capsule"
@@ -13,6 +13,7 @@ Item {
     property var fsm: null
     property var relay: null
     property var timeService: null
+    property var sedentaryService: null
 
     property bool isScrubbing: false
     property bool isScrubCanceling: false
@@ -28,9 +29,6 @@ Item {
     readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
     readonly property bool hasActiveTimer: (typeof Bridge !== "undefined") && (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted)
-
-    // 🚀【定宽 68px】：充裕舒展空间
-    readonly property int realNetW: 68
 
     property int cachedOsdValue: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property string cachedOsdIcon: "🔊"
@@ -55,52 +53,22 @@ Item {
         }
     }
 
-    // 🚀【绝对安全防御性解析】：彻底杜绝类型不一致导致的崩溃
-    function getSpeedVal(raw) {
-        try {
-            if (raw === undefined || raw === null) return "0";
-            var s = ("" + raw).trim();
-            if (s === "" || s === "0") return "0";
-            var last = s.charAt(s.length - 1).toUpperCase();
-            if (last === 'B' || last === 'K' || last === 'M' || last === 'G') {
-                return s.substring(0, s.length - 1);
-            }
-            return s;
-        } catch (e) {
-            return "0";
-        }
-    }
+    readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
+        ? Math.max(42, wsLabel.implicitWidth + 20) : 0
 
-    function getSpeedUnit(raw) {
-        try {
-            if (raw === undefined || raw === null) return "B/s";
-            var s = ("" + raw).trim();
-            if (s === "" || s === "0") return "B/s";
-            var last = s.charAt(s.length - 1).toUpperCase();
-            if (last === 'B' || last === 'K' || last === 'M' || last === 'G') {
-                return last + "/s";
-            }
-            return "B/s";
-        } catch (e) {
-            return "B/s";
-        }
-    }
+    readonly property int slotClockWidth: clockView.implicitWidth
+    readonly property int slotTimerWidth: hasActiveTimer ? 64 : 0
+    readonly property int slotNetWidth: (typeof Config !== "undefined" && Config.showNetSpeed === false) ? 0 : 68
+    readonly property int slotNoticeWidth: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 38 : 32) : 0
+    readonly property int slotMusicWidth: isMusicPlaying ? 48 : 0
 
-    readonly property int realLeftW: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) ? Math.max(34, wsLabel.implicitWidth + 12) : 0
-    readonly property int realClockW: clockView.implicitWidth
-
-    readonly property int realTimerW: hasActiveTimer ? 64 : 0
-    readonly property int realNoticeW: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 36 : 30) : 0
-    readonly property int realMusicW: isMusicPlaying ? 44 : 0
-
-    // 右侧总宽度自适应计算 (按 68px 宽域网速槽计算)
-    readonly property int realRightW: {
-        var w = 0, cnt = 0;
-        if (realTimerW > 0) { w += realTimerW; cnt++; }
-        if (realNetW > 0) { w += realNetW; cnt++; }
-        if (realNoticeW > 0) { w += realNoticeW; cnt++; }
-        if (realMusicW > 0) { w += realMusicW; cnt++; }
-        if (cnt > 1) w += (cnt - 1) * 6;
+    readonly property int slotRightGroupWidth: {
+        var w = 0, count = 0;
+        if (slotTimerWidth > 0) { w += slotTimerWidth; count++; }
+        if (slotNetWidth > 0) { w += slotNetWidth; count++; }
+        if (slotNoticeWidth > 0) { w += slotNoticeWidth; count++; }
+        if (slotMusicWidth > 0) { w += slotMusicWidth; count++; }
+        if (count > 1) w += (count - 1) * 6;
         return w;
     }
 
@@ -124,19 +92,16 @@ Item {
             }
         }
 
-        var w = 22 + realClockW;
-        if (realLeftW > 0) w += (realLeftW + 7);
-        if (realRightW > 0) w += (realRightW + 7);
+        var total = 24 + slotClockWidth;
+        if (slotLeftWidth > 0) total += (slotLeftWidth + 8);
+        if (slotRightGroupWidth > 0) total += (slotRightGroupWidth + 8);
 
-        return (w % 2 === 0) ? w : (w + 1);
+        return Math.ceil(total / 4.0) * 4;
     }
 
     function handleScrubMove(mx, my) { if (wsView) wsView.updateCursorByMouseX(mx); }
     function getScrubTargetIndex() { return wsView ? wsView.scrubHoverIndex : 0; }
 
-    // =========================================================================
-    // 🌟 常态主视口
-    // =========================================================================
     Item {
         id: normalViewContainer
         anchors.fill: parent
@@ -151,37 +116,34 @@ Item {
             anchors.centerIn: parent
             spacing: 7
 
-            // 1. 左翼：工作区微囊
+            // 1. 左翼：工作区指示药丸
             Item {
                 id: leftSlot
-                height: 22
-                width: compactRoot.realLeftW
+                height: 24
+                width: compactRoot.slotLeftWidth
                 visible: width > 0
                 anchors.verticalCenter: parent.verticalCenter
-                clip: true
+                clip: false
 
                 Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: 11
-                    color: wsHover.hovered ? Qt.rgba(255, 255, 255, 0.18) : Qt.rgba(255, 255, 255, 0.10)
-                    border.color: wsHover.hovered ? Qt.rgba(255, 255, 255, 0.45) : Qt.rgba(255, 255, 255, 0.15)
+                    radius: 12
+                    color: Qt.rgba(255, 255, 255, 0.12)
+                    border.color: Qt.rgba(255, 255, 255, 0.20)
                     border.width: 1
 
                     Text {
                         id: wsLabel
                         anchors.centerIn: parent
                         text: (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName : (compactRoot.relay ? compactRoot.relay.wsCurrent : "1")
-                        color: "#f8fafc"
+                        color: "#ffffff"
                         font.pixelSize: 12
-                        font.weight: Font.Bold
+                        font.weight: Font.Black
                         font.family: compactRoot.displayFont
                         renderType: Text.QtRendering
                     }
-
-                    HoverHandler { id: wsHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: if (typeof Bridge !== "undefined") Bridge.switchWorkspaceNext() }
                 }
             }
 
@@ -197,20 +159,20 @@ Item {
                 displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
             }
 
-            // 3. 右翼微囊组
+            // 3. 右翼：微囊组件组
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
-                visible: compactRoot.realRightW > 0
+                visible: compactRoot.slotRightGroupWidth > 0
 
-                // 倒计时
+                // 倒计时微囊
                 Item {
                     id: timerPod
                     height: 22
                     anchors.verticalCenter: parent.verticalCenter
                     clip: true
-                    width: compactRoot.realTimerW
+                    width: compactRoot.slotTimerWidth
                     visible: width > 0
 
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
@@ -238,173 +200,51 @@ Item {
                     }
                 }
 
-                // =============================================================
-                // 🚀 双层微堆叠网速 (11px大字版 · 纯整型 · 三栏绝对对齐)
-                // =============================================================
-                Item {
-                    id: netPod
-                    height: 24
-                    width: compactRoot.realNetW
-                    visible: true
+                // 结构化网速药丸
+                CompactNetSpeedView {
+                    id: netSpeedPill
                     anchors.verticalCenter: parent.verticalCenter
-                    clip: true
-
-                    readonly property string uRaw: (compactRoot.relay && compactRoot.relay.upCompact) ? compactRoot.relay.upCompact : "0B"
-                    readonly property string dRaw: (compactRoot.relay && compactRoot.relay.downCompact) ? compactRoot.relay.downCompact : "0B"
-
-                    opacity: netHover.hovered ? 1.0 : 0.92
-                    Behavior on opacity { NumberAnimation { duration: 120 } }
-
-                    Column {
-                        anchors.centerIn: parent
-                        spacing: 0
-
-                        // =====================================================
-                        // 上层：上传 (TX) - 冰蓝 #38bdf8
-                        // =====================================================
-                        Item {
-                            width: netPod.width
-                            height: 12
-
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: 0
-
-                                Item {
-                                    width: 10; height: 12
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "↑"
-                                        color: "#38bdf8"
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 9
-                                        font.weight: Font.Black
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-
-                                Item { width: 2; height: 12 }
-
-                                Item {
-                                    width: 30; height: 12
-                                    Text {
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: compactRoot.getSpeedVal(netPod.uRaw)
-                                        color: "#f0f9ff"
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 11
-                                        font.weight: Font.Black
-                                        font.features: { "tnum": 1 }
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-
-                                Item { width: 2; height: 12 }
-
-                                Item {
-                                    width: 20; height: 12
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: compactRoot.getSpeedUnit(netPod.uRaw)
-                                        color: Qt.rgba(125 / 255, 211 / 255, 252 / 255, 0.70)
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 9
-                                        font.weight: Font.Bold
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-                            }
-                        }
-
-                        // =====================================================
-                        // 下层：下载 (RX) - 翠绿 #34d399
-                        // =====================================================
-                        Item {
-                            width: netPod.width
-                            height: 12
-
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: 0
-
-                                Item {
-                                    width: 10; height: 12
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "↓"
-                                        color: "#34d399"
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 9
-                                        font.weight: Font.Black
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-
-                                Item { width: 2; height: 12 }
-
-                                Item {
-                                    width: 30; height: 12
-                                    Text {
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: compactRoot.getSpeedVal(netPod.dRaw)
-                                        color: "#ecfdf5"
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 11
-                                        font.weight: Font.Black
-                                        font.features: { "tnum": 1 }
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-
-                                Item { width: 2; height: 12 }
-
-                                Item {
-                                    width: 20; height: 12
-                                    Text {
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: compactRoot.getSpeedUnit(netPod.dRaw)
-                                        color: Qt.rgba(110 / 255, 231 / 255, 183 / 255, 0.70)
-                                        font.family: compactRoot.displayFont
-                                        font.pixelSize: 9
-                                        font.weight: Font.Bold
-                                        renderType: Text.QtRendering
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HoverHandler { id: netHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler {
-                        onTapped: {
-                            if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) {
-                                Bridge.openSystemMonitor();
-                            }
+                    visible: compactRoot.slotNetWidth > 0
+                    fontFam: compactRoot.displayFont
+                    downVal: compactRoot.relay ? compactRoot.relay.netDownVal : "0"
+                    downUnit: compactRoot.relay ? compactRoot.relay.netDownUnit : "B/s"
+                    upVal: compactRoot.relay ? compactRoot.relay.netUpVal : "0"
+                    upUnit: compactRoot.relay ? compactRoot.relay.netUpUnit : "B/s"
+                    downCompact: compactRoot.relay ? compactRoot.relay.downCompact : "0B"
+                    upCompact: compactRoot.relay ? compactRoot.relay.upCompact : "0B"
+                    onClicked: {
+                        if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) {
+                            Bridge.openSystemMonitor();
                         }
                     }
                 }
 
-                // 未读通知
+                // =============================================================
+                // 🚀 核心组件 A：未读通知角标 (点击直接展开通知页，带物理弹性)
+                // =============================================================
                 Item {
                     id: noticePod
-                    height: 22
+                    height: 24
                     anchors.verticalCenter: parent.verticalCenter
-                    clip: true
-                    width: compactRoot.realNoticeW
+                    clip: false
+                    width: compactRoot.slotNoticeWidth
                     visible: width > 0
 
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     Rectangle {
+                        id: noticeRect
                         anchors.fill: parent
-                        radius: 11
-                        color: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
-                        border.color: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.6)
+                        radius: 12
+                        color: noticeMouse.pressed ? Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45) :
+                               (noticeMouse.containsMouse ? Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32) : Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22))
+                        border.color: noticeMouse.containsMouse ? "#a5b4fc" : Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.6)
                         border.width: 1
+
+                        scale: noticeMouse.pressed ? 0.92 : (noticeMouse.containsMouse ? 1.05 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on border.color { ColorAnimation { duration: 120 } }
 
                         Row {
                             anchors.centerIn: parent
@@ -420,32 +260,57 @@ Item {
                             }
                         }
 
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "notification" }) }
+                        MouseArea {
+                            id: noticeMouse
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+
+                            // 🚀 单击直接直达通知页
+                            onClicked: (mouse) => {
+                                mouse.accepted = true;
+                                if (compactRoot.fsm) {
+                                    compactRoot.fsm.handleIntent("EXPAND", { tab: "notification", source: "Click_NoticePod" });
+                                }
+                            }
+
+                            // 滚轮放行切换桌面
+                            onWheel: (wheel) => { wheel.accepted = false; }
+                        }
                     }
                 }
 
-                // 音乐律动
+                // =============================================================
+                // 🚀 核心组件 B：媒体律动波形 (点击直接展开媒体页，带物理弹性)
+                // =============================================================
                 Item {
                     id: musicPod
-                    height: 22
+                    height: 24
                     anchors.verticalCenter: parent.verticalCenter
-                    clip: true
-                    width: compactRoot.realMusicW
+                    clip: false
+                    width: compactRoot.slotMusicWidth
                     visible: width > 0
 
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     Rectangle {
+                        id: musicRect
                         anchors.fill: parent
-                        radius: 11
-                        color: Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.16)
-                        border.color: Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.4)
+                        radius: 12
+                        color: musicMouse.pressed ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.35) :
+                               (musicMouse.containsMouse ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.25) : Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.16))
+                        border.color: musicMouse.containsMouse ? "#86efac" : Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.45)
                         border.width: 1
+
+                        scale: musicMouse.pressed ? 0.92 : (musicMouse.containsMouse ? 1.05 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+                        Behavior on color { ColorAnimation { duration: 120 } }
+                        Behavior on border.color { ColorAnimation { duration: 120 } }
 
                         Row {
                             anchors.centerIn: parent
-                            spacing: 2.6
+                            spacing: 2.8
 
                             Repeater {
                                 model: 6
@@ -465,15 +330,30 @@ Item {
                             }
                         }
 
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media" }) }
+                        MouseArea {
+                            id: musicMouse
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+
+                            // 🚀 单击直接直达媒体播控页
+                            onClicked: (mouse) => {
+                                mouse.accepted = true;
+                                if (compactRoot.fsm) {
+                                    compactRoot.fsm.handleIntent("EXPAND", { tab: "media", source: "Click_MusicPod" });
+                                }
+                            }
+
+                            // 滚轮放行切换桌面
+                            onWheel: (wheel) => { wheel.accepted = false; }
+                        }
                     }
                 }
             }
         }
     }
 
-    // 瞬态打断单一 Loader
     Loader {
         id: overlayLoader
         anchors.fill: parent
@@ -550,9 +430,21 @@ Item {
         id: compSedentary
         CompactSedentaryView {
             chosenFont: compactRoot.effectiveFont
-            continuousSitMinutes: 45
-            onSedentaryRested: if (compactRoot.fsm) compactRoot.fsm.dismissTransient("SEDENTARY")
-            onSedentarySnooze: if (compactRoot.fsm) compactRoot.fsm.dismissTransient("SEDENTARY")
+            continuousSitMinutes: (compactRoot.currentPayload && compactRoot.currentPayload.continuousMinutes) ? compactRoot.currentPayload.continuousMinutes : 45
+            onSedentaryRested: {
+                if (compactRoot.sedentaryService) {
+                    compactRoot.sedentaryService.markRested();
+                } else if (compactRoot.fsm) {
+                    compactRoot.fsm.dismissTransient("SEDENTARY");
+                }
+            }
+            onSedentarySnooze: {
+                if (compactRoot.sedentaryService) {
+                    compactRoot.sedentaryService.snooze();
+                } else if (compactRoot.fsm) {
+                    compactRoot.fsm.dismissTransient("SEDENTARY");
+                }
+            }
             implicitWidth: 430
         }
     }

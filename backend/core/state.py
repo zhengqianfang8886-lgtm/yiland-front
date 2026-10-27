@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/state.py
-# 🌟 全量系统状态单一事实源 (集成统一暂态中枢 ActiveOverlay 与语音输入)
+# 🌟 全量系统状态单一事实源 (集成平铺网格时序状态)
 # ==========================================
 from typing import Dict, Any, Optional, List
 
@@ -12,6 +12,9 @@ class IslandState:
         self.workspace_name: str = "Desktop 1"
         self.workspace_total: int = 1
         self.workspaces: List[Dict[str, Any]] = []
+
+        # 🚀 平铺网格特效活跃状态标志
+        self.is_desktop_grid_active: bool = False
 
         # 2. 媒体流与声谱
         self.active_player: Optional[str] = None
@@ -45,8 +48,12 @@ class IslandState:
         # 6. 网络状态
         self.net_down_speed: str = "0.0 B/s"
         self.net_up_speed: str = "0.0 B/s"
-        self.net_down_compact: str = "0K"
-        self.net_up_compact: str = "0K"
+        self.net_down_val: str = "0"
+        self.net_down_unit: str = "B/s"
+        self.net_up_val: str = "0"
+        self.net_up_unit: str = "B/s"
+        self.net_down_compact: str = "0B"
+        self.net_up_compact: str = "0B"
         self.local_ip: str = "127.0.0.1"
 
         # 7. 专注计时器核心状态
@@ -68,15 +75,12 @@ class IslandState:
         self.notification_sender_bus: str = ""
         self.notification_id: int = 0
 
-        # 9. 端侧语音输入核心状态 (内存即焚流)
+        # 9. 端侧语音输入核心状态
         self.voice_input_active: bool = False
         self.voice_input_text: str = ""
         self.voice_input_level: float = 0.1
 
-        # =====================================================================
-        # 🚀 系统级暂态打断单一事实源 (Active Overlay SSOT)
-        # 优先级: CALL(100) > VOICE_INPUT(80) > SEDENTARY(50) > ALERT(40) > OSD(30) > WORKSPACE(20)
-        # =====================================================================
+        # 10. 系统级暂态打断单一事实源
         self.overlay_key: str = ""
         self.overlay_icon: str = ""
         self.overlay_title: str = ""

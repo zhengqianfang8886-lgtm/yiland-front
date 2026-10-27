@@ -1,5 +1,6 @@
 // ==========================================
-// 📄 File: WorldClockPage.qml (统一 Token 瘦身版)
+// 📄 File: ui/components/pages/WorldClockPage.qml
+// 🌟 世界时钟页 (集成懒加载防孵化中断报错版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -424,7 +425,8 @@ Item {
                 id: dropListView
                 width: parent.width
                 height: parent.height - 32
-                model: worldClockRoot.availableCities
+                // 🚀【核心修复】：仅在下拉面板展开时才挂载列表模型，从根源杜绝切页孵化中断报错
+                model: worldClockRoot.dropdownOpen ? worldClockRoot.availableCities : []
                 clip: true
 
                 ScrollBar.vertical: ScrollBar {

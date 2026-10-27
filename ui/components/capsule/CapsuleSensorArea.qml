@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 纯声明式状态机手势中枢 (修复拖拽松手误触发展开 Bug 版)
+// 🌟 纯声明式状态机手势中枢 (集成全域双击 + 向下轻拉呼出网格版)
 // ==========================================
 import QtQuick
 
@@ -21,8 +21,11 @@ Item {
     property bool isScrubCanceling: false
     property bool isMovingIsland: false
 
-    // 🚀【核心加固】：拖拽消费锁，防止松手瞬间误触发 onClicked 展开
     property bool wasScrubbingJustNow: false
+
+    // 🚀 下拉手势状态跟踪
+    property bool isPullingDown: false
+    property real pullDownDistance: 0
 
     readonly property bool isPointerHovered: globalCapsuleHover.hovered || hitArea.containsMouse
 
@@ -69,12 +72,40 @@ Item {
         }
     ]
 
-    // 250ms 冷却定时器：确保松手后的点击余震彻底过去
     Timer {
         id: scrubLockCooldown
         interval: 250
         repeat: false
         onTriggered: sensorRoot.wasScrubbingJustNow = false
+    }
+
+    Timer {
+        id: hoverDwellTimer
+        interval: (typeof Config !== "undefined" && Config.hoverDwellTime) ? Config.hoverDwellTime : 240
+        repeat: false
+        onTriggered: {
+            if (sensorRoot.isPointerHovered && !sensorRoot.isExpanded && !sensorRoot.isTucked) {
+                if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
+                if (sensorRoot.isCalling) sensorRoot.requestExpand("media");
+                else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification");
+                else if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
+                else sensorRoot.requestExpand("workspace");
+            }
+        }
+    }
+
+    // 🚀 单双击分离仲裁定时器 (180ms 内若未收到第二次点击则执行单击展开)
+    Timer {
+        id: singleClickDelayTimer
+        interval: 180
+        repeat: false
+        property var pendingExpandAction: null
+        onTriggered: {
+            if (pendingExpandAction) {
+                pendingExpandAction();
+                pendingExpandAction = null;
+            }
+        }
     }
 
     HoverHandler {
@@ -85,7 +116,6 @@ Item {
         onHoveredChanged: {
             if (hovered) {
                 sensorRoot.pointerEnteredCapsule();
-                // 如果刚刚结束拖拽，禁止立即进入 HOVERING 导致自动展开
                 if (sensorRoot.wasScrubbingJustNow) return;
 
                 if (sensorRoot.state === "IDLE" && !sensorRoot.isExpanded && !sensorRoot.isCollapsing) {
@@ -102,17 +132,12 @@ Item {
 
     onStateChanged: {
         if (state === "HOVERING") {
-            // 🚀 如果刚刚松手，坚决不响应悬停展开
             if (sensorRoot.wasScrubbingJustNow) return;
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
             if (sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return;
-
-            if (!sensorRoot.isExpanded) {
-                if (sensorRoot.isCalling) sensorRoot.requestExpand("media");
-                else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification");
-                else if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
-                else sensorRoot.requestExpand("workspace");
-            }
+            hoverDwellTimer.restart();
+        } else {
+            hoverDwellTimer.stop();
         }
     }
 
@@ -132,6 +157,7 @@ Item {
         onExited: sensorRoot.pointerExitedCapsule()
 
         onPressed: (mouse) => {
+            hoverDwellTimer.stop();
             if (mouse.button === Qt.RightButton) {
                 mouse.accepted = true;
                 return;
@@ -141,6 +167,8 @@ Item {
             sensorRoot.pressStartY = mouse.y;
             sensorRoot.lastDragX = mouse.x;
             sensorRoot.dragVelocityX = 0;
+            sensorRoot.isPullingDown = false;
+            sensorRoot.pullDownDistance = 0;
 
             var isModifierHeld = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier);
             if (isModifierHeld || mouse.button === Qt.MiddleButton) {
@@ -161,17 +189,24 @@ Item {
             }
 
             var adx = Math.abs(mouse.x - sensorRoot.pressStartX);
-            var ady = mouse.y - sensorRoot.pressStartY;
+            var dy = mouse.y - sensorRoot.pressStartY;
 
-            // 🚀 水平移动超过 6px，正式锁定为拖拽状态
-            if (sensorRoot.state === "PRESSED" && adx >= 6 && Math.abs(ady) < 18) {
+            // 🚀【手势 2 识别】：按住垂直向下拉动超过 14px，判定为下拉轻拉手势
+            if (dy > 14 && dy > adx * 1.2 && !sensorRoot.isScrubbing) {
+                sensorRoot.isPullingDown = true;
+                sensorRoot.pullDownDistance = dy;
+                return;
+            }
+
+            // 左右横拉进入切桌面洗发态 (Scrubbing)
+            if (sensorRoot.state === "PRESSED" && adx >= 8 && Math.abs(dy) < 16) {
                 sensorRoot.state = "SCRUBBING";
                 sensorRoot.wasScrubbingJustNow = true;
                 sensorRoot.scrubStarted();
             }
 
             if (sensorRoot.state === "SCRUBBING") {
-                if (ady > 30) {
+                if (dy > 30) {
                     sensorRoot.isScrubCanceling = true;
                 } else {
                     sensorRoot.isScrubCanceling = false;
@@ -183,6 +218,19 @@ Item {
         onReleased: (mouse) => {
             if (mouse.button === Qt.RightButton) return;
 
+            // 🚀【手势 2 释放执行】：向下拉动超过 20px 释放，直接触发全屏平铺网格
+            if (sensorRoot.isPullingDown) {
+                if (sensorRoot.pullDownDistance >= 20 || (mouse.y - sensorRoot.pressStartY) >= 20) {
+                    if (typeof Bridge !== "undefined" && Bridge.toggleDesktopGrid) {
+                        Bridge.toggleDesktopGrid();
+                    }
+                }
+                sensorRoot.isPullingDown = false;
+                sensorRoot.pullDownDistance = 0;
+                sensorRoot.state = "IDLE";
+                return;
+            }
+
             if (sensorRoot.state === "MOVING") {
                 sensorRoot.state = "IDLE";
                 sensorRoot.dragFinished(sensorRoot.dragVelocityX);
@@ -190,7 +238,6 @@ Item {
             }
 
             if (sensorRoot.state === "SCRUBBING") {
-                // 标记刚刚完成了拖拽，并启动冷却倒计时
                 sensorRoot.wasScrubbingJustNow = true;
                 scrubLockCooldown.restart();
 
@@ -207,6 +254,8 @@ Item {
         }
 
         onCanceled: {
+            sensorRoot.isPullingDown = false;
+            sensorRoot.pullDownDistance = 0;
             if (sensorRoot.state === "SCRUBBING") {
                 sensorRoot.wasScrubbingJustNow = true;
                 scrubLockCooldown.restart();
@@ -221,12 +270,23 @@ Item {
             sensorRoot.wheelScrolled(wheel.angleDelta.y);
         }
 
+        // =====================================================================
+        // 🚀【手势 1 核心】：全域双击（全胶囊 100% 盲点直接呼出平铺网格）
+        // =====================================================================
         onDoubleClicked: (mouse) => {
             if (mouse.button === Qt.LeftButton) {
-                sensorRoot.goHomeRequested();
+                mouse.accepted = true;
+                // 取消单击展开的延迟计时，避免误开大卡片
+                singleClickDelayTimer.stop();
+                singleClickDelayTimer.pendingExpandAction = null;
+
+                if (typeof Bridge !== "undefined" && Bridge.toggleDesktopGrid) {
+                    Bridge.toggleDesktopGrid();
+                }
             }
         }
 
+        // 单击：延迟 180ms 展开大卡片（若中途双击则被取消）
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
                 mouse.accepted = true;
@@ -234,7 +294,6 @@ Item {
                 return;
             }
 
-            // 🚀【核心拦截】：如果是拖拽松手引发的伴生点击，物理硬阻断，绝不展开！
             if (sensorRoot.wasScrubbingJustNow) {
                 sensorRoot.wasScrubbingJustNow = false;
                 scrubLockCooldown.stop();
@@ -244,16 +303,19 @@ Item {
             if (sensorRoot.isPeeking || sensorRoot.isPassive5S || sensorRoot.isExpanded) return;
             if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
 
-            if (sensorRoot.isCalling) {
-                sensorRoot.requestExpand("media");
-                return;
-            }
-            if (sensorRoot.activeTransient === "ALERT") {
-                sensorRoot.requestExpand("notification");
-                return;
-            }
-
-            sensorRoot.requestExpand("hardware");
+            // 存入延时动作，等待是否产生第二次点击
+            singleClickDelayTimer.pendingExpandAction = function() {
+                if (sensorRoot.isCalling) {
+                    sensorRoot.requestExpand("media");
+                    return;
+                }
+                if (sensorRoot.activeTransient === "ALERT") {
+                    sensorRoot.requestExpand("notification");
+                    return;
+                }
+                sensorRoot.requestExpand("hardware");
+            };
+            singleClickDelayTimer.restart();
         }
     }
 }

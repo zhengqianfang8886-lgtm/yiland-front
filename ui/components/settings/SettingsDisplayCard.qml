@@ -1,6 +1,6 @@
 // ==========================================
-// 📄 File: settings/SettingsDisplayCard.qml
-// 🌟 显示与偏好调控卡片（集成声谱条数设置）
+// 📄 File: ui/components/settings/SettingsDisplayCard.qml
+// 🌟 显示与偏好调控卡片 (剔除死开关与幽灵配置版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -17,10 +17,8 @@ Column {
         if (key === "calendar") return { name: "日历日程", icon: "📅", color: "#38bdf8" }
         if (key === "timer") return { name: "专注计时", icon: "⏱️", color: "#f97316" }
         if (key === "clock") return { name: "世界时钟", icon: "🌍", color: "#f59e0b" }
-        if (key === "network") return { name: "网络监控", icon: "📶", color: "#34d399" }
-        if (key === "bluetooth") return { name: "蓝牙外设", icon: "🎧", color: "#60a5fa" }
         if (key === "notification") return { name: "消息归档", icon: "💬", color: "#818cf8" }
-        return { name: key, icon: "📌", color: "white" }
+        return null
     }
 
     function isKeyEnabled(key) {
@@ -32,8 +30,6 @@ Column {
         if (key === "calendar") return Config.showCalendarTab !== false
         if (key === "timer") return Config.showTimerTab !== false
         if (key === "clock") return Config.showClockTab !== false
-        if (key === "network") return Config.showNetworkTab !== false
-        if (key === "bluetooth") return Config.showBluetoothTab !== false
         if (key === "notification") return Config.showNotificationTab !== false
         return true
     }
@@ -46,14 +42,12 @@ Column {
         else if (key === "calendar") Config.showCalendarTab = enabled
         else if (key === "timer") Config.showTimerTab = enabled
         else if (key === "clock") Config.showClockTab = enabled
-        else if (key === "network") Config.showNetworkTab = enabled
-        else if (key === "bluetooth") Config.showBluetoothTab = enabled
         else if (key === "notification") Config.showNotificationTab = enabled
     }
 
     function moveTabUp(index) {
         if (index <= 0 || typeof Config === "undefined") return
-        var list = Config.tabOrder.slice()
+        var list = colRoot.validTabs.slice()
         var temp = list[index]
         list[index] = list[index - 1]
         list[index - 1] = temp
@@ -62,7 +56,7 @@ Column {
 
     function moveTabDown(index) {
         if (typeof Config === "undefined") return
-        var list = Config.tabOrder.slice()
+        var list = colRoot.validTabs.slice()
         if (index >= list.length - 1) return
         var temp = list[index]
         list[index] = list[index + 1]
@@ -70,9 +64,14 @@ Column {
         Config.tabOrder = list
     }
 
-    // =========================================================================
-    // 1. 展开页面顺序与启闭调控卡片
-    // =========================================================================
+    // 🚀【核心过滤】：只展示项目中真实存在对应页面的 Tab，剔除幽灵死开关
+    readonly property var validTabs: {
+        var order = (typeof Config !== "undefined" && Config.tabOrder) ? Config.tabOrder : []
+        var supported = ["hardware", "workspace", "media", "calendar", "timer", "clock", "notification"]
+        return order.filter(function(k) { return supported.indexOf(k) !== -1 })
+    }
+
+    // 1. 展开页面顺序与启闭调控
     Rectangle {
         width: parent.width
         height: tabOrderCol.implicitHeight + 24
@@ -99,7 +98,7 @@ Column {
             }
 
             Repeater {
-                model: (typeof Config !== "undefined" && Config.tabOrder) ? Config.tabOrder : []
+                model: colRoot.validTabs
 
                 Rectangle {
                     id: tabItemDelegate
@@ -151,23 +150,15 @@ Column {
 
                         Rectangle {
                             width: 22; height: 20; radius: 4
-                            color: index < (Config.tabOrder.length - 1) ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                            Text { anchors.centerIn: parent; text: "↓"; color: "white"; font.pixelSize: 11; opacity: index < (Config.tabOrder.length - 1) ? 1 : 0.2 }
-                            MouseArea { anchors.fill: parent; enabled: index < (Config.tabOrder.length - 1); cursorShape: Qt.PointingHandCursor; onClicked: colRoot.moveTabDown(index) }
+                            color: index < (colRoot.validTabs.length - 1) ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                            Text { anchors.centerIn: parent; text: "↓"; color: "white"; font.pixelSize: 11; opacity: index < (colRoot.validTabs.length - 1) ? 1 : 0.2 }
+                            MouseArea { anchors.fill: parent; enabled: index < (colRoot.validTabs.length - 1); cursorShape: Qt.PointingHandCursor; onClicked: colRoot.moveTabDown(index) }
                         }
 
                         Switch {
-                            visible: modelData !== "time"
                             checked: tabItemDelegate.isEnabled
                             scale: 0.75
                             onToggled: colRoot.setKeyEnabled(modelData, checked)
-                        }
-
-                        Rectangle {
-                            width: 36; height: 16; radius: 8
-                            visible: modelData === "time"
-                            color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.2)
-                            Text { anchors.centerIn: parent; text: "基准"; color: "#38bdf8"; font.pixelSize: 9; font.bold: true }
                         }
                     }
                 }
@@ -175,9 +166,7 @@ Column {
         }
     }
 
-    // =========================================================================
-    // 2. 🚀【全新】：音乐声谱律动柱条数与质感调控
-    // =========================================================================
+    // 2. 音乐律动波形条数
     Rectangle {
         width: parent.width
         height: 88
@@ -199,7 +188,6 @@ Column {
                     Text { text: "音乐律动波形条数"; color: "#22c55e"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                 }
 
-                // 预览区
                 Row {
                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                     spacing: 3
@@ -255,9 +243,7 @@ Column {
         }
     }
 
-    // =========================================================================
     // 3. 消息通知与专注勿扰
-    // =========================================================================
     Rectangle {
         width: parent.width
         height: dndCol.implicitHeight + 24
@@ -310,9 +296,7 @@ Column {
         }
     }
 
-    // =========================================================================
-    // 4. 胶囊常态显示项 (增加工作区名称开关)
-    // =========================================================================
+    // 4. 胶囊常态显示项
     Rectangle {
         width: parent.width; height: 204; radius: 12
         color: Qt.rgba(1, 1, 1, 0.05); border.color: Qt.rgba(1, 1, 1, 0.1)

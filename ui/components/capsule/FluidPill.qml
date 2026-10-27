@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/FluidPill.qml
-// 🌟 纯正流体微囊 (纯减速无断崖退场 · 极致平稳版)
+// 🌟 纯正流体微囊 (物理参数归一化 · 消除双重缓动畸变版)
 // =========================================================================
 import QtQuick
 
@@ -21,15 +21,18 @@ Item {
     anchors.verticalCenter: parent ? parent.verticalCenter : undefined
     clip: true
 
-    // 🚀 退场时采用 OutQuad 柔和减速，进场时带有 OutBack 水滴弹出感
+    // 统一物理参数
+    readonly property int animSpeed: (typeof Theme !== "undefined") ? Theme.animFast : 160
+    readonly property var motionEasing: (typeof Theme !== "undefined") ? Theme.curveSpring : Easing.OutCubic
+
     width: active ? preferredWidth : 0
     visible: width > 0.5 || pillRoot.opacity > 0.01
 
     Behavior on width {
         NumberAnimation {
-            duration: pillRoot.active ? 300 : 260
-            easing.type: pillRoot.active ? Easing.OutBack : Easing.OutQuad
-            easing.overshoot: 1.15
+            duration: pillRoot.animSpeed
+            easing.type: pillRoot.motionEasing
+            easing.overshoot: 1.12
         }
     }
 
@@ -42,29 +45,28 @@ Item {
                 id: morphScale
                 origin.x: pillRoot.flowDirection > 0 ? 0 : liquidMorphWrapper.width
                 origin.y: liquidMorphWrapper.height / 2
-                xScale: pillRoot.active ? 1.0 : 0.2
-                yScale: pillRoot.active ? 1.0 : 1.25
+                xScale: pillRoot.active ? 1.0 : 0.4
+                yScale: pillRoot.active ? 1.0 : 1.15
 
                 Behavior on xScale {
                     NumberAnimation {
-                        duration: pillRoot.active ? 300 : 220
-                        easing.type: pillRoot.active ? Easing.OutBack : Easing.OutQuad
-                        easing.overshoot: 1.2
+                        duration: pillRoot.animSpeed
+                        easing.type: pillRoot.motionEasing
                     }
                 }
                 Behavior on yScale {
                     NumberAnimation {
-                        duration: pillRoot.active ? 280 : 200
+                        duration: pillRoot.animSpeed
                         easing.type: Easing.OutQuad
                     }
                 }
             },
             Translate {
                 id: driftTranslate
-                x: pillRoot.active ? 0 : (pillRoot.flowDirection * -12)
+                x: pillRoot.active ? 0 : (pillRoot.flowDirection * -8)
                 Behavior on x {
                     NumberAnimation {
-                        duration: pillRoot.active ? 300 : 220
+                        duration: pillRoot.animSpeed
                         easing.type: Easing.OutQuad
                     }
                 }
@@ -80,7 +82,7 @@ Item {
             border.width: pillRoot.pillBorderColor !== "transparent" ? 1 : 0
 
             opacity: pillRoot.active ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: pillRoot.active ? 180 : 140 } }
+            Behavior on opacity { NumberAnimation { duration: pillRoot.active ? 120 : 80 } }
 
             Item {
                 id: contentHolder

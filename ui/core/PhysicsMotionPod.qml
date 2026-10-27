@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/PhysicsMotionPod.qml
-// 🌟 外框物理形变引擎 (死区滤波 · 动量顺滑减速版)
+// 🌟 统一物理动力学引擎 (多轴严格等时同步 · 深度激活 Theme 果冻模式版)
 // =========================================================================
 import QtQuick
 
@@ -21,7 +21,12 @@ Item {
     readonly property int currentHeight: Math.round(pod.height)
     property real currentRadius: targetRadius
 
-    readonly property bool isMoving: animY.running || animW.running || animH.running
+    readonly property bool isMoving: animY.running || animW.running || animH.running || animRadius.running
+
+    // 🚀 核心：从 Theme 获取物理参数，真正激活“果冻/精确”模式切换
+    readonly property bool isJelly: (typeof Theme !== "undefined") ? Theme.isJellyMode : false
+    readonly property int motionDuration: (typeof Theme !== "undefined") ? Theme.animNormal : 220
+    readonly property real springOvershoot: (typeof Theme !== "undefined") ? Theme.springOvershootFirm : 1.10
 
     signal motionStarted()
     signal motionSettled()
@@ -34,34 +39,42 @@ Item {
         }
     }
 
+    // =========================================================================
+    // 🚀【核心对齐】：Y、W、H、Radius 4 轴共享严格相同的时长与阻尼方程，杜绝时差挤压
+    // =========================================================================
     Behavior on y {
         NumberAnimation {
             id: animY
-            duration: 240
-            easing.type: Easing.OutCubic
+            duration: pod.motionDuration
+            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: pod.springOvershoot
         }
     }
 
     Behavior on width {
         NumberAnimation {
             id: animW
-            duration: 260
-            easing.type: Easing.OutCubic
+            duration: pod.motionDuration
+            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: pod.springOvershoot
         }
     }
 
     Behavior on height {
         NumberAnimation {
             id: animH
-            duration: 240
-            easing.type: Easing.OutCubic
+            duration: pod.motionDuration
+            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: pod.springOvershoot
         }
     }
 
     Behavior on currentRadius {
         NumberAnimation {
-            duration: 180
-            easing.type: Easing.OutCubic
+            id: animRadius
+            duration: pod.motionDuration
+            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: pod.springOvershoot
         }
     }
 
@@ -74,7 +87,6 @@ Item {
         var deltaY = Math.abs(targetY - cleanY);
         var deltaH = Math.abs(targetHeight - cleanH);
 
-        // 🚀【P0 核心修复】：即使因死区不触发过渡动画，也必须发射 settled 信号，驱动外部掩码立即落实
         if (deltaW <= 2 && deltaY <= 1 && deltaH <= 1) {
             targetRadius = newR;
             pod.currentRadius = newR;

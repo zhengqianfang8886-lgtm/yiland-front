@@ -1,5 +1,6 @@
 # ==========================================
-# 📄 File: theme.py (修复枚举 .value 版)
+# 📄 File: backend/theme.py
+# 🌟 统一主题与物理动力学中枢 (补全 springOvershootNormal 动效 Token)
 # ==========================================
 from PySide6.QtCore import QObject, Property, Signal, QEasingCurve
 from PySide6.QtGui import QColor
@@ -136,7 +137,10 @@ class ThemeManager(QObject):
     @Property(float, notify=motionChanged)
     def springOvershootFirm(self): return 1.10 if not self.isJellyMode else 1.22
 
-    # 🚀 使用 .value 取出整数
+    # 🚀【补齐核心属性】：消除 QML 中 springOvershootNormal 赋值 undefined 报错
+    @Property(float, notify=motionChanged)
+    def springOvershootNormal(self): return 1.06 if not self.isJellyMode else 1.15
+
     @Property(int, notify=motionChanged)
     def curveDecel(self):
         return QEasingCurve.Type.OutCubic.value

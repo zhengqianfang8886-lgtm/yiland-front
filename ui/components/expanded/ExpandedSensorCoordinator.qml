@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/expanded/ExpandedSensorCoordinator.qml
-// 🌟 展开态动态感知协调器 (空心几何外围感应环 · 零定时器 · 深度诊断日志版)
+// 🌟 展开态动态感知协调器 (已彻底移除冲突快捷键 · 纯粹外围几何感应版)
 // ==========================================
 import QtQuick
 
@@ -11,7 +11,7 @@ Item {
     property Item targetCapsule: null
     property bool isExpanded: false
 
-    // 展开动画过程中的防误触锁 (200ms)
+    // 展开动画过程中的防误触锁 (220ms)
     property bool isArmReady: false
 
     signal requestCollapse(string reason)
@@ -32,24 +32,18 @@ Item {
         if (isExpanded) {
             coordinator.isArmReady = false;
             armTimer.restart();
-            console.log("[SensorDiag] 🌟 收到展开状态，向系统申请放开 680x480 大视口");
+            console.log("[SensorDiag] 🌟 展开状态确立，申请交互焦点");
             coordinator.requestAcquireFocus();
         } else {
             coordinator.isArmReady = false;
             armTimer.stop();
-            console.log("[SensorDiag] 📦 收到收拢状态，外围感应环解除");
+            console.log("[SensorDiag] 📦 收拢状态确立，恢复此前窗口焦点");
             coordinator.requestRestoreFocus();
         }
     }
 
-    Shortcut {
-        sequence: "Escape"
-        enabled: coordinator.isExpanded
-        onActivated: {
-            console.log("[SensorDiag] ⌨️ 捕获到按键: Escape 快捷收起");
-            coordinator.requestCollapse("Shortcut_Escape");
-        }
-    }
+    // 🚀【核心优化】：已彻底删除原先重复声明的 Shortcut { sequence: "Escape" }
+    // 全局快捷键由顶级窗口 Island.qml 唯一仲裁，杜绝 Qt Quick 事件冲突。
 
     // =========================================================================
     // 🚀【空心环形外围感应区】：卡片中央 420x240 完全镂空，绝不被子控件劫持！
@@ -75,7 +69,7 @@ Item {
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onEntered: {
-                console.log("[SensorDiag] 🚪 光标向左划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                console.log("[SensorDiag] 🚪 光标向左划出卡片 -> 触发收拢");
                 coordinator.requestCollapse("Crossed_Left_Boundary");
             }
             onClicked: {
@@ -93,7 +87,7 @@ Item {
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onEntered: {
-                console.log("[SensorDiag] 🚪 光标向右划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                console.log("[SensorDiag] 🚪 光标向右划出卡片 -> 触发收拢");
                 coordinator.requestCollapse("Crossed_Right_Boundary");
             }
             onClicked: {
@@ -102,7 +96,7 @@ Item {
             }
         }
 
-        // 3. 下方外围带 (卡片底边以下的所有大区域)
+        // 3. 下方外围带 (卡片底边以下的所有区域)
         MouseArea {
             x: Math.max(0, hollowOuterField.cardX - 6)
             y: hollowOuterField.cardBottomY + 6
@@ -111,7 +105,7 @@ Item {
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onEntered: {
-                console.log("[SensorDiag] 🚪 光标向下划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                console.log("[SensorDiag] 🚪 光标向下划出卡片 -> 触发收拢");
                 coordinator.requestCollapse("Crossed_Bottom_Boundary");
             }
             onClicked: {

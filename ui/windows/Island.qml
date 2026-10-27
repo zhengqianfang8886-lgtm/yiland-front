@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (空心环感应适配 · 纯净稳定版)
+// 🌟 顶级窗口视图 (集成平铺网格时序隐形防抓取版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -14,6 +14,19 @@ Item {
     height: 480
 
     focus: true
+
+    // 🚀【核心隐形门禁】：平铺网格激活时，视图透明度归零，KWin 无法抓取到任何药丸图案
+    readonly property bool isGridActive: (typeof Bridge !== "undefined" && Bridge.isGridActive !== undefined) ? Bridge.isGridActive : false
+
+    opacity: isGridActive ? 0.0 : 1.0
+    visible: opacity > 0.001
+
+    Behavior on opacity {
+        NumberAnimation {
+            duration: root.isGridActive ? 30 : 180
+            easing.type: Easing.OutQuad
+        }
+    }
 
     Component.onCompleted: {
         if (capsule) {
@@ -30,7 +43,10 @@ Item {
     Shortcut {
         sequence: "Escape"
         enabled: fsm.currentState === IslandFsm.State.Expanded
-        onActivated: fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" })
+        onActivated: {
+            console.log("[IslandRoot] ⌨️ 捕获 Escape 按键，执行唯一收起");
+            fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" });
+        }
     }
 
     IslandFsm { id: fsm }
@@ -38,6 +54,11 @@ Item {
     IslandTimeService { 
         id: timeService 
         isTucked: (fsm.currentState === IslandFsm.State.Hidden)
+    }
+
+    IslandSedentaryService {
+        id: sedentaryService
+        fsm: fsm
     }
 
     IslandBridgeRelay { id: relay; fsm: fsm }
@@ -54,7 +75,6 @@ Item {
 
     property bool isSettingsOpen: false
 
-    // 展开态空心感应协调器
     ExpandedSensorCoordinator {
         id: expandedCoordinator
         targetCapsule: capsule
@@ -85,16 +105,13 @@ Item {
         fsm: fsm
         relay: relay
         timeService: timeService
+        sedentaryService: sedentaryService
         onRequestSettings: root.openSettingsWindow()
     }
 
     readonly property bool isUserHovering: corridorArea.containsMouse || (capsule && capsule.isHovered)
 
     onIsUserHoveringChanged: {
-        if (capsule && capsule.isMoving) {
-            return;
-        }
-
         fsm.isHovering = isUserHovering;
         if (isUserHovering) {
             userLeaveDebounce.stop();
@@ -106,15 +123,16 @@ Item {
         }
     }
 
+    // 顶部外围走廊感应区
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        width: capsule ? Math.max(160, capsule.width + 12) : 260
+        width: capsule ? Math.max(180, capsule.width + 24) : 260
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
-        enabled: !isExpanded && (!capsule || !capsule.isMoving)
-        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : (capsule ? Math.round(capsule.y + capsule.height + 2) : 40))
+        enabled: !isExpanded && !root.isGridActive
+        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 14 : (capsule ? Math.round(capsule.y + capsule.height + 6) : 48))
 
         z: 5
         hoverEnabled: true
@@ -122,10 +140,10 @@ Item {
 
         Timer {
             id: userLeaveDebounce
-            interval: 220
+            interval: 320
             repeat: false
             onTriggered: {
-                if ((!capsule || !capsule.isMoving) && fsm.currentState !== IslandFsm.State.Expanded) {
+                if (fsm.currentState !== IslandFsm.State.Expanded) {
                     fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" });
                 }
             }

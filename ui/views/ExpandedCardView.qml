@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/ExpandedCardView.qml
-// 🌟 展开态卡片中枢 (滚轮切页主动刹车 · 免疫收缩干扰版)
+// 🌟 展开态卡片中枢 (平滑切页阻尼 · 彻底消除超速狂切版)
 // =========================================================================
 import QtQuick
 import QtQuick.Controls
@@ -16,8 +16,6 @@ Item {
     property string chosenFont: ""
 
     property string activeTabId: "hardware"
-
-    // 关联外部协调器进行交互制动
     property var sensorCoordinator: null
 
     readonly property var enabledPlugins: {
@@ -67,39 +65,50 @@ Item {
         return { title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" };
     }
 
-    function switchTab(targetId) {
-        if (activeTabId === targetId) return;
-        activeTabId = targetId;
+    function getPluginIndex(tabId) {
+        for (var i = 0; i < enabledPlugins.length; i++) {
+            if (enabledPlugins[i].id === tabId) return i;
+        }
+        return 0;
     }
 
-    // 顶栏专用滚轮切页计算器
+    function switchTab(targetId, explicitDir) {
+        if (activeTabId === targetId) return;
+
+        var curIdx = getPluginIndex(activeTabId);
+        var targetIdx = getPluginIndex(targetId);
+        var calculatedDir = (explicitDir !== undefined) ? explicitDir : (targetIdx >= curIdx ? 1 : -1);
+
+        activeTabId = targetId;
+        pageConveyor.switchTo(targetId, calculatedDir);
+    }
+
+    // 🚀【核心改进】：顶栏滚轮切页累加器 + 140ms 冷却保护，一次滚动只切换一个 Tab
     property real tabWheelAccum: 0
+    property bool isTabWheelCooldown: false
+
     Timer { id: tabWheelResetTimer; interval: 260; onTriggered: cardRoot.tabWheelAccum = 0 }
+    Timer { id: tabWheelCooldownTimer; interval: 140; onTriggered: cardRoot.isTabWheelCooldown = false }
 
     function handleHeaderWheel(wheel) {
+        if (cardRoot.isTabWheelCooldown) return;
+
         tabWheelResetTimer.restart();
-        
-        // 🚀【主动制动】：滚轮滚动期间，立刻刹停收起倒计时
-        if (cardRoot.sensorCoordinator && cardRoot.sensorCoordinator.brakeTimerOnWheel) {
-            cardRoot.sensorCoordinator.brakeTimerOnWheel();
-        }
 
         var delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y;
         cardRoot.tabWheelAccum += delta;
 
-        if (Math.abs(cardRoot.tabWheelAccum) >= 40) {
+        // 阈值提升到标准的 100（避免超速狂切）
+        if (Math.abs(cardRoot.tabWheelAccum) >= 100) {
             if (!cardRoot.enabledPlugins || cardRoot.enabledPlugins.length <= 1) return;
             var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1;
-            var currIdx = 0;
-            for (var i = 0; i < cardRoot.enabledPlugins.length; i++) {
-                if (cardRoot.enabledPlugins[i].id === cardRoot.activeTabId) {
-                    currIdx = i;
-                    break;
-                }
-            }
+            var currIdx = getPluginIndex(cardRoot.activeTabId);
             var nextIndex = (currIdx + dir + cardRoot.enabledPlugins.length) % cardRoot.enabledPlugins.length;
-            cardRoot.switchTab(cardRoot.enabledPlugins[nextIndex].id);
+            
+            cardRoot.switchTab(cardRoot.enabledPlugins[nextIndex].id, dir);
             cardRoot.tabWheelAccum = 0;
+            cardRoot.isTabWheelCooldown = true;
+            tabWheelCooldownTimer.restart();
         }
     }
 
@@ -107,7 +116,7 @@ Item {
         anchors.fill: parent
         spacing: 10
 
-        // 1. 顶栏导航与状态条 (唯一允许滚轮切页的区域)
+        // 1. 顶栏导航与状态条 (滚轮切页唯一热区)
         ExpandedHeaderBar {
             chosenFont: cardRoot.chosenFont
             expandedTab: cardRoot.activeTabId
@@ -118,67 +127,25 @@ Item {
             onTabWheel: (wheel) => cardRoot.handleHeaderWheel(wheel)
         }
 
-        // 2. 核心动态内容视口 (常驻懒加载池，滚轮属于页面内部滚动，绝不切页)
+        // 2. 传送带
         Item {
             id: contentContainer
             width: parent.width
             height: parent.height - 36
             clip: true
 
-            Loader {
-                id: loaderHardware
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "hardware" || (item !== null)
-                visible: cardRoot.activeTabId === "hardware"
-                sourceComponent: compHardware
-            }
-
-            Loader {
-                id: loaderWorkspace
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "workspace" || (item !== null)
-                visible: cardRoot.activeTabId === "workspace"
-                sourceComponent: compWorkspace
-            }
-
-            Loader {
-                id: loaderMedia
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "media" || (item !== null)
-                visible: cardRoot.activeTabId === "media"
-                sourceComponent: compMedia
-            }
-
-            Loader {
-                id: loaderCalendar
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "calendar" || (item !== null)
-                visible: cardRoot.activeTabId === "calendar"
-                sourceComponent: compCalendar
-            }
-
-            Loader {
-                id: loaderTimer
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "timer" || (item !== null)
-                visible: cardRoot.activeTabId === "timer"
-                sourceComponent: compTimer
-            }
-
-            Loader {
-                id: loaderClock
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "clock" || (item !== null)
-                visible: cardRoot.activeTabId === "clock"
-                sourceComponent: compClock
-            }
-
-            Loader {
-                id: loaderNotification
-                anchors.fill: parent
-                active: cardRoot.activeTabId === "notification" || (item !== null)
-                visible: cardRoot.activeTabId === "notification"
-                sourceComponent: compNotification
+            InterruptibleConveyor {
+                id: pageConveyor
+                currentKey: cardRoot.activeTabId
+                keyToComponentMap: ({
+                    "hardware": compHardware,
+                    "workspace": compWorkspace,
+                    "media": compMedia,
+                    "calendar": compCalendar,
+                    "timer": compTimer,
+                    "clock": compClock,
+                    "notification": compNotification
+                })
             }
         }
     }
