@@ -1,19 +1,54 @@
 # ==========================================
 # 📄 File: backend/core/state.py
-# 🌟 全量系统状态单一事实源 (集成平铺网格时序状态)
+# 🌟 全量系统状态单一事实源 (RLock 线程安全 + 零竞态快照生成器)
 # ==========================================
-from typing import Dict, Any, Optional, List
+import threading
+from typing import Dict, Any, Optional, List, Tuple
+
+
+class IslandStateSnapshot:
+    """
+    点对点不可变快照：
+    派发给 Qt QueuedConnection 消息队列消费，完全阻断后台线程并发修改引起的数据撕裂。
+    """
+    def __init__(self, data: Dict[str, Any]):
+        self.__dict__.update(data)
+
+    def get_overlay_dict(self) -> Dict[str, Any]:
+        return {
+            "key": getattr(self, "overlay_key", ""),
+            "icon": getattr(self, "overlay_icon", ""),
+            "title": getattr(self, "overlay_title", ""),
+            "subtitle": getattr(self, "overlay_subtitle", ""),
+            "val": getattr(self, "overlay_val", 0),
+            "duration": getattr(self, "overlay_duration_ms", 0),
+            "avatar": getattr(self, "overlay_avatar", ""),
+            "priority": getattr(self, "overlay_priority", 0),
+            "voiceActive": getattr(self, "voice_input_active", False),
+            "voiceText": getattr(self, "voice_input_text", ""),
+            "voiceLevel": getattr(self, "voice_input_level", 0.1),
+        }
 
 
 class IslandState:
+    """
+    线程安全的全量系统状态单一事实源 (SSOT)
+    支持：
+      1. RLock 读写锁自动同步
+      2. 上下文管理器 (with state:) 事务块
+      3. batch_update(**kwargs) 多字段原子提交
+      4. snapshot() 零撕裂深克隆快照导出
+    """
+
     def __init__(self):
+        # 内部锁声明（使用 object.__setattr__ 避免触发递归拦截）
+        object.__setattr__(self, "_lock", threading.RLock())
+
         # 1. 虚拟桌面
         self.workspace_index: int = 1
         self.workspace_name: str = "Desktop 1"
         self.workspace_total: int = 1
         self.workspaces: List[Dict[str, Any]] = []
-
-        # 🚀 平铺网格特效活跃状态标志
         self.is_desktop_grid_active: bool = False
 
         # 2. 媒体流与声谱
@@ -25,7 +60,7 @@ class IslandState:
         self.position: float = 0.0
         self.duration: float = 0.0
         self.dominant_color: str = "#22c55e"
-        self.spectrum: tuple[float, float, float, float] = (0.2, 0.2, 0.2, 0.2)
+        self.spectrum: Tuple[float, float, float, float] = (0.2, 0.2, 0.2, 0.2)
 
         # 3. 音量、亮度与麦克风
         self.volume: int = 50
@@ -90,41 +125,100 @@ class IslandState:
         self.overlay_avatar: str = ""
         self.overlay_priority: int = 0
 
+        self.ime_active: bool = False
+        self.ime_name: str = "keyboard-us"
+        self.ime_label: str = "英"
+        self.ime_icon_url: str = ""  # 👈 存放系统生成的位图 Base64 URL 或主题图标
+
+    # =========================================================================
+    # 线程安全核心协议实现
+    # =========================================================================
+    def __enter__(self):
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._lock.release()
+
+    def __setattr__(self, name: str, value: Any):
+        if name == "_lock":
+            object.__setattr__(self, name, value)
+            return
+        with self._lock:
+            object.__setattr__(self, name, value)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name in ("_lock", "__enter__", "__exit__", "batch_update", "snapshot",
+                    "set_overlay", "clear_overlay", "get_overlay_dict", "__class__", "__dict__"):
+            return object.__getattribute__(self, name)
+        with object.__getattribute__(self, "_lock"):
+            val = object.__getattribute__(self, name)
+            # 浅拷贝列表和字典，阻断多线程边迭代边修改导致的 RuntimeError
+            if isinstance(val, list):
+                return list(val)
+            elif isinstance(val, dict):
+                return dict(val)
+            return val
+
+    def batch_update(self, **kwargs):
+        """原子批量更新多个属性，杜绝撕裂读"""
+        with self._lock:
+            for k, v in kwargs.items():
+                object.__setattr__(self, k, v)
+
+    def snapshot(self) -> IslandStateSnapshot:
+        """生成只读线程安全快照（浅克隆集合类型）"""
+        with self._lock:
+            data = {}
+            for k, v in self.__dict__.items():
+                if k == "_lock":
+                    continue
+                if isinstance(v, list):
+                    data[k] = [dict(x) if isinstance(x, dict) else x for x in v]
+                elif isinstance(v, dict):
+                    data[k] = dict(v)
+                else:
+                    data[k] = v
+            return IslandStateSnapshot(data)
+
     def set_overlay(self, key: str, title: str, subtitle: str = "",
                     icon: str = "🔔", duration_ms: int = 3500, avatar: str = "",
                     val: int = 0, priority: int = 40):
-        if self.overlay_key and priority < self.overlay_priority:
-            return
-        self.overlay_key = key
-        self.overlay_title = title
-        self.overlay_subtitle = subtitle
-        self.overlay_icon = icon
-        self.overlay_duration_ms = duration_ms
-        self.overlay_avatar = avatar
-        self.overlay_val = val
-        self.overlay_priority = priority
+        with self._lock:
+            if self.overlay_key and priority < self.overlay_priority:
+                return
+            self.overlay_key = key
+            self.overlay_title = title
+            self.overlay_subtitle = subtitle
+            self.overlay_icon = icon
+            self.overlay_duration_ms = duration_ms
+            self.overlay_avatar = avatar
+            self.overlay_val = val
+            self.overlay_priority = priority
 
     def clear_overlay(self):
-        self.overlay_key = ""
-        self.overlay_icon = ""
-        self.overlay_title = ""
-        self.overlay_subtitle = ""
-        self.overlay_val = 0
-        self.overlay_duration_ms = 0
-        self.overlay_avatar = ""
-        self.overlay_priority = 0
+        with self._lock:
+            self.overlay_key = ""
+            self.overlay_icon = ""
+            self.overlay_title = ""
+            self.overlay_subtitle = ""
+            self.overlay_val = 0
+            self.overlay_duration_ms = 0
+            self.overlay_avatar = ""
+            self.overlay_priority = 0
 
     def get_overlay_dict(self) -> Dict[str, Any]:
-        return {
-            "key": self.overlay_key,
-            "icon": self.overlay_icon,
-            "title": self.overlay_title,
-            "subtitle": self.overlay_subtitle,
-            "val": self.overlay_val,
-            "duration": self.overlay_duration_ms,
-            "avatar": self.overlay_avatar,
-            "priority": self.overlay_priority,
-            "voiceActive": self.voice_input_active,
-            "voiceText": self.voice_input_text,
-            "voiceLevel": self.voice_input_level,
-        }
+        with self._lock:
+            return {
+                "key": self.overlay_key,
+                "icon": self.overlay_icon,
+                "title": self.overlay_title,
+                "subtitle": self.overlay_subtitle,
+                "val": self.overlay_val,
+                "duration": self.overlay_duration_ms,
+                "avatar": self.overlay_avatar,
+                "priority": self.overlay_priority,
+                "voiceActive": self.voice_input_active,
+                "voiceText": self.voice_input_text,
+                "voiceLevel": self.voice_input_level,
+            }

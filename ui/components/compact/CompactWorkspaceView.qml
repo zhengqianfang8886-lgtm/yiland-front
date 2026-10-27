@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: compact/CompactWorkspaceView.qml
-// 🌟 纯正苹果美学 · 双翼对称全景感知版 (彻底消灭右侧大黑洞)
+// 🌟 纯正苹果美学 · 双翼对称全景感知 (全域防穿透护盾版)
 // ==========================================
 import QtQuick
 
@@ -8,9 +8,6 @@ Item {
     id: wsRoot
     anchors.fill: parent
 
-    // =========================================================================
-    // 1. 公共属性与接口
-    // =========================================================================
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
     readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
@@ -23,7 +20,6 @@ Item {
     property bool isScrubbing: false
     property bool isScrubCanceling: false
 
-    // 焦点连续浮点索引 (0.0 ~ totalSlots - 1)
     property real smoothCursor: displayWsNumber
     property int peakIndex: displayWsNumber
     readonly property alias scrubHoverIndex: wsRoot.peakIndex
@@ -33,9 +29,6 @@ Item {
         NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
     }
 
-    // =========================================================================
-    // 2. 数据模型规范化 (0-Based 自适应)
-    // =========================================================================
     readonly property var workspaceItems: {
         if (wsList && wsList.length > 0) {
             var res = []
@@ -65,7 +58,6 @@ Item {
 
     readonly property int totalSlots: workspaceItems.length
 
-    // 🚀【核心排版算式】：计算黄金内容宽度 (左边距14 + 左翼 + 中间呼吸间隔20 + 右翼点阵 + 右边距14)
     readonly property int contentImplicitWidth: {
         if (isScrubbing) return 300
         var leftW = 22 + 8 + wsNameText.implicitWidth
@@ -74,9 +66,6 @@ Item {
     }
     implicitWidth: contentImplicitWidth
 
-    // =========================================================================
-    // 3. 拖拽凸透镜包络算法 (保留原有防穿模引擎)
-    // =========================================================================
     readonly property real minSafeX: 12.0
     readonly property real maxSafeX: wsRoot.width - 12.0
     readonly property real safeSpan: Math.max(10.0, maxSafeX - minSafeX)
@@ -136,7 +125,7 @@ Item {
     }
 
     // =========================================================================
-    // 4. 视图 A：常态工作区瞬态横幅 (🚀 重构：纯正双翼对称黄金布局)
+    // 视图 A：常态横幅
     // =========================================================================
     Item {
         id: normalNotifyView
@@ -148,71 +137,46 @@ Item {
         Behavior on opacity { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveFluid } }
         Behavior on scale { NumberAnimation { duration: Theme.animInstant; easing.type: Theme.curveDecel } }
 
-        // 🌟【左翼】：身份微型徽标 + 空间名称 (剔除生硬分割竖线，采用纯净空气感留白)
         Row {
             id: leftClusterRow
-            anchors.left: parent.left
-            anchors.leftMargin: 13
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
+            anchors.left: parent.left; anchors.leftMargin: 13
+            anchors.verticalCenter: parent.verticalCenter; spacing: 8
 
-            // 空间编号微晶体
             Rectangle {
                 id: numBox
-                width: 22
-                height: 22
-                radius: 6
+                width: 22; height: 22; radius: 6
                 anchors.verticalCenter: parent.verticalCenter
                 color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.24)
-                border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.85)
-                border.width: 1.2
-
+                border.color: Qt.rgba(Theme.workspace.r, Theme.workspace.g, Theme.workspace.b, 0.85); border.width: 1.2
                 Text {
-                    anchors.centerIn: parent
-                    anchors.verticalCenterOffset: -0.5
-                    text: wsRoot.displayWsNumber
-                    color: "white"
-                    font.pixelSize: 11
-                    font.weight: Font.Black
-                    font.family: wsRoot.displayFont
+                    anchors.centerIn: parent; anchors.verticalCenterOffset: -0.5
+                    text: wsRoot.displayWsNumber; color: "white"
+                    font.pixelSize: 11; font.weight: Font.Black; font.family: wsRoot.displayFont
                 }
             }
 
-            // 空间名称 (Dev, Code, Web 等)
             Text {
                 id: wsNameText
                 anchors.verticalCenter: parent.verticalCenter
                 text: wsRoot.wsName ? wsRoot.wsName : ("桌面 " + wsRoot.displayWsNumber)
                 color: "#ffffff"
-                font.family: wsRoot.effectiveFont
-                font.pixelSize: 12
-                font.weight: Font.Black
-                font.letterSpacing: 0.4
-                elide: Text.ElideRight
-                renderType: Text.QtRendering
+                font.family: wsRoot.effectiveFont; font.pixelSize: 12; font.weight: Font.Black; font.letterSpacing: 0.4
+                elide: Text.ElideRight; renderType: Text.QtRendering
             }
         }
 
-        // 🌟【右翼】：桌面全景晶体微点阵列 (提供位置感知，瞬间消除右侧大黑洞！)
         Row {
             id: dotsRow
-            anchors.right: parent.right
-            anchors.rightMargin: 13
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 4
+            anchors.right: parent.right; anchors.rightMargin: 13
+            anchors.verticalCenter: parent.verticalCenter; spacing: 4
 
             Repeater {
                 model: wsRoot.workspaceItems
-
                 Rectangle {
                     readonly property bool isCurrent: (index === wsRoot.displayWsNumber)
-                    width: isCurrent ? 10 : 4
-                    height: 4
-                    radius: 2
+                    width: isCurrent ? 10 : 4; height: 4; radius: 2
                     anchors.verticalCenter: parent.verticalCenter
-
                     color: isCurrent ? Theme.workspace : Qt.rgba(1, 1, 1, 0.25)
-
                     Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
                     Behavior on color { ColorAnimation { duration: 120 } }
                 }
@@ -221,7 +185,7 @@ Item {
     }
 
     // =========================================================================
-    // 5. 视图 B：流体连续凸透镜标尺 (拖拽切换态)
+    // 视图 B：拖拽态
     // =========================================================================
     Item {
         id: lensContainer
@@ -231,46 +195,33 @@ Item {
         scale: wsRoot.isScrubbing ? 1.0 : 0.94
 
         Behavior on opacity { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveFluid } }
-        Behavior on scale {
-            NumberAnimation {
-                duration: Theme.animFast
-                easing.type: Theme.curveSpring
-                easing.overshoot: Theme.springOvershootNormal
-            }
-        }
+        Behavior on scale { NumberAnimation { duration: Theme.animFast; easing.type: Theme.curveSpring; easing.overshoot: Theme.springOvershootNormal } }
 
         Rectangle {
             anchors.left: parent.left; anchors.leftMargin: wsRoot.minSafeX
             anchors.right: parent.right; anchors.rightMargin: wsRoot.minSafeX
             anchors.verticalCenter: parent.verticalCenter
-            height: 1.5; radius: 0.75
-            color: Qt.rgba(1, 1, 1, 0.08)
+            height: 1.5; radius: 0.75; color: Qt.rgba(1, 1, 1, 0.08)
         }
 
         Repeater {
             model: wsRoot.workspaceItems
-
             Item {
                 id: lensItem
                 readonly property real swell: wsRoot.getSwell(index)
                 readonly property real itemW: wsRoot.getItemWidth(index)
                 readonly property real itemCenterX: wsRoot.getItemCenterX(index)
 
-                width: itemW
-                height: 14.0 + 10.0 * swell
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: -swell * 1.5
-                x: itemCenterX - itemW / 2.0
-                z: Math.round(swell * 50)
+                width: itemW; height: 14.0 + 10.0 * swell
+                anchors.verticalCenter: parent.verticalCenter; anchors.verticalCenterOffset: -swell * 1.5
+                x: itemCenterX - itemW / 2.0; z: Math.round(swell * 50)
 
                 readonly property bool isCurrentWs: (index === wsRoot.displayWsNumber)
                 readonly property bool isHoverLocked: (index === wsRoot.peakIndex)
 
                 Rectangle {
                     id: slateBody
-                    anchors.fill: parent
-                    radius: height / 2.0
-                    antialiasing: true
+                    anchors.fill: parent; radius: height / 2.0; antialiasing: true
 
                     color: {
                         if (wsRoot.isScrubCanceling) return Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.22 + lensItem.swell * 0.38)
@@ -285,14 +236,11 @@ Item {
                         return Qt.rgba(255, 255, 255, 0.12 + lensItem.swell * 0.25)
                     }
                     border.width: 0.9 + lensItem.swell * 0.5
-
                     Behavior on color { ColorAnimation { duration: 60 } }
                     Behavior on border.color { ColorAnimation { duration: 60 } }
 
                     Row {
-                        anchors.centerIn: parent
-                        spacing: 4
-                        clip: true
+                        anchors.centerIn: parent; spacing: 4; clip: true
                         opacity: Math.max(0.0, Math.min(1.0, (lensItem.swell - 0.40) / 0.45))
                         visible: opacity > 0.001
 
@@ -300,27 +248,14 @@ Item {
                             width: 12; height: 12; radius: 6
                             anchors.verticalCenter: parent.verticalCenter
                             color: lensItem.isCurrentWs ? "#34d399" : (wsRoot.isScrubCanceling ? Theme.danger : Qt.rgba(255, 255, 255, 0.28))
-
-                            Text {
-                                anchors.centerIn: parent
-                                text: modelData.index
-                                color: "white"
-                                font.family: wsRoot.displayFont
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                            }
+                            Text { anchors.centerIn: parent; text: modelData.index; color: "white"; font.family: wsRoot.displayFont; font.pixelSize: 8; font.weight: Font.Bold }
                         }
 
                         Text {
-                            text: modelData.name
-                            color: "#ffffff"
-                            font.family: wsRoot.effectiveFont
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            elide: Text.ElideRight
-                            width: Math.max(10, slateBody.width - 26)
-                            anchors.verticalCenter: parent.verticalCenter
-                            renderType: Text.QtRendering
+                            text: modelData.name; color: "#ffffff"
+                            font.family: wsRoot.effectiveFont; font.pixelSize: 11; font.weight: Font.Bold
+                            elide: Text.ElideRight; width: Math.max(10, slateBody.width - 26)
+                            anchors.verticalCenter: parent.verticalCenter; renderType: Text.QtRendering
                         }
                     }
                 }

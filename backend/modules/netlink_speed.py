@@ -1,11 +1,12 @@
 # =========================================================================
 # 📄 File: backend/modules/netlink_speed.py
-# 🌟 基于 Linux 原生 Netlink (RTM_GETLINK / IFLA_STATS64) 的滑动窗口测速器
+# 🌟 基于 Linux 原生 Netlink (RTM_GETLINK / IFLA_STATS64) 的滑动窗口测速器 (DRY 统一收敛版)
 # =========================================================================
 import socket
 import struct
 import time
 import collections
+from typing import Optional, Tuple, Dict
 
 # Linux Netlink 内核常量
 RTM_GETLINK = 18
@@ -13,20 +14,72 @@ RTM_NEWLINK = 16
 NLM_F_REQUEST = 1
 IFLA_STATS64 = 23
 
+
+def format_speed_structured(bytes_per_sec: float) -> Dict[str, str]:
+    """
+    结构化格式化：
+    同时输出全量字符串、纯数值、纯单位与微缩显示标签，前端无需正则切片。
+    """
+    if bytes_per_sec < 256:
+        return {
+            "full": "0 B/s",
+            "val": "0",
+            "unit": "B/s",
+            "compact": "0B"
+        }
+    elif bytes_per_sec < 1024:
+        val_str = str(int(bytes_per_sec))
+        return {
+            "full": f"{val_str} B/s",
+            "val": val_str,
+            "unit": "B/s",
+            "compact": f"{val_str}B"
+        }
+    elif bytes_per_sec < 1048576:
+        kb = bytes_per_sec / 1024.0
+        val_str = f"{int(kb)}" if kb >= 100 else f"{kb:.1f}"
+        return {
+            "full": f"{kb:.1f} KB/s",
+            "val": val_str,
+            "unit": "K/s",
+            "compact": f"{val_str}K"
+        }
+    elif bytes_per_sec < 1073741824:
+        mb = bytes_per_sec / 1048576.0
+        val_str = f"{mb:.1f}"
+        return {
+            "full": f"{mb:.1f} MB/s",
+            "val": val_str,
+            "unit": "M/s",
+            "compact": f"{val_str}M"
+        }
+    else:
+        gb = bytes_per_sec / 1073741824.0
+        val_str = f"{gb:.1f}"
+        return {
+            "full": f"{gb:.2f} GB/s",
+            "val": val_str,
+            "unit": "G/s",
+            "compact": f"{val_str}G"
+        }
+
+
 class NetlinkSpeedSampler:
-    def __init__(self, window_span_sec=1.0):
+    """Linux 原生 Netlink 内核流量滑动窗口采样器"""
+
+    def __init__(self, window_span_sec: float = 1.0, socket_timeout: float = 0.08):
         self.window_span = window_span_sec
+        self.socket_timeout = socket_timeout
         self.samples = collections.deque()
         self.last_iface = ""
         self.ifindex = 0
-        self.sock = None
+        self.sock: Optional[socket.socket] = None
         self._init_socket()
 
     def _init_socket(self):
         try:
-            # 建立专用的 NETLINK_ROUTE 套接字
             self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
-            self.sock.settimeout(0.1)
+            self.sock.settimeout(self.socket_timeout)
         except OSError:
             self.sock = None
 
@@ -40,7 +93,7 @@ class NetlinkSpeedSampler:
 
     @staticmethod
     def get_default_interface() -> str:
-        """从内核路由表快速获取默认出口物理网卡"""
+        """从内核路由表获取默认出口物理网卡名"""
         try:
             with open("/proc/net/route", "r", encoding="ascii") as f:
                 for line in f:
@@ -51,42 +104,41 @@ class NetlinkSpeedSampler:
             pass
         return ""
 
-    def _query_stats64(self, ifindex: int):
-        """向内核下发 RTM_GETLINK 并解析 IFLA_STATS64 结构体"""
+    def _query_stats64(self, ifindex: int) -> Optional[Tuple[int, int]]:
+        """向内核下发 RTM_GETLINK 并解析 IFLA_STATS64 结构体中的 rx_bytes / tx_bytes"""
         if not self.sock or ifindex <= 0:
             return None
 
-        # 构造 nlmsghdr + ifinfomsg 请求包
-        # struct nlmsghdr (16 bytes): len(4B), type(2B), flags(2B), seq(4B), pid(4B)
-        # struct ifinfomsg (16 bytes): family(1B), pad(1B), type(2B), index(4B), flags(4B), change(4B)
+        # 构造 nlmsghdr (16B) + ifinfomsg (16B) 请求包
         nlmsg_len = 32
-        req = struct.pack("=IHHII B B H i I I",
-                          nlmsg_len, RTM_GETLINK, NLM_F_REQUEST, 1, 0,
-                          0, 0, 0, ifindex, 0, 0)
+        req = struct.pack(
+            "=IHHII B B H i I I",
+            nlmsg_len, RTM_GETLINK, NLM_F_REQUEST, 1, 0,
+            0, 0, 0, ifindex, 0, 0
+        )
         try:
             self.sock.send(req)
             data = self.sock.recv(4096)
         except OSError:
             return None
 
-        # 遍历解析返回的 Netlink 消息链
         offset = 0
-        while offset + 16 <= len(data):
+        data_len = len(data)
+        while offset + 16 <= data_len:
             msg_len, msg_type, _, _, _ = struct.unpack_from("=IHHII", data, offset)
-            if msg_type == RTM_NEWLINK and offset + 32 <= len(data):
-                # 步进到 rtattr 属性链
+            if msg_type == RTM_NEWLINK and offset + 32 <= data_len:
                 rta_offset = offset + 32
                 payload_len = msg_len - 32
                 while payload_len >= 4:
                     rta_len, rta_type = struct.unpack_from("=HH", data, rta_offset)
                     if rta_len < 4 or rta_len > payload_len:
                         break
-                    
-                    if rta_type == IFLA_STATS64 and rta_len >= 4 + 192:
-                        # struct rtnl_link_stats64: 前 8 字节是 rx_packets, 随后 rx_bytes 是第 24 字节开始
-                        # rx_bytes 在 offset+4+24，tx_bytes 在 offset+4+40
-                        rx_bytes = struct.unpack_from("=Q", data, rta_offset + 4 + 24)[0]
-                        tx_bytes = struct.unpack_from("=Q", data, rta_offset + 4 + 40)[0]
+
+                    # struct rtnl_link_stats64:
+                    # 4B 头部后: rx_packets(8B), tx_packets(8B), rx_bytes(8B), tx_bytes(8B)...
+                    # 正确物理偏移: rx_bytes 在 +16，tx_bytes 在 +24
+                    if rta_type == IFLA_STATS64 and rta_len >= 4 + 32:
+                        rx_bytes, tx_bytes = struct.unpack_from("=QQ", data, rta_offset + 4 + 16)
                         return rx_bytes, tx_bytes
 
                     aligned_len = (rta_len + 3) & ~3
@@ -98,10 +150,8 @@ class NetlinkSpeedSampler:
 
         return None
 
-    def tick(self) -> tuple[float, float]:
-        """
-        每次心跳调用：获取瞬时平滑速率 (rx_rate, tx_rate)，单位：字节/秒
-        """
+    def tick(self) -> Tuple[float, float]:
+        """获取瞬时平滑速率 (rx_rate, tx_rate)，单位：字节/秒"""
         cur_iface = self.get_default_interface()
         if not cur_iface:
             self.samples.clear()
@@ -123,7 +173,6 @@ class NetlinkSpeedSampler:
         now = time.monotonic()
         self.samples.append((now, rx, tx))
 
-        # 剔除超出滑动窗口的时间切片
         while len(self.samples) > 2:
             if now - self.samples[0][0] > self.window_span:
                 self.samples.popleft()

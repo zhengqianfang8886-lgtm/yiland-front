@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/expanded/ExpandedHeaderBar.qml
-// 🌟 展开态顶栏 (唯一合法的滚轮切页专属热区版)
+// 🌟 展开态顶栏 (色彩类型自适应防御 + 诊断探针版)
 // ==========================================
 import QtQuick
 
@@ -12,10 +12,16 @@ Item {
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
 
-    property string expandedTab: "workspace"
+    property string expandedTab: "calendar"
     property bool isCalling: false
     property var enabledTabs: []
     property var tabMeta: ({})
+
+    // 🚀【类型安全加固】：自适应解析 QColor 或 Hex 字符串，杜绝 .r 属性崩溃导致整个顶栏白屏
+    readonly property color safeThemeColor: {
+        if (!tabMeta || !tabMeta.color) return "#38bdf8";
+        return (typeof tabMeta.color === "string") ? Qt.color(tabMeta.color) : tabMeta.color;
+    }
 
     signal tabWheel(var wheel)
     signal switchRoute(string targetTab)
@@ -28,8 +34,8 @@ Item {
 
         color: capsuleHover.hovered ? Qt.rgba(1, 1, 1, 0.065) : Qt.rgba(1, 1, 1, 0.035)
         border.color: capsuleHover.hovered ?
-                      Qt.rgba(barRoot.tabMeta.color.r, barRoot.tabMeta.color.g, barRoot.tabMeta.color.b, 0.35) :
-                      Qt.rgba(1, 1, 1, 0.08)
+                      Qt.rgba(barRoot.safeThemeColor.r, barRoot.safeThemeColor.g, barRoot.safeThemeColor.b, 0.45) :
+                      Qt.rgba(1, 1, 1, 0.12)
         border.width: 1
 
         Behavior on color { ColorAnimation { duration: Theme.animFast } }
@@ -37,7 +43,6 @@ Item {
 
         HoverHandler { id: capsuleHover }
 
-        // 🚀【核心铁律】：这是全系统唯一合法响应滚轮切页的地方！
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: (event) => {
@@ -64,14 +69,14 @@ Item {
 
                 Rectangle {
                     width: 6; height: 6; radius: 3
-                    color: barRoot.tabMeta.color
+                    color: barRoot.safeThemeColor
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on color { ColorAnimation { duration: Theme.animFast } }
                 }
 
                 Text {
-                    text: barRoot.tabMeta.title
-                    color: barRoot.tabMeta.color
+                    text: barRoot.tabMeta ? (barRoot.tabMeta.title || "") : ""
+                    color: barRoot.safeThemeColor
                     font.pixelSize: 10
                     font.weight: Font.Black
                     font.letterSpacing: 0.8
@@ -86,19 +91,19 @@ Item {
                     font.pixelSize: 10
                     font.weight: Font.Black
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: barRoot.tabMeta.sub !== ""
+                    visible: (barRoot.tabMeta && barRoot.tabMeta.sub) ? true : false
                 }
 
                 Text {
-                    text: barRoot.tabMeta.sub
+                    text: barRoot.tabMeta ? (barRoot.tabMeta.sub || "") : ""
                     color: "white"
                     font.pixelSize: 10
                     font.weight: Font.Bold
                     font.family: barRoot.effectiveFont
                     elide: Text.ElideRight
-                    width: Math.max(20, titleRow.width - parent.children[0].width - parent.children[1].implicitWidth - (parent.children[2].visible ? parent.children[2].implicitWidth : 0) - 18)
+                    width: Math.max(20, titleRow.width - parent.children[0].width - parent.children[1].implicitWidth - 28)
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: barRoot.tabMeta.sub !== ""
+                    visible: (barRoot.tabMeta && barRoot.tabMeta.sub) ? true : false
                 }
             }
         }
@@ -121,7 +126,7 @@ Item {
                     model: barRoot.enabledTabs || []
                     Item {
                         id: tabSlotItem
-                        readonly property bool isCurrent: (barRoot.expandedTab === modelData.key)
+                        readonly property bool isCurrent: (barRoot.expandedTab === modelData.key || barRoot.expandedTab === modelData.id)
                         width: isCurrent ? 16 : 6; height: 18
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -147,7 +152,7 @@ Item {
                             id: tabMouseArea
                             anchors.fill: parent; anchors.margins: -4
                             hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: barRoot.switchRoute(modelData.key)
+                            onClicked: barRoot.switchRoute(modelData.id || modelData.key)
                             onWheel: (wheel) => barRoot.tabWheel(wheel)
                         }
                     }

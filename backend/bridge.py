@@ -1,16 +1,15 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (集成平铺网格隐形透传通道)
+# 🌟 Qt / QML 统一交互中枢 (QMetaObject 强类型绑定 · 消除非可绑定警告版)
 # ==========================================
-import time
 import atexit
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt, QEvent
-from backend.logger import app_logger
 from backend.models import NotificationListModel, BluetoothListModel
 from backend.window import WindowManagerService
+from backend.bridge_events import BridgeEventDispatcher
 from backend.utils import get_world_time, get_tz_offset_str
 
 
@@ -26,11 +25,11 @@ class WindowEventFilter(QObject):
 
 
 class IslandBridge(QObject):
-    @Slot(bool)
-    def setUiActive(self, active: bool):
-        if self._backend:
-            self._backend.set_ui_active(active)
+    """QML 与 Python 后端统一总线门面"""
 
+    # =========================================================================
+    # 1. Qt 核心信号列表 (严格作为 Property 的 NOTIFY 依赖项)
+    # =========================================================================
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
@@ -49,14 +48,11 @@ class IslandBridge(QObject):
     callIncomingTriggered = Signal(str, str, str)
     callEndedTriggered = Signal()
     unreadCountChanged = Signal(int)
-
-    # 🚀 网格隐形状态信号
     gridActiveChanged = Signal(bool)
 
     memoryUpdated = Signal(int, str, str)
     netSpeedUpdated = Signal(str, str, str, str, str, str)
     batteryUpdated = Signal(int, bool)
-
     timerUpdated = Signal()
     overlayChanged = Signal()
 
@@ -68,6 +64,7 @@ class IslandBridge(QObject):
     habitRecordToggled = Signal(str, str, bool)
     calendarGridLoaded = Signal(int, int, "QVariantList")
 
+    imeUpdated = Signal(bool, str, str, str)  # is_active, label, im_name, icon_url
     windowDeactivated = Signal()
 
     _sig_inproc_event = Signal(str, object)
@@ -84,17 +81,16 @@ class IslandBridge(QObject):
 
         self._notif_model = NotificationListModel(self)
         self._bt_model = BluetoothListModel(self)
-
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged.emit)
 
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
+        self._dispatcher = BridgeEventDispatcher(self)
 
         self._sig_inproc_event.connect(self._handle_inproc_event, Qt.ConnectionType.QueuedConnection)
         self._sig_spectrum_event.connect(self.audioSpectrumUpdated.emit, Qt.ConnectionType.QueuedConnection)
 
         self._event_filter = WindowEventFilter(self)
         self.view.installEventFilter(self._event_filter)
-
         atexit.register(self.cleanup)
 
     def set_backend(self, backend, loop):
@@ -110,56 +106,46 @@ class IslandBridge(QObject):
             self._notif_model.clearAll()
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    # 🚀 供 QML 绑定的平铺网格状态属性
+    def post_inproc_event(self, event_type: str, state_obj):
+        try:
+            self._sig_inproc_event.emit(event_type, state_obj)
+        except RuntimeError:
+            pass
+
+    def post_spectrum_event(self, s1: float, s2: float, s3: float, s4: float):
+        try:
+            self._sig_spectrum_event.emit(s1, s2, s3, s4)
+        except RuntimeError:
+            pass
+
+    @Property(str, notify=imeUpdated)
+    def imeIcon(self):
+        return self._backend.state.ime_icon_url if self._backend else ""
+
+    @Slot(str, object)
+    def _handle_inproc_event(self, event_type: str, s):
+        self._dispatcher.dispatch(event_type, s)
+
+    # =========================================================================
+    # 2. QML 绑定属性 (显式绑定真实 Signal 对象，彻底消灭 non-bindable 警告)
+    # =========================================================================
+    # --- 输入法属性 ---
+    @Property(bool, notify=imeUpdated)
+    def isImeActive(self):
+        return self._backend.state.ime_active if self._backend else False
+
+    @Property(str, notify=imeUpdated)
+    def imeLabel(self):
+        return self._backend.state.ime_label if self._backend else "英"
+
+    @Property(str, notify=imeUpdated)
+    def imeName(self):
+        return self._backend.state.ime_name if self._backend else ""
+
+    # --- 硬件与系统监视属性 ---
     @Property(bool, notify=gridActiveChanged)
     def isGridActive(self):
         return self._backend.state.is_desktop_grid_active if self._backend else False
-
-    @Property("QVariantMap", notify=overlayChanged)
-    def activeOverlay(self):
-        if self._backend:
-            return self._backend.state.get_overlay_dict()
-        return {}
-
-    @Slot()
-    def dismissOverlay(self):
-        if self._backend:
-            self._backend.state.clear_overlay()
-            self.overlayChanged.emit()
-
-    @Property(bool, notify=voiceInputStateChanged)
-    def voiceInputActive(self):
-        return self._backend.state.voice_input_active if self._backend else False
-
-    @Property(str, notify=voiceInputStateChanged)
-    def voiceInputText(self):
-        return self._backend.state.voice_input_text if self._backend else ""
-
-    @Property(float, notify=voiceInputLevelChanged)
-    def voiceInputLevel(self):
-        return self._backend.state.voice_input_level if self._backend else 0.1
-
-    @Slot()
-    def toggleVoiceInput(self):
-        if self._backend and self._backend.voice:
-            self.run_async(self._backend.voice.toggle_recording())
-
-    @Slot()
-    def stopVoiceInput(self):
-        if self._backend and self._backend.voice:
-            self.run_async(self._backend.voice.stop_recording())
-
-    @Property(QObject, constant=True)
-    def notificationModel(self): return self._notif_model
-
-    @Property(int, notify=unreadCountChanged)
-    def unreadCount(self): return self._notif_model.unreadCount
-
-    @Property(str, notify=unreadCountChanged)
-    def latestNotificationAvatar(self): return self._notif_model.latestAvatar
-
-    @Property(QObject, constant=True)
-    def bluetoothModel(self): return self._bt_model
 
     @Property(int, notify=volumeChanged)
     def currentVolume(self):
@@ -185,6 +171,7 @@ class IslandBridge(QObject):
     def isSystemCharging(self):
         return self._backend.state.battery_charging if self._backend else False
 
+    # --- 定时器属性 ---
     @Property(str, notify=timerUpdated)
     def timerType(self): return self._backend.state.timer_type if self._backend else "countdown"
 
@@ -212,42 +199,130 @@ class IslandBridge(QObject):
     @Property(list, notify=timerUpdated)
     def timerLaps(self): return self._backend.state.timer_laps if self._backend else []
 
+    # --- 打断与语音属性 ---
+    @Property("QVariantMap", notify=overlayChanged)
+    def activeOverlay(self):
+        return self._backend.state.get_overlay_dict() if self._backend else {}
+
+    @Property(bool, notify=voiceInputStateChanged)
+    def voiceInputActive(self):
+        return self._backend.state.voice_input_active if self._backend else False
+
+    @Property(str, notify=voiceInputStateChanged)
+    def voiceInputText(self):
+        return self._backend.state.voice_input_text if self._backend else ""
+
+    @Property(float, notify=voiceInputLevelChanged)
+    def voiceInputLevel(self):
+        return self._backend.state.voice_input_level if self._backend else 0.1
+
+    # --- 列表模型常量 ---
+    @Property(QObject, constant=True)
+    def notificationModel(self): return self._notif_model
+
+    @Property(int, notify=unreadCountChanged)
+    def unreadCount(self): return self._notif_model.unreadCount
+
+    @Property(str, notify=unreadCountChanged)
+    def latestNotificationAvatar(self): return self._notif_model.latestAvatar
+
+    @Property(QObject, constant=True)
+    def bluetoothModel(self): return self._bt_model
+
+    # =========================================================================
+    # 3. 业务槽函数 (QML 触发执行)
+    # =========================================================================
+    # --- 输入法控制 ---
+    @Slot()
+    def toggleIme(self):
+        if self._backend and self._backend.ime: self.run_async(self._backend.ime.toggle())
+
+    @Slot(str)
+    def switchImeTo(self, im_name: str):
+        if self._backend and self._backend.ime: self.run_async(self._backend.ime.switch_to_im(im_name))
+
+    @Slot()
+    def openImeConfig(self):
+        if self._backend and self._backend.ime: self.run_async(self._backend.ime.open_config())
+
+    # --- 硬件调节 ---
+    @Slot(int, int)
+    def adjustHardware(self, mode: int, delta: int):
+        if not self._backend: return
+        if mode == 0 and self._backend.audio: self.run_async(self._backend.audio.set_delta(delta))
+        elif mode == 1 and self._backend.brightness: self.run_async(self._backend.brightness.set_delta(delta))
+
+    @Slot(int, int)
+    def setHardware(self, mode: int, target_val: int):
+        if not self._backend: return
+        if mode == 0 and self._backend.audio: self.run_async(self._backend.audio.set_volume(target_val))
+        elif mode == 1 and self._backend.brightness: self.run_async(self._backend.brightness.set_brightness(target_val))
+
+    @Slot(int)
+    def toggleHardwareMute(self, mode: int):
+        if not self._backend or not self._backend.audio: return
+        if mode == 0: self.run_async(self._backend.audio.toggle_mute())
+        elif mode == 2: self.run_async(self._backend.audio.toggle_mic_mute())
+
+    # --- 工作区与平铺网格 ---
+    @Slot(int)
+    @Slot(str)
+    def switchWorkspace(self, target):
+        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace(target))
+
+    @Slot()
+    def switchWorkspacePrev(self):
+        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace("prev"))
+
+    @Slot()
+    def switchWorkspaceNext(self):
+        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace("next"))
+
+    @Slot()
+    def toggleDesktopGrid(self):
+        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.toggle_desktop_grid())
+
+    # --- 媒体控制 ---
+    @Slot(str)
+    def sendMediaCmd(self, action: str):
+        if not self._backend or not self._backend.mpris: return
+        action_map = {"MEDIA_PLAY_PAUSE": "PlayPause", "MEDIA_NEXT": "Next", "MEDIA_PREV": "Previous"}
+        cmd = action_map.get(action, action)
+        self.run_async(self._backend.mpris.control(cmd))
+
+    @Slot(str, str)
+    def focusMediaWindow(self, title="", artist=""):
+        if self._backend and self._backend.mpris: self.run_async(self._backend.mpris.raise_player())
+
+    # --- 定时器控制 ---
     @Slot(str)
     def switchTimerType(self, t_type: str):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.switch_type(t_type))
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.switch_type(t_type))
 
     @Slot()
     def toggleTimerPause(self):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.toggle_pause())
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.toggle_pause())
 
     @Slot(int, str)
     def startTimerPreset(self, sec: int, mode: str):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.start_preset(sec, mode))
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.start_preset(sec, mode))
 
     @Slot(int)
     def adjustTimerTime(self, delta_sec: int):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.adjust_time(delta_sec))
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.adjust_time(delta_sec))
 
     @Slot()
     def recordTimerLap(self):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.record_lap())
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.record_lap())
 
     @Slot()
     def resetTimer(self):
-        if self._backend and self._backend.timer:
-            self.run_async(self._backend.timer.reset())
+        if self._backend and self._backend.timer: self.run_async(self._backend.timer.reset())
 
+    # --- 习惯日程与日历 ---
     @Slot()
     def requestHabits(self):
-        if not self._backend or not self._backend.habits:
-            self.habitsLoaded.emit([])
-            return
-
+        if not self._backend or not self._backend.habits: self.habitsLoaded.emit([]); return
         async def _run():
             data = await self._backend.habits.fetch_habits_async()
             self.habitsLoaded.emit(data)
@@ -255,9 +330,7 @@ class IslandBridge(QObject):
 
     @Slot(str, str)
     def requestAddHabit(self, name: str, icon: str = "📌"):
-        if not self._backend or not self._backend.habits:
-            return
-
+        if not self._backend or not self._backend.habits: return
         async def _run():
             data = await self._backend.habits.add_habit_async(name, icon)
             self.habitsLoaded.emit(data)
@@ -265,9 +338,7 @@ class IslandBridge(QObject):
 
     @Slot(str)
     def requestDeleteHabit(self, habit_id: str):
-        if not self._backend or not self._backend.habits:
-            return
-
+        if not self._backend or not self._backend.habits: return
         async def _run():
             data = await self._backend.habits.delete_habit_async(habit_id)
             self.habitsLoaded.emit(data)
@@ -275,10 +346,7 @@ class IslandBridge(QObject):
 
     @Slot(str, int, int)
     def requestMonthRecords(self, habit_id: str, year: int, month: int):
-        if not self._backend or not self._backend.habits:
-            self.monthRecordsLoaded.emit(habit_id, year, month, {})
-            return
-
+        if not self._backend or not self._backend.habits: self.monthRecordsLoaded.emit(habit_id, year, month, {}); return
         async def _run():
             data = await self._backend.habits.fetch_month_records_async(habit_id, year, month)
             self.monthRecordsLoaded.emit(habit_id, year, month, data)
@@ -286,9 +354,7 @@ class IslandBridge(QObject):
 
     @Slot(str, str)
     def requestToggleRecord(self, habit_id: str, date_str: str):
-        if not self._backend or not self._backend.habits:
-            return
-
+        if not self._backend or not self._backend.habits: return
         async def _run():
             is_checked = await self._backend.habits.toggle_record_async(habit_id, date_str)
             self.habitRecordToggled.emit(habit_id, date_str, is_checked)
@@ -296,91 +362,52 @@ class IslandBridge(QObject):
 
     @Slot(int, int, str)
     def requestCalendarGrid(self, year: int, month: int, habit_id: str):
-        if not self._backend or not self._backend.habits:
-            self.calendarGridLoaded.emit(year, month, [])
-            return
-
+        if not self._backend or not self._backend.habits: self.calendarGridLoaded.emit(year, month, []); return
         async def _run():
             grid = await self._backend.habits.generate_calendar_grid_async(year, month, habit_id)
             self.calendarGridLoaded.emit(year, month, grid)
         self.run_async(_run())
 
-    @Slot(int, int)
-    def adjustHardware(self, mode: int, delta: int):
-        if not self._backend: return
-        if mode == 0 and self._backend.audio:
-            self.run_async(self._backend.audio.set_delta(delta))
-        elif mode == 1 and self._backend.brightness:
-            self.run_async(self._backend.brightness.set_delta(delta))
+    # --- 语言与打断 ---
+    @Slot()
+    def toggleVoiceInput(self):
+        if self._backend and self._backend.voice: self.run_async(self._backend.voice.toggle_recording())
 
-    @Slot(int, int)
-    def setHardware(self, mode: int, target_val: int):
-        if not self._backend: return
-        if mode == 0 and self._backend.audio:
-            self.run_async(self._backend.audio.set_volume(target_val))
-        elif mode == 1 and self._backend.brightness:
-            self.run_async(self._backend.brightness.set_brightness(target_val))
+    @Slot()
+    def stopVoiceInput(self):
+        if self._backend and self._backend.voice: self.run_async(self._backend.voice.stop_recording())
 
-    @Slot(int)
-    def toggleHardwareMute(self, mode: int):
-        if not self._backend or not self._backend.audio: return
-        if mode == 0:
-            self.run_async(self._backend.audio.toggle_mute())
-        elif mode == 2:
-            self.run_async(self._backend.audio.toggle_mic_mute())
+    @Slot()
+    def dismissOverlay(self):
+        if self._backend:
+            self._backend.state.clear_overlay()
+            self.overlayChanged.emit()
 
-    @Slot(str)
-    def sendMediaCmd(self, action: str):
-        if not self._backend or not self._backend.mpris: return
-        action_map = {
-            "MEDIA_PLAY_PAUSE": "PlayPause",
-            "MEDIA_NEXT": "Next",
-            "MEDIA_PREV": "Previous"
+    @Slot(bool)
+    def setUiActive(self, active: bool):
+        if self._backend: self._backend.set_ui_active(active)
+
+    # --- 工具函数与系统诊断 ---
+    @Slot(str, bool, result=dict)
+    def getWorldTime(self, tz_name, is_24h=True): return get_world_time(tz_name, is_24h)
+
+    @Slot(str, result=str)
+    def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
+
+    @Slot(result="QVariantMap")
+    def getSystemHealth(self):
+        import shutil
+        return {
+            "platform": self.wm.platform.platform_name,
+            "kwinWorking": bool(self.wm.platform.platform_name.startswith("KDE")),
+            "audioWorking": bool(self._backend and self._backend.audio and self._backend.audio._running),
+            "brightnessWorking": bool(self._backend and self._backend.brightness and self._backend.brightness.bus is not None),
+            "cavaInstalled": bool(shutil.which("cava")),
+            "wlPasteInstalled": bool(shutil.which("wl-paste")),
+            "dbConnected": bool(self._backend and self._backend.habits)
         }
-        cmd = action_map.get(action, action)
-        self.run_async(self._backend.mpris.control(cmd))
 
-    @Slot(str, str)
-    def focusMediaWindow(self, title="", artist=""):
-        if self._backend and self._backend.mpris:
-            self.run_async(self._backend.mpris.raise_player())
-
-    @Slot(int)
-    @Slot(str)
-    def switchWorkspace(self, target):
-        if self._backend and self._backend.workspace:
-            self.run_async(self._backend.workspace.switch_workspace(target))
-
-    @Slot()
-    def switchWorkspacePrev(self):
-        if self._backend and self._backend.workspace:
-            self.run_async(self._backend.workspace.switch_workspace("prev"))
-
-    @Slot()
-    def switchWorkspaceNext(self):
-        if self._backend and self._backend.workspace:
-            self.run_async(self._backend.workspace.switch_workspace("next"))
-
-    @Slot()
-    def toggleDesktopGrid(self):
-        if self._backend and self._backend.workspace:
-            self.run_async(self._backend.workspace.toggle_desktop_grid())
-
-    @Slot()
-    def answerTeamsCall(self):
-        if self._backend and self._backend.notifications:
-            self.run_async(self._backend.notifications.answer_call())
-
-    @Slot()
-    def rejectTeamsCall(self):
-        if self._backend and self._backend.notifications:
-            self.run_async(self._backend.notifications.reject_call())
-
-    @Slot()
-    def focusTeamsWindow(self):
-        if self._backend and self._backend.notifications:
-            self.run_async(self._backend.notifications.focus_teams())
-
+    # --- 窗口管理器代理 ---
     @Slot()
     def openSystemMonitor(self): self.wm.open_system_monitor()
 
@@ -391,17 +418,10 @@ class IslandBridge(QObject):
     def openFullCorridorForMotion(self): self.wm.clear_mask()
 
     @Slot(int, int, int, int)
-    def applySettledMask(self, x: int, y: int, w: int, h: int):
-        self.wm.set_precise_bounding_mask(x, y, w, h)
+    def applySettledMask(self, x: int, y: int, w: int, h: int): self.wm.set_precise_bounding_mask(x, y, w, h)
 
     @Slot()
     def setPassthrough(self): self.wm.set_passthrough()
-
-    @Slot(str, bool, result=dict)
-    def getWorldTime(self, tz_name, is_24h=True): return get_world_time(tz_name, is_24h)
-
-    @Slot(str, result=str)
-    def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
 
     @Slot()
     def requestWindowFocus(self):
@@ -414,132 +434,3 @@ class IslandBridge(QObject):
     def restorePreviousFocus(self):
         if hasattr(self.wm.platform, "restore_previous_focus"):
             self.wm.platform.restore_previous_focus(self.view)
-
-    def post_inproc_event(self, event_type: str, state_obj):
-        try:
-            self._sig_inproc_event.emit(event_type, state_obj)
-        except RuntimeError:
-            pass
-
-    def post_spectrum_event(self, s1: float, s2: float, s3: float, s4: float):
-        try:
-            self._sig_spectrum_event.emit(s1, s2, s3, s4)
-        except RuntimeError:
-            pass
-
-    @Slot(str, object)
-    def _handle_inproc_event(self, event_type: str, s):
-        # 🚀 平铺网格状态变动派发
-        if event_type in ("GRID_STATE_CHANGED", "FULL_SYNC"):
-            self.gridActiveChanged.emit(s.is_desktop_grid_active)
-            if s.is_desktop_grid_active:
-                self.setPassthrough()
-
-        if event_type == "VOICE_INPUT_LEVEL":
-            self.voiceInputLevelChanged.emit(s.voice_input_level)
-            return
-        elif event_type == "VOICE_INPUT_UPDATE":
-            self.voiceInputStateChanged.emit(s.voice_input_active, s.voice_input_text)
-
-        if event_type == "OVERLAY_CHANGED":
-            overlay = s.get_overlay_dict()
-            if overlay.get("key"):
-                self.view.raise_()
-            self.overlayChanged.emit()
-            if overlay.get("key") == "ALERT":
-                self.alertTriggered.emit(
-                    overlay.get("icon") or "🔔",
-                    overlay.get("title") or "",
-                    overlay.get("subtitle") or "",
-                    overlay.get("duration") or 3500,
-                    overlay.get("avatar") or ""
-                )
-
-        if event_type in ("MEDIA_UPDATE", "FULL_SYNC"):
-            art = s.art_url
-            if art and art.startswith("/") and not art.startswith("file://"):
-                art = "file://" + art
-            self.mediaUpdated.emit(s.title, s.artist, s.playback_status, art, s.position, s.duration)
-            self.dominantColorUpdated.emit(s.dominant_color)
-        elif event_type in ("MEDIA_PROGRESS", "MEDIA_TICK"):
-            prog = (s.position / s.duration) if s.duration > 0 else 0.0
-            self.progressUpdated.emit(s.position, s.duration, prog)
-
-        if event_type in ("WORKSPACE_CHANGED", "FULL_SYNC"):
-            self.workspaceTriggered.emit(s.workspace_index, s.workspace_total, s.workspace_name)
-            self.workspaceListUpdated.emit(s.workspaces)
-
-        if event_type in ("VOLUME_UPDATE", "FULL_SYNC"):
-            self.volumeChanged.emit(s.volume)
-            self.hardwareMuteStateChanged.emit(s.is_muted, s.is_mic_muted)
-            if event_type == "VOLUME_UPDATE":
-                icon = "🔇" if s.is_muted else ("🔈" if s.volume == 0 else "🔊")
-                self.osdTriggered.emit(icon, "Volume", s.volume)
-
-        if event_type in ("BRIGHTNESS_UPDATE", "FULL_SYNC"):
-            self.brightnessChanged.emit(s.brightness)
-            if event_type == "BRIGHTNESS_UPDATE":
-                self.osdTriggered.emit("☀️", "Display", s.brightness)
-
-        if event_type in ("KEYBOARD_LOCK_UPDATE", "FULL_SYNC"):
-            self.capsLockChanged.emit(s.is_caps_lock)
-            self.numLockChanged.emit(s.is_num_lock)
-
-        if event_type in ("MEMORY_UPDATE", "FULL_SYNC"):
-            self.memoryUpdated.emit(s.memory_percent, s.memory_used_gb, s.memory_total_gb)
-
-        if event_type in ("NET_SPEED_UPDATE", "FULL_SYNC"):
-            self.netSpeedUpdated.emit(
-                s.net_down_val, s.net_down_unit,
-                s.net_up_val, s.net_up_unit,
-                s.net_down_compact, s.net_up_compact
-            )
-
-        if event_type in ("BATTERY_UPDATE", "FULL_SYNC"):
-            self.batteryUpdated.emit(s.battery_pct, s.battery_charging)
-
-        if event_type in ("TIMER_UPDATE", "FULL_SYNC"):
-            self.timerUpdated.emit()
-
-        if event_type == "TEAMS_CALL_INCOMING":
-            self.callIncomingTriggered.emit(
-                s.last_notify_title or "Teams 来电",
-                s.last_notify_content or "正在呼叫...",
-                s.last_notify_avatar
-            )
-            self.view.raise_()
-        elif event_type == "TEAMS_CALL_ENDED":
-            self.callEndedTriggered.emit()
-        elif event_type == "TEAMS_NOTIFICATION":
-            t_title = s.last_notify_title.strip() or "新消息"
-            t_sub = s.last_notify_content.strip()
-            avatar = s.last_notify_avatar
-            
-            self._notif_model.add_notification({
-                "id": int(time.time() * 1000), "icon": s.last_notify_icon or "💬",
-                "title": t_title, "content": t_sub, "avatar": avatar, "time": time.strftime("%H:%M"), "read": False
-            })
-
-            is_dnd = getattr(self.config, "dndEnabled", False) if self.config else False
-            if not is_dnd:
-                self.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)
-
-    @Slot(result="QVariantMap")
-    def getSystemHealth(self):
-        import shutil
-        has_kwin = (self.wm.platform.platform_name.startswith("KDE"))
-        has_pulse = (self._backend and self._backend.audio and self._backend.audio._running)
-        has_brightness = (self._backend and self._backend.brightness and self._backend.brightness.bus is not None)
-        has_cava = bool(shutil.which("cava"))
-        has_wl_paste = bool(shutil.which("wl-paste"))
-        has_db = bool(self._backend and self._backend.habits)
-
-        return {
-            "platform": self.wm.platform.platform_name,
-            "kwinWorking": bool(has_kwin),
-            "audioWorking": bool(has_pulse),
-            "brightnessWorking": bool(has_brightness),
-            "cavaInstalled": bool(has_cava),
-            "wlPasteInstalled": bool(has_wl_paste),
-            "dbConnected": bool(has_db)
-        }

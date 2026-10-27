@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandFsm.qml
-// 🌟 生产级有限状态机 (支持路由参数传递版)
+// 🌟 生产级有限状态机 (纯 QtObject 根对象 · 杜绝自引用版)
 // =========================================================================
 import QtQuick
 
@@ -185,9 +185,14 @@ QtObject {
                 }
                 break;
 
-            // 🚀【核心修复】：提取并携带目标 tab (如 notification、media)
             case "EXPAND":
-                dismissTransient();
+                transientTimer.stop();
+                activeTransientKey = "";
+                activePayload = ({});
+                activePriority = 0;
+                currentDurationMs = 0;
+                transientStack = [];
+
                 var targetTab = (args && args.tab) ? args.tab : "hardware";
                 transitionTo(IslandFsm.State.Expanded, { reason: "intent_EXPAND", source: src, tab: targetTab });
                 break;

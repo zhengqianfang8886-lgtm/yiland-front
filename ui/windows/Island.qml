@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (集成平铺网格时序隐形防抓取版)
+// 🌟 顶级窗口视图 (滞后防护在场中枢与防抓取全景版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -15,7 +15,6 @@ Item {
 
     focus: true
 
-    // 🚀【核心隐形门禁】：平铺网格激活时，视图透明度归零，KWin 无法抓取到任何药丸图案
     readonly property bool isGridActive: (typeof Bridge !== "undefined" && Bridge.isGridActive !== undefined) ? Bridge.isGridActive : false
 
     opacity: isGridActive ? 0.0 : 1.0
@@ -44,11 +43,11 @@ Item {
         sequence: "Escape"
         enabled: fsm.currentState === IslandFsm.State.Expanded
         onActivated: {
-            console.log("[IslandRoot] ⌨️ 捕获 Escape 按键，执行唯一收起");
             fsm.handleIntent("COLLAPSE", { source: "Shortcut_Escape" });
         }
     }
 
+    // 🚀 正确的实例化位置：只在顶层窗口这里声明一次！
     IslandFsm { id: fsm }
 
     IslandTimeService { 
@@ -81,7 +80,6 @@ Item {
         isExpanded: (fsm.currentState === IslandFsm.State.Expanded)
 
         onRequestCollapse: (reason) => {
-            console.log("[IslandRoot] 📢 接收到协调器收起请求，原因: " + reason);
             fsm.handleIntent("COLLAPSE", { source: reason });
         }
         onRequestAcquireFocus: {
@@ -107,6 +105,10 @@ Item {
         timeService: timeService
         sedentaryService: sedentaryService
         onRequestSettings: root.openSettingsWindow()
+        
+        // 🚀【物理渲染解耦极客方案】：使用 scale 进行纯视觉压扁反馈，掩码雷打不动！
+        scale: (capsule.isRightPressing || corridorArea.isRightPressing) ? 0.95 : 1.0
+        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
     readonly property bool isUserHovering: corridorArea.containsMouse || (capsule && capsule.isHovered)
@@ -123,12 +125,15 @@ Item {
         }
     }
 
-    // 顶部外围走廊感应区
+    // 顶部外围走廊感应区 (碰触即可唤醒探头)
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         width: capsule ? Math.max(180, capsule.width + 24) : 260
+        
+        // 🚀【走廊区独立蓄力源】
+        property bool isRightPressing: false
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
         enabled: !isExpanded && !root.isGridActive
@@ -140,11 +145,11 @@ Item {
 
         Timer {
             id: userLeaveDebounce
-            interval: 320
+            interval: 500
             repeat: false
             onTriggered: {
-                if (fsm.currentState !== IslandFsm.State.Expanded) {
-                    fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" });
+                if (fsm.currentState !== IslandFsm.State.Expanded && !root.isUserHovering) {
+                    fsm.handleIntent("USER_IDLE", { source: "Hysteresis_Guard_Timeout" });
                 }
             }
         }
@@ -158,11 +163,17 @@ Item {
             }
         }
 
-        onClicked: (mouse) => {
+        // 🚀 响应按压与释放
+        onPressed: (mouse) => {
+            if (mouse.button === Qt.RightButton) corridorArea.isRightPressing = true;
+        }
+        onReleased: (mouse) => {
             if (mouse.button === Qt.RightButton) {
+                corridorArea.isRightPressing = false;
                 fsm.handleIntent("TOGGLE_TUCK", { source: "Right_Click_Tuck" });
             }
         }
+        onCanceled: { corridorArea.isRightPressing = false; }
     }
 
     Loader {

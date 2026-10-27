@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/backend.py
-# 🌟 单一异步控制调度总线 (集成语音输入驱动)
+# 🌟 单一异步控制调度总线 (集成线程安全只读快照派发版)
 # ==========================================
 import asyncio
 from typing import Optional, List
@@ -21,6 +21,7 @@ from backend.modules.system import SystemModule
 from backend.modules.timer import TimerModule
 from backend.modules.habits import HabitModule
 from backend.modules.voice import VoiceInputModule
+from backend.modules.ime import ImeModule
 
 
 class DirectIslandBackend:
@@ -43,10 +44,13 @@ class DirectIslandBackend:
         self.timer: Optional[TimerModule] = None
         self.habits: Optional[HabitModule] = None
         self.voice: Optional[VoiceInputModule] = None
+        self.ime: Optional[ImeModule] = None  # 👈 新增
 
     def broadcast(self, event_type: str = "UPDATE"):
+        """🚀 线程安全增强：导出只读快照投递进 Qt 事件总线，杜绝跨线程撕裂与竞态"""
         if self.bridge:
-            self.bridge.post_inproc_event(event_type, self.state)
+            safe_snapshot = self.state.snapshot()
+            self.bridge.post_inproc_event(event_type, safe_snapshot)
 
     def push_spectrum(self, s1: float, s2: float, s3: float, s4: float):
         if self.bridge:
@@ -77,6 +81,7 @@ class DirectIslandBackend:
         self.timer = TimerModule(self, self.state)
         self.habits = HabitModule(self, self.state)
         self.voice = VoiceInputModule(self, self.state)
+        self.ime = ImeModule(self, self.state, self.session_bus)  # 👈 新增
 
         self.modules = [
             self.workspace,
@@ -88,6 +93,7 @@ class DirectIslandBackend:
             self.timer,
             self.habits,
             self.voice,
+            self.ime,  # 👈 新增
         ]
 
         init_tasks = [mod.start() for mod in self.modules]

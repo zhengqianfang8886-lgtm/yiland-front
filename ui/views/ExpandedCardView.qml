@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/ExpandedCardView.qml
-// 🌟 展开态卡片中枢 (平滑切页阻尼 · 彻底消除超速狂切版)
+// 🌟 展开态卡片中枢 (注入布局诊断探针 + 结构加固版)
 // =========================================================================
 import QtQuick
 import QtQuick.Controls
@@ -15,7 +15,7 @@ Item {
     property var relay: null
     property string chosenFont: ""
 
-    property string activeTabId: "hardware"
+    property string activeTabId: "calendar"
     property var sensorCoordinator: null
 
     readonly property var enabledPlugins: {
@@ -27,7 +27,7 @@ Item {
             "hardware":     { id: "hardware",     title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" },
             "workspace":    { id: "workspace",    title: "WORKSPACE",      sub: (cardRoot.relay && cardRoot.relay.wsName) ? cardRoot.relay.wsName : "工作空间", color: Theme.workspace },
             "media":        { id: "media",        title: "MEDIA",          sub: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.title : "媒体播控", color: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.dominantColor : "#22c55e" },
-            "calendar":     { id: "calendar",     title: "CALENDAR",       sub: "日程打卡", color: Theme.calendar },
+            "calendar":     { id: "calendar",     title: "CALENDAR",       sub: "日程打卡", color: "#38bdf8" },
             "timer":        { id: "timer",        title: "TIMER",          sub: "专注时钟", color: Theme.timer },
             "clock":        { id: "clock",        title: "WORLD CLOCK",    sub: "世界时区", color: Theme.clock },
             "notification": { id: "notification", title: "NOTIFICATIONS",  sub: "通知归档", color: Theme.notification }
@@ -62,7 +62,7 @@ Item {
             }
         }
         if (enabledPlugins.length > 0) return enabledPlugins[0];
-        return { title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" };
+        return { title: "CALENDAR", sub: "日程打卡", color: "#38bdf8" };
     }
 
     function getPluginIndex(tabId) {
@@ -79,11 +79,11 @@ Item {
         var targetIdx = getPluginIndex(targetId);
         var calculatedDir = (explicitDir !== undefined) ? explicitDir : (targetIdx >= curIdx ? 1 : -1);
 
+        // console.log("[ExpandedCardDiag] 📑 切换页面: 从 " + activeTabId + " -> " + targetId + " (方向: " + calculatedDir + ")");
         activeTabId = targetId;
         pageConveyor.switchTo(targetId, calculatedDir);
     }
 
-    // 🚀【核心改进】：顶栏滚轮切页累加器 + 140ms 冷却保护，一次滚动只切换一个 Tab
     property real tabWheelAccum: 0
     property bool isTabWheelCooldown: false
 
@@ -92,13 +92,11 @@ Item {
 
     function handleHeaderWheel(wheel) {
         if (cardRoot.isTabWheelCooldown) return;
-
         tabWheelResetTimer.restart();
 
         var delta = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y) ? wheel.angleDelta.x : wheel.angleDelta.y;
         cardRoot.tabWheelAccum += delta;
 
-        // 阈值提升到标准的 100（避免超速狂切）
         if (Math.abs(cardRoot.tabWheelAccum) >= 100) {
             if (!cardRoot.enabledPlugins || cardRoot.enabledPlugins.length <= 1) return;
             var dir = cardRoot.tabWheelAccum > 0 ? -1 : 1;
@@ -112,105 +110,68 @@ Item {
         }
     }
 
-    Column {
-        anchors.fill: parent
-        spacing: 10
+    onHeightChanged: {
+        // console.log("[ExpandedCardDiag] 📐 CardView 高度变动: height=" + height + ", width=" + width);
+    }
 
-        // 1. 顶栏导航与状态条 (滚轮切页唯一热区)
-        ExpandedHeaderBar {
-            chosenFont: cardRoot.chosenFont
-            expandedTab: cardRoot.activeTabId
-            enabledTabs: cardRoot.enabledPlugins
-            tabMeta: cardRoot.currentTabMeta
-            onSwitchRoute: (targetTab) => cardRoot.switchTab(targetTab)
-            onRequestSettings: cardRoot.requestSettings()
-            onTabWheel: (wheel) => cardRoot.handleHeaderWheel(wheel)
-        }
+    // =========================================================================
+    // 布局结构：使用显式锚布局，彻底消除 Column 内部 parent.height 循环依赖
+    // =========================================================================
+    ExpandedHeaderBar {
+        id: headerBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 26
+        z: 10
 
-        // 2. 传送带
-        Item {
-            id: contentContainer
-            width: parent.width
-            height: parent.height - 36
-            clip: true
+        chosenFont: cardRoot.chosenFont
+        expandedTab: cardRoot.activeTabId
+        enabledTabs: cardRoot.enabledPlugins
+        tabMeta: cardRoot.currentTabMeta
+        onSwitchRoute: (targetTab) => cardRoot.switchTab(targetTab)
+        onRequestSettings: cardRoot.requestSettings()
+        onTabWheel: (wheel) => cardRoot.handleHeaderWheel(wheel)
 
-            InterruptibleConveyor {
-                id: pageConveyor
-                currentKey: cardRoot.activeTabId
-                keyToComponentMap: ({
-                    "hardware": compHardware,
-                    "workspace": compWorkspace,
-                    "media": compMedia,
-                    "calendar": compCalendar,
-                    "timer": compTimer,
-                    "clock": compClock,
-                    "notification": compNotification
-                })
-            }
+        Component.onCompleted: {
+            console.log("[HeaderBarDiag] 🎯 HeaderBar 装载完毕: y=" + y + ", h=" + height + 
+                        ", visible=" + visible + ", opacity=" + opacity + 
+                        ", tabMeta=" + JSON.stringify(cardRoot.currentTabMeta));
         }
     }
 
-    Component {
-        id: compHardware
-        HardwarePage {
-            chosenFont: cardRoot.chosenFont
-            onRequestSettings: cardRoot.requestSettings()
+    Item {
+        id: contentContainer
+        anchors.top: headerBar.bottom
+        anchors.topMargin: 8
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        clip: true
+
+        InterruptibleConveyor {
+            id: pageConveyor
+            anchors.fill: parent
+            currentKey: cardRoot.activeTabId
+            keyToComponentMap: ({
+                "hardware": compHardware,
+                "workspace": compWorkspace,
+                "media": compMedia,
+                "calendar": compCalendar,
+                "timer": compTimer,
+                "clock": compClock,
+                "notification": compNotification
+            })
         }
     }
 
-    Component {
-        id: compWorkspace
-        WorkspacePage {
-            chosenFont: cardRoot.chosenFont
-            currentWs: cardRoot.relay ? cardRoot.relay.wsCurrent : 1
-            totalWs: cardRoot.relay ? cardRoot.relay.wsTotal : 4
-            currentWsName: cardRoot.relay ? cardRoot.relay.wsName : ""
-            wsList: cardRoot.relay ? cardRoot.relay.wsList : []
-        }
-    }
-
-    Component {
-        id: compMedia
-        MediaPage {
-            chosenFont: cardRoot.chosenFont
-            title: cardRoot.relay ? cardRoot.relay.title : ""
-            artist: cardRoot.relay ? cardRoot.relay.artist : ""
-            status: cardRoot.relay ? cardRoot.relay.status : "Paused"
-            artUrl: cardRoot.relay ? cardRoot.relay.artUrl : ""
-            position: cardRoot.relay ? cardRoot.relay.position : 0
-            duration: cardRoot.relay ? cardRoot.relay.duration : 0
-            dominantColor: cardRoot.relay ? cardRoot.relay.dominantColor : "#22c55e"
-            onStartCollapse: if (cardRoot.fsm) cardRoot.fsm.handleIntent("COLLAPSE", { source: "MediaPage_Collapse" })
-        }
-    }
-
-    Component {
-        id: compCalendar
-        CalendarPage {
-            chosenFont: cardRoot.chosenFont
-        }
-    }
-
-    Component {
-        id: compTimer
-        TimerPage {
-            chosenFont: cardRoot.chosenFont
-        }
-    }
-
-    Component {
-        id: compClock
-        WorldClockPage {
-            chosenFont: cardRoot.chosenFont
-        }
-    }
-
-    Component {
-        id: compNotification
-        NotificationPage {
-            chosenFont: cardRoot.chosenFont
-        }
-    }
+    Component { id: compHardware; HardwarePage { chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() } }
+    Component { id: compWorkspace; WorkspacePage { chosenFont: cardRoot.chosenFont; currentWs: cardRoot.relay ? cardRoot.relay.wsCurrent : 1; totalWs: cardRoot.relay ? cardRoot.relay.wsTotal : 4; currentWsName: cardRoot.relay ? cardRoot.relay.wsName : ""; wsList: cardRoot.relay ? cardRoot.relay.wsList : [] } }
+    Component { id: compMedia; MediaPage { chosenFont: cardRoot.chosenFont; title: cardRoot.relay ? cardRoot.relay.title : ""; artist: cardRoot.relay ? cardRoot.relay.artist : ""; status: cardRoot.relay ? cardRoot.relay.status : "Paused"; artUrl: cardRoot.relay ? cardRoot.relay.artUrl : ""; position: cardRoot.relay ? cardRoot.relay.position : 0; duration: cardRoot.relay ? cardRoot.relay.duration : 0; dominantColor: cardRoot.relay ? cardRoot.relay.dominantColor : "#22c55e"; onStartCollapse: if (cardRoot.fsm) cardRoot.fsm.handleIntent("COLLAPSE", { source: "MediaPage_Collapse" }) } }
+    Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compTimer; TimerPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compClock; WorldClockPage { chosenFont: cardRoot.chosenFont } }
+    Component { id: compNotification; NotificationPage { chosenFont: cardRoot.chosenFont } }
 
     Component.onCompleted: {
         if (enabledPlugins.length > 0) {
