@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/ExpandedCardView.qml
-// 🌟 展开态卡片中枢 (注入布局诊断探针 + 结构加固版)
+// 🌟 展开态卡片中枢 (移除硬件控制页纯净版)
 // =========================================================================
 import QtQuick
 import QtQuick.Controls
@@ -15,19 +15,18 @@ Item {
     property var relay: null
     property string chosenFont: ""
 
-    property string activeTabId: "calendar"
+    property string activeTabId: "workspace"
     property var sensorCoordinator: null
 
     readonly property var enabledPlugins: {
         var order = (typeof Config !== "undefined" && Config.tabOrder && Config.tabOrder.length > 0) ? 
                     Config.tabOrder : 
-                    ["hardware", "workspace", "media", "calendar", "timer", "clock", "notification"];
+                    ["workspace", "media", "calendar", "timer", "clock", "notification"];
 
         var allMeta = {
-            "hardware":     { id: "hardware",     title: "CONTROL CENTER", sub: "硬件与系统控制", color: "#f59e0b" },
             "workspace":    { id: "workspace",    title: "WORKSPACE",      sub: (cardRoot.relay && cardRoot.relay.wsName) ? cardRoot.relay.wsName : "工作空间", color: Theme.workspace },
             "media":        { id: "media",        title: "MEDIA",          sub: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.title : "媒体播控", color: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.dominantColor : "#22c55e" },
-            "calendar":     { id: "calendar",     title: "CALENDAR",       sub: "日程打卡", color: "#38bdf8" },
+            "calendar":     { id: "calendar",     title: "CALENDAR",       sub: "系统日历", color: "#38bdf8" },
             "timer":        { id: "timer",        title: "TIMER",          sub: "专注时钟", color: Theme.timer },
             "clock":        { id: "clock",        title: "WORLD CLOCK",    sub: "世界时区", color: Theme.clock },
             "notification": { id: "notification", title: "NOTIFICATIONS",  sub: "通知归档", color: Theme.notification }
@@ -38,8 +37,7 @@ Item {
             var k = order[i];
             var isEnabled = true;
             if (typeof Config !== "undefined") {
-                if (k === "hardware") isEnabled = Config.showHardwareTab !== false;
-                else if (k === "workspace") isEnabled = Config.showWorkspaceTab !== false;
+                if (k === "workspace") isEnabled = Config.showWorkspaceTab !== false;
                 else if (k === "media") isEnabled = Config.showMediaTab !== false;
                 else if (k === "calendar") isEnabled = Config.showCalendarTab !== false;
                 else if (k === "timer") isEnabled = Config.showTimerTab !== false;
@@ -62,7 +60,7 @@ Item {
             }
         }
         if (enabledPlugins.length > 0) return enabledPlugins[0];
-        return { title: "CALENDAR", sub: "日程打卡", color: "#38bdf8" };
+        return { title: "WORKSPACE", sub: "工作空间", color: Theme.workspace };
     }
 
     function getPluginIndex(tabId) {
@@ -79,7 +77,6 @@ Item {
         var targetIdx = getPluginIndex(targetId);
         var calculatedDir = (explicitDir !== undefined) ? explicitDir : (targetIdx >= curIdx ? 1 : -1);
 
-        // console.log("[ExpandedCardDiag] 📑 切换页面: 从 " + activeTabId + " -> " + targetId + " (方向: " + calculatedDir + ")");
         activeTabId = targetId;
         pageConveyor.switchTo(targetId, calculatedDir);
     }
@@ -110,13 +107,6 @@ Item {
         }
     }
 
-    onHeightChanged: {
-        // console.log("[ExpandedCardDiag] 📐 CardView 高度变动: height=" + height + ", width=" + width);
-    }
-
-    // =========================================================================
-    // 布局结构：使用显式锚布局，彻底消除 Column 内部 parent.height 循环依赖
-    // =========================================================================
     ExpandedHeaderBar {
         id: headerBar
         anchors.top: parent.top
@@ -132,12 +122,6 @@ Item {
         onSwitchRoute: (targetTab) => cardRoot.switchTab(targetTab)
         onRequestSettings: cardRoot.requestSettings()
         onTabWheel: (wheel) => cardRoot.handleHeaderWheel(wheel)
-
-        Component.onCompleted: {
-            console.log("[HeaderBarDiag] 🎯 HeaderBar 装载完毕: y=" + y + ", h=" + height + 
-                        ", visible=" + visible + ", opacity=" + opacity + 
-                        ", tabMeta=" + JSON.stringify(cardRoot.currentTabMeta));
-        }
     }
 
     Item {
@@ -154,7 +138,6 @@ Item {
             anchors.fill: parent
             currentKey: cardRoot.activeTabId
             keyToComponentMap: ({
-                "hardware": compHardware,
                 "workspace": compWorkspace,
                 "media": compMedia,
                 "calendar": compCalendar,
@@ -165,7 +148,6 @@ Item {
         }
     }
 
-    Component { id: compHardware; HardwarePage { chosenFont: cardRoot.chosenFont; onRequestSettings: cardRoot.requestSettings() } }
     Component { id: compWorkspace; WorkspacePage { chosenFont: cardRoot.chosenFont; currentWs: cardRoot.relay ? cardRoot.relay.wsCurrent : 1; totalWs: cardRoot.relay ? cardRoot.relay.wsTotal : 4; currentWsName: cardRoot.relay ? cardRoot.relay.wsName : ""; wsList: cardRoot.relay ? cardRoot.relay.wsList : [] } }
     Component { id: compMedia; MediaPage { chosenFont: cardRoot.chosenFont; title: cardRoot.relay ? cardRoot.relay.title : ""; artist: cardRoot.relay ? cardRoot.relay.artist : ""; status: cardRoot.relay ? cardRoot.relay.status : "Paused"; artUrl: cardRoot.relay ? cardRoot.relay.artUrl : ""; position: cardRoot.relay ? cardRoot.relay.position : 0; duration: cardRoot.relay ? cardRoot.relay.duration : 0; dominantColor: cardRoot.relay ? cardRoot.relay.dominantColor : "#22c55e"; onStartCollapse: if (cardRoot.fsm) cardRoot.fsm.handleIntent("COLLAPSE", { source: "MediaPage_Collapse" }) } }
     Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }

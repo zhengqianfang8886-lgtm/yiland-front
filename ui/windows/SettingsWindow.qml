@@ -345,8 +345,8 @@ Window {
                                     { name: "PulseAudio / PipeWire 音频中枢", status: settingsWin.healthData.audioWorking, tip: "用于硬件音量监听与双长连接控制" },
                                     { name: "Solid 硬件背光亮度通道", status: settingsWin.healthData.brightnessWorking, tip: "用于 D-Bus 原生屏幕亮度调控" },
                                     { name: "CAVA 硬件音频声谱驱动", status: settingsWin.healthData.cavaInstalled, tip: "用于生成动态音乐律动条" },
-                                    { name: "wl-paste 独立剪贴板看门狗", status: settingsWin.healthData.wlPasteInstalled, tip: "用于零焦点隐私剪贴板嗅探" },
-                                    { name: "SQLite 习惯日程存储引擎", status: settingsWin.healthData.dbConnected, tip: "用于本地 WAL 事务日程日志写入" }
+                                    { name: "wl-paste 独立剪贴板看门狗", status: settingsWin.healthData.wlPasteInstalled, tip: "用于零焦点隐私剪贴板嗅探" }
+                                    // 🚀 已彻底剔除 SQLite 习惯日程诊断项
                                 ]
 
                                 Rectangle {

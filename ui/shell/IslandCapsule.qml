@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (物理实时感知路由 · 消除二次收缩版)
+// 🌟 灵动岛主壳体 (彻底修复动画中连击穿透展开 Bug 版)
 // ==========================================
 import QtQuick
 import "../core"
@@ -27,7 +27,6 @@ Item {
                                       (sensorArea && sensorArea.isPointerHovered)
 
     signal requestSettings()
-    // 🚀【核心链路】：暴露按压信号给外层用于渲染层防抖缩放
     readonly property bool isRightPressing: sensorArea ? sensorArea.isRightPressing : false
 
     PhysicsMotionPod {
@@ -43,9 +42,6 @@ Item {
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
 
-    // =========================================================================
-    // 🚀【物理实时状态路由】：杜绝历史状态残留导致的二次缩水
-    // =========================================================================
     function resolveAndExpress() {
         if (!fsm) return;
 
@@ -55,7 +51,6 @@ Item {
         var tR = Math.round(tH / 2);
         var route = "TWEAK";
 
-        // 纯物理判定：外壳当前是否真的被埋在屏幕上方天花板里
         var isActuallySubmerged = (motionPod.y < -5);
 
         switch (fsm.currentState) {
@@ -63,7 +58,7 @@ Item {
                 tW = 180; 
                 tH = currentConfigHeight; 
                 tR = Math.round(tH / 2);
-                tY = -(tH - 6.0); // 潜入屏幕上方，仅留 6px 细缝
+                tY = -(tH - 6.0);
                 route = "TWEAK";
                 break;
 
@@ -85,7 +80,6 @@ Item {
                 tR = 24;
                 tY = normalTopMargin;
 
-                // 只有物理坐标确实在负值区，才需要降落；否则直接从当前大小一气呵成单调膨胀！
                 if (isActuallySubmerged) {
                     route = "EMERGE_AND_EXPAND";
                 } else {
@@ -94,7 +88,6 @@ Item {
                 break;
         }
 
-        // 第 0ms 瞬间打通物理鼠标穿透全走廊
         if (fsm.currentState !== IslandFsm.State.Hidden) {
             if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                 Bridge.openFullCorridorForMotion();
@@ -112,7 +105,6 @@ Item {
     Connections {
         target: capsuleRoot.fsm
         function onStateChanged(oldState, newState, ctx) {
-            // 🚀【瞬间材质闪烁】：进入深潜态瞬间触发确认闪光
             if (newState === IslandFsm.State.Hidden && oldState !== IslandFsm.State.Hidden) {
                 bg.triggerTuckFlash();
             }
@@ -133,7 +125,6 @@ Item {
         }
     }
 
-    // 🚀【掩码契约加固】：只要处于大卡片展开 OR 输入法下拉菜单弹出中，保持全域放行！
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
@@ -152,12 +143,11 @@ Item {
 
         var capW = Math.round(capsuleRoot.width);
         var capX = Math.round((parent.width - capW) / 2 + islandOffsetX);
-        var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 6);
+        var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 4);
 
         Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
-    // 🚀【核心监听】：菜单开闭状态突变时，即时重塑窗口物理掩码！
     Connections {
         target: compactView
         function onIsImeMenuOpenChanged() {
@@ -173,9 +163,7 @@ Item {
 
     CapsuleBackground {
         id: bg
-        // 🚀 同步隐藏状态给底层，启动呼吸灯
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
-        
         capsuleRadius: motionPod.currentRadius
         accentColor: {
             if (fsm && fsm.activePayload && fsm.activePayload.color) {
@@ -188,13 +176,16 @@ Item {
         }
     }
 
+    // =========================================================================
+    // 🚀【核心修复】：移除 !capsuleRoot.isMoving，任何微动画期间严禁禁用子控件！
+    // =========================================================================
     Item {
         id: compactContainer
         anchors.fill: parent
         clip: true
         z: 10
         visible: opacity > 0.001
-        enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+        enabled: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
 
         opacity: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)) ? 1.0 : 0.0
         Behavior on opacity {
@@ -221,29 +212,6 @@ Item {
         enabled: visible
         isExpanded: capsuleRoot.isCurrentExpanded
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
-
-        onScrubStarted: {
-            if (fsm) fsm.handleIntent("LOCK_SCRUBBING");
-            if (compactView) compactView.isScrubbing = true;
-        }
-        onScrubMoved: (mx, my) => {
-            if (compactView) {
-                compactView.isScrubCanceling = sensorArea.isScrubCanceling;
-                compactView.handleScrubMove(mx, my);
-            }
-        }
-        onScrubCommitted: {
-            if (fsm) fsm.handleIntent("UNLOCK_SCRUBBING");
-            if (compactView) {
-                compactView.isScrubbing = false;
-                var targetIdx = compactView.getScrubTargetIndex();
-                if (typeof Bridge !== "undefined") Bridge.switchWorkspace(targetIdx);
-            }
-        }
-        onScrubCanceled: {
-            if (fsm) fsm.handleIntent("UNLOCK_SCRUBBING");
-            if (compactView) compactView.isScrubbing = false;
-        }
 
         onRequestExpand: (tab) => {
             if (fsm) fsm.handleIntent("EXPAND", { tab: tab, source: "SensorArea_RequestExpand" });

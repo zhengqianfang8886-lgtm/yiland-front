@@ -9,7 +9,7 @@ Item {
     anchors.fill: parent
     clip: true
 
-    property string currentKey: "hardware"
+    property string currentKey: "workspace"
     property var keyToComponentMap: ({})
 
     // 内部运行状态

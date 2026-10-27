@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位离散量化主视口 (补齐属性消除警告版)
+// 🌟 槽位离散量化主视口 (彻底移除鱼眼与洗牌态依赖版)
 // =========================================================================
 import QtQuick
 import "../components/capsule"
@@ -10,16 +10,10 @@ Item {
     id: compactRoot
     anchors.fill: parent
 
-    // =========================================================================
-    // 1. 系统中枢接口与环境属性
-    // =========================================================================
     property var fsm: null
     property var relay: null
     property var timeService: null
     property var sedentaryService: null
-
-    property bool isScrubbing: false
-    property bool isScrubCanceling: false
 
     property string chosenFont: ""
     readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
@@ -31,10 +25,9 @@ Item {
 
     readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
-    readonly property bool hasActiveTimer: (typeof Bridge !== "undefined") && (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted)
+    readonly property bool hasActiveTimer: (typeof Bridge !== "undefined") && (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted || Bridge.timerIsOvertime)
     readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined)
 
-    // 🚀【核心修复】：补齐暴露属性，让外部 IslandCapsule 可以合法监听 onIsImeMenuOpenChanged
     readonly property bool isImeMenuOpen: typeof imePill !== "undefined" ? imePill.isMenuOpen : false
 
     property int cachedOsdValue: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
@@ -46,13 +39,26 @@ Item {
     }
 
     // =========================================================================
-    // 2. 槽位物理宽度测算引擎 (Layout Sizing Engine)
+    // 槽位物理宽度测算引擎
     // =========================================================================
     readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
         ? Math.max(42, wsLabel.implicitWidth + 20) : 0
 
     readonly property int slotClockWidth: clockView.implicitWidth
-    readonly property int slotTimerWidth: hasActiveTimer ? 64 : 0
+
+    readonly property int slotTimerWidth: {
+        if (!hasActiveTimer) return 0;
+        var isOt = (typeof Bridge !== "undefined") && Bridge.timerIsOvertime;
+        var s = 0;
+        if (typeof Bridge !== "undefined") {
+            if (Bridge.timerType === "stopwatch") s = Bridge.timerElapsedSec;
+            else if (isOt) s = Bridge.timerOvertimeSec;
+            else s = Bridge.timerRemainingSec;
+        }
+        if (s >= 3600) return isOt ? 104 : 92;
+        return isOt ? 78 : 68;
+    }
+
     readonly property int slotNetWidth: (typeof Config !== "undefined" && Config.showNetSpeed === false) ? 0 : 68
     readonly property int slotImeWidth: isImeActive ? 30 : 0
     readonly property int slotNoticeWidth: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 38 : 32) : 0
@@ -70,8 +76,6 @@ Item {
     }
 
     readonly property int naturalWidth: {
-        if (compactRoot.isScrubbing) return 320;
-
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
                 case "CALL": return 340;
@@ -96,9 +100,6 @@ Item {
         return Math.ceil(total / 4.0) * 4;
     }
 
-    function handleScrubMove(mx, my) { if (wsView) wsView.updateCursorByMouseX(mx); }
-    function getScrubTargetIndex() { return wsView ? wsView.scrubHoverIndex : 0; }
-
     function getSixBandValue(idx) {
         if (!compactRoot.relay) return 0.2;
         var s1 = compactRoot.relay.spec1 || 0.2, s2 = compactRoot.relay.spec2 || 0.2;
@@ -115,14 +116,14 @@ Item {
     }
 
     // =========================================================================
-    // 3. 常态视口 (Normal Stream View)
+    // 1. 常态视口
     // =========================================================================
     Item {
         id: normalViewContainer
         anchors.fill: parent
         clip: true
         visible: opacity > 0.001
-        opacity: (!compactRoot.hasActiveTransient && !compactRoot.isScrubbing) ? 1.0 : 0.0
+        opacity: !compactRoot.hasActiveTransient ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 180 } }
 
         Row {
@@ -136,7 +137,6 @@ Item {
                 width: compactRoot.slotLeftWidth
                 visible: width > 0
                 anchors.verticalCenter: parent.verticalCenter
-
                 Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                 Rectangle {
@@ -178,23 +178,32 @@ Item {
 
                 Item {
                     id: timerPod
-                    height: 24
+                    height: 26
                     width: compactRoot.slotTimerWidth
                     visible: width > 0
                     anchors.verticalCenter: parent.verticalCenter
+
+                    readonly property bool isOvertime: (typeof Bridge !== "undefined") && Bridge.timerIsOvertime
 
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     Rectangle {
                         id: timerRect
                         anchors.fill: parent
-                        radius: 12
-                        color: timerMouse.pressed ? Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.35) :
-                               (timerMouse.containsMouse ? Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.26) : Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.16))
-                        border.color: timerMouse.containsMouse ? "#fb923c" : Qt.rgba(249 / 255, 115 / 255, 22 / 255, 0.55)
+                        radius: 13
+
+                        color: timerPod.isOvertime ?
+                               (timerMouse.pressed ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.28) :
+                               (timerMouse.containsMouse ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.18) : Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10))) :
+                               (timerMouse.pressed ? Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.22) :
+                               (timerMouse.containsMouse ? Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.14) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)))
+
+                        border.color: timerPod.isOvertime ?
+                                      (timerMouse.containsMouse ? "#FF453A" : Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.50)) :
+                                      (timerMouse.containsMouse ? Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.65) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.25))
                         border.width: 1
 
-                        scale: timerMouse.pressed ? 0.92 : (timerMouse.containsMouse ? 1.05 : 1.0)
+                        scale: timerMouse.pressed ? 0.94 : (timerMouse.containsMouse ? 1.03 : 1.0)
                         Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -202,12 +211,22 @@ Item {
                         CompactTimerView {
                             anchors.centerIn: parent
                             fontFam: compactRoot.displayFont
-                            pixelSize: 11
-                            textColor: "#fdba74"
+                            pixelSize: 15
+                            textColor: {
+                                if (typeof Bridge === "undefined") return "#FF9F0A";
+                                if (Bridge.timerIsOvertime) return "#FF453A";
+                                if (Bridge.timerIsCompleted) return "#30D158";
+                                if (Bridge.timerType === "stopwatch") return "#38BDF8";
+                                return "#FF9F0A";
+                            }
+                            isOvertime: timerPod.isOvertime
                             totalSeconds: {
                                 if (typeof Bridge === "undefined") return 1500;
-                                return Bridge.timerType === "stopwatch" ? Bridge.timerElapsedSec : Bridge.timerRemainingSec;
+                                if (Bridge.timerType === "stopwatch") return Bridge.timerElapsedSec;
+                                if (Bridge.timerIsOvertime) return Bridge.timerOvertimeSec;
+                                return Bridge.timerRemainingSec;
                             }
+                            isPaused: (typeof Bridge !== "undefined") ? Bridge.timerIsPaused : false
                         }
 
                         MouseArea {
@@ -230,7 +249,6 @@ Item {
                     }
                 }
 
-                // 3.3.2 结构化网速药丸
                 CompactNetSpeedView {
                     id: netSpeedPill
                     anchors.verticalCenter: parent.verticalCenter
@@ -256,7 +274,6 @@ Item {
                     width: compactRoot.slotNoticeWidth
                     visible: width > 0
                     anchors.verticalCenter: parent.verticalCenter
-
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     Rectangle {
@@ -306,42 +323,103 @@ Item {
                     }
                 }
 
+                // =========================================================================
+                // 🌟 纯粹苹果级声学微囊 (彻底移除照片 · HSL 强力增艳 · 5柱对称流体律动版)
+                // =========================================================================
                 Item {
                     id: musicPod
-                    height: 24
-                    width: compactRoot.slotMusicWidth
+                    height: 26
+                    width: compactRoot.isMusicPlaying ? 44 : 0
                     visible: width > 0
                     anchors.verticalCenter: parent.verticalCenter
+
+                    // 🚀【HSL 色彩提纯重构】：保留封面色相，强制锁死高饱和度与明度，绝对不发褐发淡
+                    readonly property color vividMusicColor: {
+                        var rawColor = (compactRoot.relay && compactRoot.relay.dominantColor) ? Qt.color(compactRoot.relay.dominantColor) : Qt.color("#22c55e");
+                        var r = rawColor.r, g = rawColor.g, b = rawColor.b;
+                        var maxC = Math.max(r, Math.max(g, b));
+                        var minC = Math.min(r, Math.min(g, b));
+                        var delta = maxC - minC;
+
+                        // 若饱和度极低（黑白灰杂色），直接赋予纯正 Apple/Spotify 活力翡翠绿
+                        if (delta < 0.08) {
+                            return "#22c55e";
+                        }
+
+                        // 计算真实色相 (Hue: 0.0 ~ 1.0)
+                        var h = 0.0;
+                        if (maxC === r) {
+                            h = (g - b) / delta + (g < b ? 6 : 0);
+                        } else if (maxC === g) {
+                            h = (b - r) / delta + 2;
+                        } else {
+                            h = (r - g) / delta + 4;
+                        }
+                        h /= 6.0;
+
+                        // 强行锁死：95% 极高饱和度 + 54% 黄金明度，枯黄暗褐瞬间变为璀璨琥珀金！
+                        return Qt.hsla(h, 0.95, 0.54, 1.0);
+                    }
 
                     Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
 
                     Rectangle {
+                        id: musicRect
                         anchors.fill: parent
-                        radius: 12
-                        color: musicMouse.pressed ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.35) :
-                               (musicMouse.containsMouse ? Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.25) : Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.16))
-                        border.color: musicMouse.containsMouse ? "#86efac" : Qt.rgba(34 / 255, 197 / 255, 94 / 255, 0.45)
+                        radius: 13
+
+                        // 深黑暗晶微透材质，悬停时产生微光外扩
+                        color: musicMouse.pressed ? Qt.rgba(musicPod.vividMusicColor.r, musicPod.vividMusicColor.g, musicPod.vividMusicColor.b, 0.25) :
+                               (musicMouse.containsMouse ? Qt.rgba(255, 255, 255, 0.12) : Qt.rgba(255, 255, 255, 0.06))
+
+                        border.color: musicMouse.containsMouse ? musicPod.vividMusicColor : Qt.rgba(255, 255, 255, 0.14)
                         border.width: 1
 
-                        scale: musicMouse.pressed ? 0.92 : (musicMouse.containsMouse ? 1.05 : 1.0)
+                        scale: musicMouse.pressed ? 0.94 : (musicMouse.containsMouse ? 1.04 : 1.0)
                         Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
                         Behavior on color { ColorAnimation { duration: 120 } }
                         Behavior on border.color { ColorAnimation { duration: 120 } }
 
+                        // =====================================================================
+                        // 5 柱自然声学包络波形 (中间高、两侧逐渐收拢)
+                        // =====================================================================
                         Row {
                             anchors.centerIn: parent
-                            spacing: 2.8
+                            spacing: 2.4
 
                             Repeater {
-                                model: 6
+                                model: 5
+
                                 Rectangle {
-                                    width: 3.2; height: 15.5; radius: 1.6
-                                    color: compactRoot.relay ? compactRoot.relay.dominantColor : "#22c55e"
+                                    width: 2.8
+                                    height: 14
+                                    radius: 1.4
+                                    color: musicPod.vividMusicColor
                                     anchors.verticalCenter: parent.verticalCenter
+
                                     transform: Scale {
-                                        origin.y: 7.75
-                                        yScale: compactRoot.isMusicPlaying ? compactRoot.getSixBandValue(index) : 0.18
-                                        Behavior on yScale { enabled: compactRoot.isMusicPlaying; NumberAnimation { duration: 75 } }
+                                        origin.y: 7
+                                        yScale: {
+                                            if (!compactRoot.isMusicPlaying) return 0.22;
+                                            var s1 = compactRoot.relay ? compactRoot.relay.spec1 : 0.2;
+                                            var s2 = compactRoot.relay ? compactRoot.relay.spec2 : 0.2;
+                                            var s3 = compactRoot.relay ? compactRoot.relay.spec3 : 0.2;
+                                            var s4 = compactRoot.relay ? compactRoot.relay.spec4 : 0.2;
+
+                                            // 对称声学生长系数：中间柱起伏最大，两侧柔和递减
+                                            switch (index) {
+                                                case 0: return Math.max(0.24, Math.min(0.80, s1 * 0.90));
+                                                case 1: return Math.max(0.30, Math.min(0.95, s2 * 1.15));
+                                                case 2: return Math.max(0.36, Math.min(1.00, (s2 + s3) * 0.70)); // 中间主峰
+                                                case 3: return Math.max(0.30, Math.min(0.95, s3 * 1.15));
+                                                case 4: return Math.max(0.24, Math.min(0.80, s4 * 0.90));
+                                                default: return 0.24;
+                                            }
+                                        }
+                                        Behavior on yScale {
+                                            enabled: compactRoot.isMusicPlaying
+                                            NumberAnimation { duration: 75; easing.type: Easing.OutQuad }
+                                        }
                                     }
                                 }
                             }
@@ -354,11 +432,14 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
+
                             onClicked: (mouse) => {
                                 mouse.accepted = true;
                                 if (mouse.button === Qt.LeftButton) {
+                                    // 左键展开音乐大卡片
                                     if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media", source: "Click_MusicPod" });
                                 } else if (mouse.button === Qt.RightButton) {
+                                    // 右键直接播放/暂停
                                     if (typeof Bridge !== "undefined") Bridge.sendMediaCmd("MEDIA_PLAY_PAUSE");
                                 }
                             }
@@ -371,15 +452,15 @@ Item {
     }
 
     // =========================================================================
-    // 4. 打断态暂态悬浮栈 (Overlay Loader Layer)
+    // 2. 打断态暂态悬浮栈
     // =========================================================================
     Loader {
         id: overlayLoader
         anchors.fill: parent
         clip: true
-        active: compactRoot.hasActiveTransient && !compactRoot.isScrubbing
+        active: compactRoot.hasActiveTransient
         visible: opacity > 0.001
-        opacity: (compactRoot.hasActiveTransient && !compactRoot.isScrubbing) ? 1.0 : 0.0
+        opacity: compactRoot.hasActiveTransient ? 1.0 : 0.0
         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         sourceComponent: {
@@ -392,8 +473,20 @@ Item {
                 case "ALERT": return compAlert;
                 case "OSD": return compOsd;
                 case "MEDIA_PEEK": return compMediaPeek;
+                case "WORKSPACE": return compWs;
                 default: return null;
             }
+        }
+    }
+
+    Component {
+        id: compWs
+        CompactWorkspaceView {
+            chosenFont: compactRoot.effectiveFont
+            wsName: compactRoot.relay ? compactRoot.relay.wsName : ""
+            wsTotal: compactRoot.relay ? compactRoot.relay.wsTotal : 4
+            wsList: compactRoot.relay ? compactRoot.relay.wsList : []
+            displayWsNumber: compactRoot.relay ? compactRoot.relay.wsCurrent : 1
         }
     }
 
@@ -468,24 +561,5 @@ Item {
             effectiveFont: compactRoot.effectiveFont
             relay: compactRoot.relay
         }
-    }
-
-    // =========================================================================
-    // 5. 工作区洗牌滑轨视口 (Workspace Scrubbing Layer)
-    // =========================================================================
-    CompactWorkspaceView {
-        id: wsView
-        anchors.fill: parent
-        chosenFont: compactRoot.effectiveFont
-        wsName: compactRoot.relay ? compactRoot.relay.wsName : ""
-        wsTotal: compactRoot.relay ? compactRoot.relay.wsTotal : 4
-        wsList: compactRoot.relay ? compactRoot.relay.wsList : []
-        displayWsNumber: compactRoot.relay ? compactRoot.relay.wsCurrent : 1
-        isScrubbing: compactRoot.isScrubbing
-        isScrubCanceling: compactRoot.isScrubCanceling
-
-        visible: opacity > 0.001
-        opacity: (compactRoot.isScrubbing || (compactRoot.hasActiveTransient && compactRoot.currentKey === "WORKSPACE")) ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 160 } }
     }
 }

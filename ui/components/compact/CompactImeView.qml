@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/components/compact/CompactImeView.qml
-// 🌟 系统原生级输入法组件 (系统级'A'与'朗'双模渲染 · 补全 fontFam 版)
-// =========================================================================
+// 🌟 系统原生级输入法组件 (加固连击防穿透 · 任意手速秒切版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 
@@ -16,7 +16,23 @@ Item {
     readonly property string iconUrl: (typeof Bridge !== "undefined" && Bridge.imeIcon !== undefined) ? Bridge.imeIcon : ""
     readonly property string fallbackLabel: (typeof Bridge !== "undefined" && Bridge.imeLabel !== undefined) ? Bridge.imeLabel : "A"
 
-    readonly property bool isMenuOpen: menuPopup.opened
+    readonly property bool isMenuOpen: menuPopup.opened || subPopup.opened
+
+    property var currentSubmenuItems: []
+    property real currentSubmenuY: 0
+
+    function closeAllMenus() {
+        subPopup.close();
+        menuPopup.close();
+        currentSubmenuItems = [];
+    }
+
+    Connections {
+        target: (typeof Bridge !== "undefined") ? Bridge : null
+        function onWindowDeactivated() {
+            imeRoot.closeAllMenus();
+        }
+    }
 
     Rectangle {
         id: imeBox
@@ -26,7 +42,6 @@ Item {
         radius: 5
         antialiasing: true
 
-        // 无论是系统'朗'还是系统'A'，均呈现系统托盘同款微黑底与微光边框
         color: (imeRoot.fallbackLabel === "朗" || imeRoot.fallbackLabel === "A") ? 
                (imeMouse.containsMouse ? "#2a2a34" : "#1a1a24") : 
                (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent")
@@ -40,9 +55,6 @@ Item {
         Behavior on scale { NumberAnimation { duration: 70 } }
         Behavior on color { ColorAnimation { duration: 100 } }
 
-        // =====================================================================
-        // 🚀【系统原生图像流】：100% 渲染系统下发的 'A' 图标或 '朗' 字位图
-        // =====================================================================
         Image {
             id: sysImg
             anchors.centerIn: parent
@@ -57,7 +69,6 @@ Item {
             mipmap: true
         }
 
-        // 文字兜底：如果系统未发位图，直接呈现等效的 13px 白字 'A' 或 '朗'
         Text {
             anchors.centerIn: parent
             anchors.verticalCenterOffset: -0.5
@@ -70,184 +81,279 @@ Item {
             renderType: Text.QtRendering
         }
 
+        // =====================================================================
+        // 🚀【核心加固点】：独占拦截点击与连击，绝对禁止事件向下穿透
+        // =====================================================================
         MouseArea {
             id: imeMouse
             anchors.fill: parent
             anchors.margins: -4
             hoverEnabled: true
+            preventStealing: true  // 🚀 锁死事件所有权，严禁底层底板抢走事件
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.PointingHandCursor
 
-            onClicked: (mouse) => handleMouse(mouse)
-            onDoubleClicked: (mouse) => handleMouse(mouse)
+            onPressed: (mouse) => {
+                mouse.accepted = true;
+            }
+
+            onClicked: (mouse) => {
+                mouse.accepted = true;
+                handleMouse(mouse);
+            }
+
+            onDoubleClicked: (mouse) => {
+                mouse.accepted = true;
+                handleMouse(mouse); // 🚀 快速连续点击也能顺畅触发切换，绝不变成展开
+            }
 
             function handleMouse(mouse) {
                 if (mouse.button === Qt.LeftButton) {
-                    menuPopup.close();
+                    imeRoot.closeAllMenus();
                     if (typeof Bridge !== "undefined" && Bridge.toggleIme) {
                         Bridge.toggleIme();
                     }
                 } else if (mouse.button === Qt.RightButton) {
-                    if (menuPopup.opened) menuPopup.close();
+                    if (imeRoot.isMenuOpen) imeRoot.closeAllMenus();
                     else menuPopup.open();
                 }
             }
         }
     }
 
+    // 1. 一级主菜单
     Popup {
         id: menuPopup
         y: imeRoot.height + 8
         x: Math.round((imeRoot.width - width) / 2)
-        width: 178
+        width: 204
         padding: 6
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-        Overlay.modal: Rectangle { color: "transparent" }
-
-        onOpened: {
-            if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
-                Bridge.openFullCorridorForMotion();
+        Overlay.modal: MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onPressed: (mouse) => {
+                mouse.accepted = true;
+                imeRoot.closeAllMenus();
             }
         }
 
+        onOpened: {
+            if (typeof Bridge !== "undefined") {
+                if (Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion();
+                if (Bridge.refreshImeMenu) Bridge.refreshImeMenu();
+            }
+        }
+
+        onClosed: {
+            subPopup.close();
+            currentSubmenuItems = [];
+        }
+
         background: Rectangle {
-            color: "#23262e"
-            radius: 9
+            color: "#1e2028"
+            radius: 10
             border.color: Qt.rgba(255, 255, 255, 0.16)
             border.width: 1
         }
 
         contentItem: Column {
             id: menuCol
-            spacing: 2
+            spacing: 3
+            width: parent.width
 
-            Rectangle {
-                width: parent.width; height: 26; radius: 5
-                color: (!imeRoot.isActive) ? Qt.rgba(255, 255, 255, 0.14) : (enMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+            Repeater {
+                model: (typeof Bridge !== "undefined" && Bridge.imeMenuList) ? Bridge.imeMenuList : []
 
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                    Text { text: "⌘"; color: "white"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "键盘 - 英语 (美国)"; color: "white"; font.pixelSize: 11; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
-                }
-                Text {
-                    anchors.right: parent.right; anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: (!imeRoot.isActive) ? "●" : ""
-                    color: "#38bdf8"; font.pixelSize: 8
-                }
-                MouseArea {
-                    id: enMouse
-                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        menuPopup.close();
-                        if (typeof Bridge !== "undefined") Bridge.switchImeTo("keyboard-us");
+                delegate: Item {
+                    id: rowItem
+                    width: menuCol.width
+                    height: modelData.isSeparator ? 8 : 30
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width - 8
+                        height: 1
+                        color: Qt.rgba(255, 255, 255, 0.08)
+                        visible: modelData.isSeparator
                     }
-                }
-            }
 
-            Rectangle {
-                width: parent.width; height: 26; radius: 5
-                color: (imeRoot.isActive) ? Qt.rgba(255, 255, 255, 0.14) : (rimeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 6
+                        visible: !modelData.isSeparator
 
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                    Text { text: "⊙"; color: "white"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "中州韵"; color: "white"; font.pixelSize: 11; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
-                }
-                Text {
-                    anchors.right: parent.right; anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: (imeRoot.isActive) ? "●" : ""
-                    color: "#34d399"; font.pixelSize: 8
-                }
-                MouseArea {
-                    id: rimeMouse
-                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        menuPopup.close();
-                        if (typeof Bridge !== "undefined") Bridge.switchImeTo("rime");
-                    }
-                }
-            }
+                        color: (modelData.isActive || (modelData.hasSubmenu && subPopup.opened && imeRoot.currentSubmenuItems === modelData.children)) ? 
+                               Qt.rgba(255, 255, 255, 0.15) : 
+                               (rowMouse.containsMouse && (modelData.enabled !== false) ? Qt.rgba(255, 255, 255, 0.08) : "transparent")
 
-            Rectangle { width: parent.width - 8; height: 1; color: Qt.rgba(255, 255, 255, 0.08); anchors.horizontalCenter: parent.horizontalCenter }
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 10
+                            anchors.right: statusBadge.left
+                            anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 6
+                            clip: true
 
-            Rectangle {
-                width: parent.width; height: 26; radius: 5
-                color: pinyinMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                    Text { text: "🌐"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "朗月拼音·简化字"; color: "white"; font.pixelSize: 11; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
-                }
-                Text {
-                    anchors.right: parent.right; anchors.rightMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "›"; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 12
-                }
-                MouseArea { id: pinyinMouse; anchors.fill: parent; hoverEnabled: true }
-            }
+                            Text {
+                                text: modelData.label || ""
+                                color: (modelData.enabled !== false) ? "#ffffff" : Qt.rgba(1, 1, 1, 0.4)
+                                font.pixelSize: 13
+                                font.weight: modelData.isActive ? Font.Black : Font.DemiBold
+                                elide: Text.ElideRight
+                                width: parent.width
+                                anchors.verticalCenter: parent.verticalCenter
+                                renderType: Text.QtRendering
+                            }
+                        }
 
-            Rectangle {
-                width: parent.width; height: 24; radius: 5
-                color: banjiaoMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 26
-                    anchors.verticalCenter: parent.verticalCenter
-                    Text { text: "半角 → 全角"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 10; font.weight: Font.DemiBold }
-                }
-                MouseArea { id: banjiaoMouse; anchors.fill: parent; hoverEnabled: true }
-            }
+                        Item {
+                            id: statusBadge
+                            anchors.right: parent.right
+                            anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 12
+                            height: 12
+                            visible: modelData.isActive || modelData.hasSubmenu
 
-            Rectangle {
-                width: parent.width; height: 24; radius: 5
-                color: fantiMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 26
-                    anchors.verticalCenter: parent.verticalCenter
-                    Text { text: "汉字 → 漢字"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 10; font.weight: Font.DemiBold }
-                }
-                MouseArea { id: fantiMouse; anchors.fill: parent; hoverEnabled: true }
-            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.isActive ? "●" : (modelData.hasSubmenu ? "›" : "")
+                                color: modelData.isActive ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.5)
+                                font.pixelSize: modelData.isActive ? 9 : 14
+                                font.bold: modelData.hasSubmenu
+                                renderType: Text.QtRendering
+                            }
+                        }
 
-            Rectangle {
-                width: parent.width; height: 24; radius: 5
-                color: biaodianMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 26
-                    anchors.verticalCenter: parent.verticalCenter
-                    Text { text: "。， → ．，"; color: Qt.rgba(1, 1, 1, 0.85); font.pixelSize: 10; font.weight: Font.DemiBold }
-                }
-                MouseArea { id: biaodianMouse; anchors.fill: parent; hoverEnabled: true }
-            }
+                        MouseArea {
+                            id: rowMouse
+                            anchors.fill: parent
+                            hoverEnabled: modelData.enabled !== false
+                            cursorShape: (modelData.enabled !== false) ? Qt.PointingHandCursor : Qt.ArrowCursor
 
-            Rectangle { width: parent.width - 8; height: 1; color: Qt.rgba(255, 255, 255, 0.08); anchors.horizontalCenter: parent.horizontalCenter }
+                            onEntered: {
+                                if (modelData.hasSubmenu && modelData.children && modelData.children.length > 0) {
+                                    openSubmenu(modelData.children, rowItem.y);
+                                } else {
+                                    subPopup.close();
+                                }
+                            }
 
-            Rectangle {
-                width: parent.width; height: 26; radius: 5
-                color: cfgMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
-                Row {
-                    anchors.left: parent.left; anchors.leftMargin: 8
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 8
-                    Text { text: "⚙"; color: "white"; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "配置"; color: "white"; font.pixelSize: 11; font.weight: Font.DemiBold; anchors.verticalCenter: parent.verticalCenter }
-                }
-                MouseArea {
-                    id: cfgMouse
-                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        menuPopup.close();
-                        if (typeof Bridge !== "undefined") Bridge.openImeConfig();
+                            onClicked: {
+                                if (modelData.hasSubmenu && modelData.children && modelData.children.length > 0) {
+                                    openSubmenu(modelData.children, rowItem.y);
+                                } else {
+                                    imeRoot.closeAllMenus();
+                                    if (typeof Bridge !== "undefined" && Bridge.activateImeMenuItem) {
+                                        Bridge.activateImeMenuItem(modelData.id, modelData.uniqueName || "");
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    // 2. 二级子菜单
+    Popup {
+        id: subPopup
+        x: (menuPopup.x + menuPopup.width + 188 <= 660) ? (menuPopup.x + menuPopup.width + 4) : (menuPopup.x - width - 4)
+        y: menuPopup.y + imeRoot.currentSubmenuY - 4
+        width: 188
+        padding: 6
+        modal: false
+        focus: false
+        closePolicy: Popup.CloseOnEscape
+
+        background: Rectangle {
+            color: "#181a20"
+            radius: 8
+            border.color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.35)
+            border.width: 1
+        }
+
+        contentItem: Column {
+            id: subCol
+            spacing: 3
+            width: parent.width
+
+            Repeater {
+                model: imeRoot.currentSubmenuItems
+
+                delegate: Item {
+                    width: subCol.width
+                    height: modelData.isSeparator ? 6 : 28
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width - 8
+                        height: 1
+                        color: Qt.rgba(255, 255, 255, 0.08)
+                        visible: modelData.isSeparator
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 5
+                        visible: !modelData.isSeparator
+                        color: modelData.isActive ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.22) : 
+                               (subMouse.containsMouse ? Qt.rgba(255, 255, 255, 0.08) : "transparent")
+
+                        Row {
+                            anchors.left: parent.left; anchors.leftMargin: 10
+                            anchors.right: parent.right; anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 6
+
+                            Text {
+                                text: modelData.label || ""
+                                color: modelData.isActive ? "#38bdf8" : (modelData.enabled !== false ? "white" : Qt.rgba(1, 1, 1, 0.4))
+                                font.pixelSize: 13
+                                font.weight: modelData.isActive ? Font.Black : Font.DemiBold
+                                elide: Text.ElideRight
+                                width: parent.width - 18
+                                anchors.verticalCenter: parent.verticalCenter
+                                renderType: Text.QtRendering
+                            }
+
+                            Text {
+                                text: modelData.isActive ? "●" : ""
+                                color: "#38bdf8"
+                                font.pixelSize: 8
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: modelData.isActive
+                            }
+                        }
+
+                        MouseArea {
+                            id: subMouse
+                            anchors.fill: parent
+                            hoverEnabled: modelData.enabled !== false
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked: {
+                                imeRoot.closeAllMenus();
+                                if (typeof Bridge !== "undefined" && Bridge.activateImeMenuItem) {
+                                    Bridge.activateImeMenuItem(modelData.id, "");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    function openSubmenu(items, anchorY) {
+        currentSubmenuItems = items;
+        currentSubmenuY = anchorY;
+        subPopup.open();
     }
 }

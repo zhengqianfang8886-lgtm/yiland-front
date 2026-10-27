@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/backend.py
-# 🌟 单一异步控制调度总线 (集成线程安全只读快照派发版)
+# 🌟 单一异步控制调度总线 (彻底剥离习惯打卡模块版)
 # ==========================================
 import asyncio
 from typing import Optional, List
@@ -19,7 +19,6 @@ from backend.modules.audio import AudioModule
 from backend.modules.notifications import NotificationModule
 from backend.modules.system import SystemModule
 from backend.modules.timer import TimerModule
-from backend.modules.habits import HabitModule
 from backend.modules.voice import VoiceInputModule
 from backend.modules.ime import ImeModule
 
@@ -33,8 +32,9 @@ class DirectIslandBackend:
         self.state = IslandState()
         self.session_bus: Optional[MessageBus] = None
         self.modules: List[BaseModule] = []
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
 
-        # 核心功能模块直通引用
+        # 核心功能模块直通引用 (已移除 habits)
         self.workspace: Optional[WorkspaceModule] = None
         self.mpris: Optional[MprisModule] = None
         self.brightness: Optional[BrightnessModule] = None
@@ -42,12 +42,10 @@ class DirectIslandBackend:
         self.notifications: Optional[NotificationModule] = None
         self.system: Optional[SystemModule] = None
         self.timer: Optional[TimerModule] = None
-        self.habits: Optional[HabitModule] = None
         self.voice: Optional[VoiceInputModule] = None
-        self.ime: Optional[ImeModule] = None  # 👈 新增
+        self.ime: Optional[ImeModule] = None
 
     def broadcast(self, event_type: str = "UPDATE"):
-        """🚀 线程安全增强：导出只读快照投递进 Qt 事件总线，杜绝跨线程撕裂与竞态"""
         if self.bridge:
             safe_snapshot = self.state.snapshot()
             self.bridge.post_inproc_event(event_type, safe_snapshot)
@@ -64,6 +62,7 @@ class DirectIslandBackend:
                 app_logger.warning(f"模块 [{mod.__class__.__name__}] 切换休眠失败: {e}")
 
     async def initialize(self):
+        self.loop = asyncio.get_running_loop()
         app_logger.info("⚡ 正在启动底层 D-Bus 与驱动总线...")
         try:
             self.session_bus = await MessageBus(bus_type=BusType.SESSION).connect()
@@ -71,7 +70,7 @@ class DirectIslandBackend:
         except Exception as e:
             app_logger.error(f"❌ D-Bus Session 连接失败: {e}")
 
-        # 实例化驱动子模块
+        # 实例化驱动子模块 (已移除 habits)
         self.workspace = WorkspaceModule(self, self.state, self.session_bus)
         self.mpris = MprisModule(self, self.state, self.session_bus)
         self.brightness = BrightnessModule(self, self.state, self.session_bus)
@@ -79,9 +78,8 @@ class DirectIslandBackend:
         self.notifications = NotificationModule(self, self.state)
         self.system = SystemModule(self, self.state)
         self.timer = TimerModule(self, self.state)
-        self.habits = HabitModule(self, self.state)
         self.voice = VoiceInputModule(self, self.state)
-        self.ime = ImeModule(self, self.state, self.session_bus)  # 👈 新增
+        self.ime = ImeModule(self, self.state, self.session_bus)
 
         self.modules = [
             self.workspace,
@@ -91,9 +89,8 @@ class DirectIslandBackend:
             self.notifications,
             self.system,
             self.timer,
-            self.habits,
             self.voice,
-            self.ime,  # 👈 新增
+            self.ime,
         ]
 
         init_tasks = [mod.start() for mod in self.modules]

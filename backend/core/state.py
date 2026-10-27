@@ -1,16 +1,12 @@
 # ==========================================
 # 📄 File: backend/core/state.py
-# 🌟 全量系统状态单一事实源 (RLock 线程安全 + 零竞态快照生成器)
+# 🌟 全量系统状态单一事实源 (新增超时追溯状态)
 # ==========================================
 import threading
 from typing import Dict, Any, Optional, List, Tuple
 
 
 class IslandStateSnapshot:
-    """
-    点对点不可变快照：
-    派发给 Qt QueuedConnection 消息队列消费，完全阻断后台线程并发修改引起的数据撕裂。
-    """
     def __init__(self, data: Dict[str, Any]):
         self.__dict__.update(data)
 
@@ -31,17 +27,7 @@ class IslandStateSnapshot:
 
 
 class IslandState:
-    """
-    线程安全的全量系统状态单一事实源 (SSOT)
-    支持：
-      1. RLock 读写锁自动同步
-      2. 上下文管理器 (with state:) 事务块
-      3. batch_update(**kwargs) 多字段原子提交
-      4. snapshot() 零撕裂深克隆快照导出
-    """
-
     def __init__(self):
-        # 内部锁声明（使用 object.__setattr__ 避免触发递归拦截）
         object.__setattr__(self, "_lock", threading.RLock())
 
         # 1. 虚拟桌面
@@ -91,11 +77,13 @@ class IslandState:
         self.net_up_compact: str = "0B"
         self.local_ip: str = "127.0.0.1"
 
-        # 7. 专注计时器核心状态
+        # 7. 专注计时器核心状态 (支持正向超时追溯)
         self.timer_type: str = "countdown"
         self.timer_is_running: bool = False
         self.timer_is_paused: bool = False
         self.timer_is_completed: bool = False
+        self.timer_is_overtime: bool = False       # 🚀 新增：是否处于超时追溯状态
+        self.timer_overtime_sec: int = 0           # 🚀 新增：已超时秒数
         self.timer_remaining_sec: int = 1500
         self.timer_total_sec: int = 1500
         self.timer_elapsed_sec: int = 0
@@ -128,11 +116,9 @@ class IslandState:
         self.ime_active: bool = False
         self.ime_name: str = "keyboard-us"
         self.ime_label: str = "英"
-        self.ime_icon_url: str = ""  # 👈 存放系统生成的位图 Base64 URL 或主题图标
+        self.ime_icon_url: str = ""
+        self.ime_menu_items: List[Dict[str, Any]] = []  # 🚀 系统动态菜单项
 
-    # =========================================================================
-    # 线程安全核心协议实现
-    # =========================================================================
     def __enter__(self):
         self._lock.acquire()
         return self
@@ -153,7 +139,6 @@ class IslandState:
             return object.__getattribute__(self, name)
         with object.__getattribute__(self, "_lock"):
             val = object.__getattribute__(self, name)
-            # 浅拷贝列表和字典，阻断多线程边迭代边修改导致的 RuntimeError
             if isinstance(val, list):
                 return list(val)
             elif isinstance(val, dict):
@@ -161,13 +146,11 @@ class IslandState:
             return val
 
     def batch_update(self, **kwargs):
-        """原子批量更新多个属性，杜绝撕裂读"""
         with self._lock:
             for k, v in kwargs.items():
                 object.__setattr__(self, k, v)
 
     def snapshot(self) -> IslandStateSnapshot:
-        """生成只读线程安全快照（浅克隆集合类型）"""
         with self._lock:
             data = {}
             for k, v in self.__dict__.items():

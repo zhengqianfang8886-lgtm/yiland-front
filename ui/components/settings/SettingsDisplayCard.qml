@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/settings/SettingsDisplayCard.qml
-// 🌟 显示与偏好调控卡片 (剔除死开关与幽灵配置版)
+// 🌟 显示与偏好调控卡片 (剔除硬件中控与死配置项版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -11,7 +11,6 @@ Column {
 
     function getTabMeta(key) {
         if (key === "time") return { name: "时间节律", icon: "🕒", color: "#38bdf8" }
-        if (key === "hardware") return { name: "硬件中控", icon: "🎛️", color: "#f59e0b" }
         if (key === "workspace") return { name: "工作区", icon: "⊞", color: "#a855f7" }
         if (key === "media") return { name: "媒体播放", icon: "🎵", color: "#22c55e" }
         if (key === "calendar") return { name: "日历日程", icon: "📅", color: "#38bdf8" }
@@ -24,7 +23,6 @@ Column {
     function isKeyEnabled(key) {
         if (typeof Config === "undefined") return true
         if (key === "time") return true
-        if (key === "hardware") return Config.showHardwareTab !== false
         if (key === "workspace") return Config.showWorkspaceTab !== false
         if (key === "media") return Config.showMediaTab !== false
         if (key === "calendar") return Config.showCalendarTab !== false
@@ -36,8 +34,7 @@ Column {
 
     function setKeyEnabled(key, enabled) {
         if (typeof Config === "undefined") return
-        if (key === "hardware") Config.showHardwareTab = enabled
-        else if (key === "workspace") Config.showWorkspaceTab = enabled
+        if (key === "workspace") Config.showWorkspaceTab = enabled
         else if (key === "media") Config.showMediaTab = enabled
         else if (key === "calendar") Config.showCalendarTab = enabled
         else if (key === "timer") Config.showTimerTab = enabled
@@ -64,10 +61,9 @@ Column {
         Config.tabOrder = list
     }
 
-    // 🚀【核心过滤】：只展示项目中真实存在对应页面的 Tab，剔除幽灵死开关
     readonly property var validTabs: {
         var order = (typeof Config !== "undefined" && Config.tabOrder) ? Config.tabOrder : []
-        var supported = ["hardware", "workspace", "media", "calendar", "timer", "clock", "notification"]
+        var supported = ["workspace", "media", "calendar", "timer", "clock", "notification"]
         return order.filter(function(k) { return supported.indexOf(k) !== -1 })
     }
 

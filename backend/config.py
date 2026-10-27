@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/config.py
-# 🌟 生产级配置中心 (集成胶囊高度档位 · 400ms 原子防抖落盘)
+# 🌟 生产级配置中心 (消除幽灵配置键 · 400ms 原子防抖落盘)
 # ==========================================
 import os
 import json
@@ -17,9 +17,10 @@ DEFAULT_SAVED_CLOCKS = [
     {"name": "东京", "en": "Tokyo", "country": "日本", "iso": "JP", "tz": "Asia/Tokyo"}
 ]
 
+# 🚀 已剔除 "hardware"
 DEFAULT_TAB_ORDER = [
-    "hardware", "workspace", "media", "calendar",
-    "timer", "clock", "network", "bluetooth", "notification"
+    "workspace", "media", "calendar",
+    "timer", "clock", "notification"
 ]
 
 CONFIG_SCHEMA = {
@@ -27,7 +28,6 @@ CONFIG_SCHEMA = {
     "offsetX": {"default": 0, "val": lambda v: int(v)},
     "anchorMode": {"default": "screen", "val": lambda v: str(v) if v in ("screen", "window") else "screen"},
     "capsuleTopMargin": {"default": 6, "val": lambda v: max(0, min(50, int(v)))},
-    # 🚀【新增配置项】：主胶囊高度档位 (32=极简紧凑, 36=平衡推荐, 42=大屏触控)
     "capsuleHeight": {"default": 36, "val": lambda v: 32 if int(v) <= 33 else (42 if int(v) >= 40 else 36)},
     "expandedTopMargin": {"default": 16, "val": lambda v: max(0, min(100, int(v)))},
     "fontFamily": {"default": "系统默认 (Default)", "val": lambda v: str(v)},
@@ -44,20 +44,16 @@ CONFIG_SCHEMA = {
     "sedentaryIntervalMinutes": {"default": 45, "val": lambda v: max(5, min(180, int(v)))},
     "sedentarySnoozeMinutes": {"default": 5, "val": lambda v: max(1, min(30, int(v)))},
     "volumeStep": {"default": 5, "val": lambda v: max(1, min(20, int(v)))},
-    "clipboardMonitorEnabled": {"default": True, "val": lambda v: bool(v)},
     "animStyle": {"default": "precision", "val": lambda v: str(v) if v in ("precision", "jelly") else "precision"},
     "hoverDwellTime": {"default": 240, "val": lambda v: max(50, min(2000, int(v)))},
     "hoverExpandEnabled": {"default": True, "val": lambda v: bool(v)},
     "autoHideDurationSeconds": {"default": 5, "val": lambda v: max(1, min(60, int(v)))},
     "tabOrder": {"default": DEFAULT_TAB_ORDER, "val": lambda v: list(v)},
-    "showHardwareTab": {"default": True, "val": lambda v: bool(v)},
     "showWorkspaceTab": {"default": True, "val": lambda v: bool(v)},
     "showMediaTab": {"default": True, "val": lambda v: bool(v)},
     "showCalendarTab": {"default": True, "val": lambda v: bool(v)},
     "showTimerTab": {"default": True, "val": lambda v: bool(v)},
     "showClockTab": {"default": True, "val": lambda v: bool(v)},
-    "showNetworkTab": {"default": True, "val": lambda v: bool(v)},
-    "showBluetoothTab": {"default": True, "val": lambda v: bool(v)},
     "showNotificationTab": {"default": True, "val": lambda v: bool(v)},
     "dndEnabled": {"default": False, "val": lambda v: bool(v)},
     "dndAllowCalls": {"default": True, "val": lambda v: bool(v)},
@@ -85,20 +81,16 @@ class ConfigManager(QObject):
     sedentaryIntervalMinutesChanged = Signal(int)
     sedentarySnoozeMinutesChanged = Signal(int)
     volumeStepChanged = Signal(int)
-    clipboardMonitorEnabledChanged = Signal(bool)
     animStyleChanged = Signal(str)
     hoverDwellTimeChanged = Signal(int)
     hoverExpandEnabledChanged = Signal(bool)
     autoHideDurationSecondsChanged = Signal(int)
     tabOrderChanged = Signal(list)
-    showHardwareTabChanged = Signal(bool)
     showWorkspaceTabChanged = Signal(bool)
     showMediaTabChanged = Signal(bool)
     showCalendarTabChanged = Signal(bool)
     showTimerTabChanged = Signal(bool)
     showClockTabChanged = Signal(bool)
-    showNetworkTabChanged = Signal(bool)
-    showBluetoothTabChanged = Signal(bool)
     showNotificationTabChanged = Signal(bool)
     dndEnabledChanged = Signal(bool)
     dndAllowCallsChanged = Signal(bool)
@@ -145,9 +137,8 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            if "time" in self._tabOrder:
-                self._tabOrder = [t for t in self._tabOrder if t != "time"]
-
+            # 过滤剔除历史配置残留中的无效选项
+            self._tabOrder = [t for t in self._tabOrder if t in DEFAULT_TAB_ORDER]
             for item in DEFAULT_TAB_ORDER:
                 if item not in self._tabOrder:
                     self._tabOrder.append(item)
@@ -191,7 +182,6 @@ class ConfigManager(QObject):
     @capsuleTopMargin.setter
     def capsuleTopMargin(self, val): self._set_value("capsuleTopMargin", val, self.capsuleTopMarginChanged)
 
-    # 🚀 胶囊高度属性与信号
     @Property(int, notify=capsuleHeightChanged)
     def capsuleHeight(self): return self._capsuleHeight
     @capsuleHeight.setter
@@ -293,11 +283,6 @@ class ConfigManager(QObject):
     @volumeStep.setter
     def volumeStep(self, val): self._set_value("volumeStep", val, self.volumeStepChanged)
 
-    @Property(bool, notify=clipboardMonitorEnabledChanged)
-    def clipboardMonitorEnabled(self): return self._clipboardMonitorEnabled
-    @clipboardMonitorEnabled.setter
-    def clipboardMonitorEnabled(self, val): self._set_value("clipboardMonitorEnabled", val, self.clipboardMonitorEnabledChanged)
-
     @Property(str, notify=animStyleChanged)
     def animStyle(self): return self._animStyle
     @animStyle.setter
@@ -323,11 +308,6 @@ class ConfigManager(QObject):
     @tabOrder.setter
     def tabOrder(self, val): self._set_value("tabOrder", val, self.tabOrderChanged)
 
-    @Property(bool, notify=showHardwareTabChanged)
-    def showHardwareTab(self): return self._showHardwareTab
-    @showHardwareTab.setter
-    def showHardwareTab(self, val): self._set_value("showHardwareTab", val, self.showHardwareTabChanged)
-
     @Property(bool, notify=showWorkspaceTabChanged)
     def showWorkspaceTab(self): return self._showWorkspaceTab
     @showWorkspaceTab.setter
@@ -352,16 +332,6 @@ class ConfigManager(QObject):
     def showClockTab(self): return self._showClockTab
     @showClockTab.setter
     def showClockTab(self, val): self._set_value("showClockTab", val, self.showClockTabChanged)
-
-    @Property(bool, notify=showNetworkTabChanged)
-    def showNetworkTab(self): return self._showNetworkTab
-    @showNetworkTab.setter
-    def showNetworkTab(self, val): self._set_value("showNetworkTab", val, self.showNetworkTabChanged)
-
-    @Property(bool, notify=showBluetoothTabChanged)
-    def showBluetoothTab(self): return self._showBluetoothTab
-    @showBluetoothTab.setter
-    def showBluetoothTab(self, val): self._set_value("showBluetoothTab", val, self.showBluetoothTabChanged)
 
     @Property(bool, notify=showNotificationTabChanged)
     def showNotificationTab(self): return self._showNotificationTab

@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandFsm.qml
-// 🌟 生产级有限状态机 (纯 QtObject 根对象 · 杜绝自引用版)
+// 🌟 生产级有限状态机 (纯 QtObject 根对象 · 彻底移除洗牌锁定版)
 // =========================================================================
 import QtQuick
 
@@ -48,7 +48,6 @@ QtObject {
 
     property bool isTuckedPreference: false
     property bool isHovering: false
-    property bool isScrubbingLocked: false
     property var transientStack: []
 
     signal stateChanged(int oldState, int newState, var context)
@@ -67,16 +66,6 @@ QtObject {
 
     function postTransient(key, payload, durationMs) {
         var prio = priorityTable[key] || 0;
-
-        if (isScrubbingLocked && prio < 100) {
-            transientStack.push({
-                key: key,
-                payload: payload || {},
-                remainingMs: durationMs,
-                priority: prio
-            });
-            return true;
-        }
 
         if (activeTransientKey !== "") {
             if (prio < activePriority) {
@@ -193,7 +182,7 @@ QtObject {
                 currentDurationMs = 0;
                 transientStack = [];
 
-                var targetTab = (args && args.tab) ? args.tab : "hardware";
+                var targetTab = (args && args.tab) ? args.tab : "workspace";
                 transitionTo(IslandFsm.State.Expanded, { reason: "intent_EXPAND", source: src, tab: targetTab });
                 break;
 
@@ -207,18 +196,6 @@ QtObject {
                 isTuckedPreference = !isTuckedPreference;
                 dismissTransient();
                 transitionTo(isTuckedPreference ? IslandFsm.State.Hidden : IslandFsm.State.Compact, { reason: "intent_TOGGLE_TUCK", source: src });
-                break;
-
-            case "LOCK_SCRUBBING":
-                isScrubbingLocked = true;
-                break;
-
-            case "UNLOCK_SCRUBBING":
-                isScrubbingLocked = false;
-                if (activeTransientKey === "" && transientStack.length > 0) {
-                    var queued = transientStack.pop();
-                    postTransient(queued.key, queued.payload, queued.remainingMs);
-                }
                 break;
         }
     }

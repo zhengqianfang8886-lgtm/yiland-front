@@ -1,16 +1,14 @@
 # ==========================================
 # 📄 File: backend/window.py
-# 🌟 窗口物理掩码穿透服务 (已彻底移除剪贴板监听)
+# 🌟 窗口物理掩码穿透与外设服务 (修复终端系统监视器查找 Bug 版)
 # ==========================================
 import shutil
 import subprocess
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject
 from backend.platform import detect_platform
 
 
 class WindowManagerService(QObject):
-    clipboardTriggered = Signal(str, str, str, int)
-
     def __init__(self, view, executor, config=None, parent=None):
         super().__init__(parent)
         self.view = view
@@ -19,15 +17,12 @@ class WindowManagerService(QObject):
         self.platform = detect_platform()
         self._last_applied_sig = ""
 
-        # 🚀 彻底禁用平台级剪贴板监听，不再启动线程与轮询
-
     def set_precise_bounding_mask(self, x: int, y: int, w: int, h: int):
         sig = f"{x},{y},{w},{h}"
         if sig == self._last_applied_sig:
             return
         self._last_applied_sig = sig
         self.platform.apply_input_mask(self.view, x, y, w, h)
-        # 🚀【核心加固】：强制刷新渲染管线，让 Wayland 合成器立即收到新的穿透区域
         if hasattr(self.view, "requestUpdate"):
             self.view.requestUpdate()
 
@@ -49,36 +44,34 @@ class WindowManagerService(QObject):
 
     def open_system_monitor(self):
         def _open():
-            for cmd in ["mission-center", "resources", "gnome-system-monitor", "plasma-systemmonitor", "mate-system-monitor", "xfce4-taskmanager"]:
-                if shutil.which(cmd):
+            # 1. 优先尝试启动独立的 GUI 任务管理器
+            for gui_cmd in [
+                "mission-center", "resources", "plasma-systemmonitor",
+                "gnome-system-monitor", "mate-system-monitor", "xfce4-taskmanager"
+            ]:
+                if shutil.which(gui_cmd):
                     try:
-                        subprocess.Popen([cmd])
+                        subprocess.Popen([gui_cmd])
                         return
                     except Exception:
                         pass
-            for term in ["kitty", "alacritty", "foot", "wezterm", "gnome-terminal", "konsole"]:
-                if shutil.which(cmd):
-                    for mon in ["btop", "htop", "top"]:
-                        if shutil.which(mon):
-                            try:
-                                subprocess.Popen([term, "-e", mon])
-                                return
-                            except Exception:
-                                pass
-        self._pool.submit(_open)
 
-    def open_bluetooth_settings(self):
-        def _open():
-            for cmd in ["blueman-manager", "gnome-control-center", "plasma-open-settings", "kcmshell6", "blueberry", "overskride"]:
-                if shutil.which(cmd):
-                    try:
-                        if cmd == "gnome-control-center":
-                            subprocess.Popen([cmd, "bluetooth"])
-                        elif cmd in ("plasma-open-settings", "kcmshell6"):
-                            subprocess.Popen([cmd, "kcm_bluetooth"])
-                        else:
-                            subprocess.Popen([cmd])
-                        return
-                    except Exception:
-                        pass
+            # 2. 次级降级方案：探测本地已安装的虚拟终端与 btop/htop (修复了原代码中的变量覆盖 Bug)
+            installed_term = None
+            for term in ["kitty", "alacritty", "foot", "wezterm", "konsole", "gnome-terminal", "xterm"]:
+                if shutil.which(term):
+                    installed_term = term
+                    break
+
+            if installed_term:
+                for cli_mon in ["btop", "htop", "top"]:
+                    if shutil.which(cli_mon):
+                        try:
+                            # 适配 gnome-terminal 的参数格式
+                            args = [installed_term, "--", cli_mon] if installed_term == "gnome-terminal" else [installed_term, "-e", cli_mon]
+                            subprocess.Popen(args)
+                            return
+                        except Exception:
+                            pass
+
         self._pool.submit(_open)

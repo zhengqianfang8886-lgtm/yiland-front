@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/timer.py
-# 🌟 原生异步专注计时器驱动 (契约打断 · 根除协程自消亡 Bug)
+# 🌟 原生异步专注计时器驱动 (支持超时正向追溯计时)
 # ==========================================
 import asyncio
 from typing import Optional
@@ -11,14 +11,12 @@ from backend.core.state import IslandState
 
 
 class TimerModule(BaseModule):
-    """纯事件驱动的系统级计时器服务，切页绝不重置数据"""
-
     def __init__(self, backend, state: IslandState):
         super().__init__(backend, state)
         self._ticker_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
-        app_logger.info("✅ 原生异步后台计时引擎已挂载")
+        app_logger.info("✅ 原生异步后台计时引擎已挂载 (支持超时正向追溯)")
 
     async def stop(self) -> None:
         self._stop_ticker()
@@ -39,43 +37,52 @@ class TimerModule(BaseModule):
                 if not self.state.timer_is_running:
                     break
 
+                # 1. 秒表正向计时
                 if self.state.timer_type == "stopwatch":
                     self.state.timer_elapsed_sec += 1
                     self.notify("TIMER_UPDATE")
+
+                # 2. 🚀 超时正向追溯阶段 (连续累加)
+                elif self.state.timer_is_overtime:
+                    self.state.timer_overtime_sec += 1
+                    # 保护阈值：超时超过 2 小时自动挂起保护
+                    if self.state.timer_overtime_sec >= 7200:
+                        self.state.timer_is_running = False
+                        self.state.timer_is_paused = True
+                    self.notify("TIMER_UPDATE")
+
+                # 3. 正常倒计时阶段
                 else:
                     if self.state.timer_remaining_sec > 1:
                         self.state.timer_remaining_sec -= 1
                         self.notify("TIMER_UPDATE")
                     else:
-                        # 🚀 计时到达终点
+                        # 🚀 临界到达 00:00：无缝切入超时正向模式，绝不停机！
                         self.state.timer_remaining_sec = 0
-                        self.state.timer_is_running = False
-                        self.state.timer_is_paused = False
-                        self.state.timer_is_completed = True
+                        self.state.timer_is_overtime = True
+                        self.state.timer_overtime_sec = 0
                         self.notify("TIMER_UPDATE")
 
-                        # 契约化触发系统级打断弹窗（线程安全、物理先发唤醒）
+                        # 触发一次轻量级系统打断通知
                         if self.state.timer_mode == "break":
                             self.trigger_overlay(
                                 key="ALERT",
                                 title="休息结束",
                                 subtitle="精力充沛，准备开启下一次专注吧 🚀",
                                 icon="⏰",
-                                duration_ms=5000,
+                                duration_ms=4500,
                                 priority=45
                             )
                         else:
                             self.trigger_overlay(
                                 key="ALERT",
-                                title="专注完成",
-                                subtitle="倒计时已结束，站起来活动一下身体",
+                                title="专注时间到",
+                                subtitle="已自动开启超时追溯，随时收尾结束",
                                 icon="⏰",
-                                duration_ms=5000,
+                                duration_ms=4500,
                                 priority=45
                             )
-                        
-                        # 正常退出循环，严禁在任务内调用 _stop_ticker() 导致自杀中断
-                        break
+                        # 继续循环，让下一次 tick 进入超时累加！
         except asyncio.CancelledError:
             pass
         finally:
@@ -89,10 +96,7 @@ class TimerModule(BaseModule):
         self.notify("TIMER_UPDATE")
 
     async def toggle_pause(self):
-        if self.state.timer_is_completed:
-            await self.reset()
-            return
-
+        # 处于超时或运行中时支持随时暂停与继续
         if not self.state.timer_is_running and not self.state.timer_is_paused:
             self.state.timer_is_paused = False
             self.state.timer_is_running = True
@@ -116,6 +120,8 @@ class TimerModule(BaseModule):
         self.state.timer_remaining_sec = seconds
         self.state.timer_mode = mode
         self.state.timer_is_completed = False
+        self.state.timer_is_overtime = False
+        self.state.timer_overtime_sec = 0
         self.state.timer_is_paused = False
         self.state.timer_is_running = True
         self._start_ticker()
@@ -125,6 +131,8 @@ class TimerModule(BaseModule):
         if self.state.timer_is_running or self.state.timer_type == "stopwatch":
             return
         self.state.timer_is_completed = False
+        self.state.timer_is_overtime = False
+        self.state.timer_overtime_sec = 0
         target = max(0, self.state.timer_remaining_sec + delta_sec)
         self.state.timer_remaining_sec = target
         self.state.timer_total_sec = max(target, 1)
@@ -152,6 +160,8 @@ class TimerModule(BaseModule):
         self.state.timer_is_running = False
         self.state.timer_is_paused = False
         self.state.timer_is_completed = False
+        self.state.timer_is_overtime = False
+        self.state.timer_overtime_sec = 0
         if self.state.timer_type == "stopwatch":
             self.state.timer_elapsed_sec = 0
             self.state.timer_laps = []

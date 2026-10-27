@@ -122,6 +122,8 @@ class BridgeEventDispatcher:
             str(getattr(s, "ime_name", "")),
             str(getattr(s, "ime_icon_url", ""))
         )
+        # 🚀 派发系统动态菜单数据给前端
+        self.b.imeMenuUpdated.emit(getattr(s, "ime_menu_items", []))
 
     def _on_teams_call_incoming(self, s):
         self.b.callIncomingTriggered.emit(

@@ -1,13 +1,13 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (QMetaObject 强类型绑定 · 消除非可绑定警告版)
+# 🌟 Qt / QML 统一交互中枢 (单权威总线门面 · 零冗余纯净版)
 # ==========================================
 import atexit
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt, QEvent
-from backend.models import NotificationListModel, BluetoothListModel
+from backend.models import NotificationListModel
 from backend.window import WindowManagerService
 from backend.bridge_events import BridgeEventDispatcher
 from backend.utils import get_world_time, get_tz_offset_str
@@ -25,16 +25,18 @@ class WindowEventFilter(QObject):
 
 
 class IslandBridge(QObject):
-    """QML 与 Python 后端统一总线门面"""
+    """QML 与 Python 后端统一总线门面 (单一事实源定义)"""
 
     # =========================================================================
-    # 1. Qt 核心信号列表 (严格作为 Property 的 NOTIFY 依赖项)
+    # 1. Qt 核心信号列表
     # =========================================================================
+    # 媒体与声学
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
+    # 硬件与按键状态
     osdTriggered = Signal(str, str, int)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
@@ -42,6 +44,7 @@ class IslandBridge(QObject):
     capsLockChanged = Signal(bool)
     numLockChanged = Signal(bool)
 
+    # 工作区与系统悬浮
     workspaceTriggered = Signal(int, int, str)
     workspaceListUpdated = Signal("QVariantList")
     alertTriggered = Signal(str, str, str, int, str)
@@ -50,23 +53,23 @@ class IslandBridge(QObject):
     unreadCountChanged = Signal(int)
     gridActiveChanged = Signal(bool)
 
+    # 硬件负载、网速与计时
     memoryUpdated = Signal(int, str, str)
     netSpeedUpdated = Signal(str, str, str, str, str, str)
     batteryUpdated = Signal(int, bool)
     timerUpdated = Signal()
     overlayChanged = Signal()
 
+    # 端侧离线语音
     voiceInputLevelChanged = Signal(float)
     voiceInputStateChanged = Signal(bool, str)
 
-    habitsLoaded = Signal("QVariantList")
-    monthRecordsLoaded = Signal(str, int, int, "QVariantMap")
-    habitRecordToggled = Signal(str, str, bool)
-    calendarGridLoaded = Signal(int, int, "QVariantList")
-
+    # 系统输入法
     imeUpdated = Signal(bool, str, str, str)  # is_active, label, im_name, icon_url
+    imeMenuUpdated = Signal("QVariantList")
     windowDeactivated = Signal()
 
+    # 内部跨线程派发专用信号
     _sig_inproc_event = Signal(str, object)
     _sig_spectrum_event = Signal(float, float, float, float)
 
@@ -80,7 +83,6 @@ class IslandBridge(QObject):
         self._async_loop = None
 
         self._notif_model = NotificationListModel(self)
-        self._bt_model = BluetoothListModel(self)
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged.emit)
 
         self.wm = WindowManagerService(self.view, self._pool, self.config, self)
@@ -91,7 +93,14 @@ class IslandBridge(QObject):
 
         self._event_filter = WindowEventFilter(self)
         self.view.installEventFilter(self._event_filter)
+
+        # 窗口失焦时触发边缘输入法状态校准
+        self.windowDeactivated.connect(self._on_window_deactivated)
         atexit.register(self.cleanup)
+
+    def _on_window_deactivated(self):
+        if self._backend and self._backend.ime:
+            self._backend.ime.trigger_sync()
 
     def set_backend(self, backend, loop):
         self._backend = backend
@@ -118,58 +127,63 @@ class IslandBridge(QObject):
         except RuntimeError:
             pass
 
-    @Property(str, notify=imeUpdated)
-    def imeIcon(self):
-        return self._backend.state.ime_icon_url if self._backend else ""
-
     @Slot(str, object)
     def _handle_inproc_event(self, event_type: str, s):
         self._dispatcher.dispatch(event_type, s)
 
     # =========================================================================
-    # 2. QML 绑定属性 (显式绑定真实 Signal 对象，彻底消灭 non-bindable 警告)
+    # 2. QML 绑定属性
     # =========================================================================
     # --- 输入法属性 ---
     @Property(bool, notify=imeUpdated)
-    def isImeActive(self):
-        return self._backend.state.ime_active if self._backend else False
+    def isImeActive(self): return self._backend.state.ime_active if self._backend else False
 
     @Property(str, notify=imeUpdated)
-    def imeLabel(self):
-        return self._backend.state.ime_label if self._backend else "英"
+    def imeLabel(self): return self._backend.state.ime_label if self._backend else "英"
 
     @Property(str, notify=imeUpdated)
-    def imeName(self):
-        return self._backend.state.ime_name if self._backend else ""
+    def imeName(self): return self._backend.state.ime_name if self._backend else ""
+
+    @Property(str, notify=imeUpdated)
+    def imeIcon(self): return self._backend.state.ime_icon_url if self._backend else ""
+
+    @Property(list, notify=imeMenuUpdated)
+    def imeMenuList(self):
+        return getattr(self._backend.state, "ime_menu_items", []) if self._backend else []
+
+    @Slot()
+    def refreshImeMenu(self):
+        """右键点击菜单时即时从系统拉取最新项"""
+        if self._backend and self._backend.ime:
+            self.run_async(self._backend.ime.fetch_menu_async())
+
+    @Slot(int, str)
+    def activateImeMenuItem(self, item_id: int, unique_name: str = ""):
+        """点击菜单项时回传给系统执行"""
+        if self._backend and self._backend.ime:
+            self.run_async(self._backend.ime.activate_menu_item(item_id, unique_name))
 
     # --- 硬件与系统监视属性 ---
     @Property(bool, notify=gridActiveChanged)
-    def isGridActive(self):
-        return self._backend.state.is_desktop_grid_active if self._backend else False
+    def isGridActive(self): return self._backend.state.is_desktop_grid_active if self._backend else False
 
     @Property(int, notify=volumeChanged)
-    def currentVolume(self):
-        return self._backend.state.volume if self._backend else 50
+    def currentVolume(self): return self._backend.state.volume if self._backend else 50
 
     @Property(int, notify=brightnessChanged)
-    def currentBrightness(self):
-        return self._backend.state.brightness if self._backend else 100
+    def currentBrightness(self): return self._backend.state.brightness if self._backend else 100
 
     @Property(bool, notify=capsLockChanged)
-    def isCapsLock(self):
-        return self._backend.state.is_caps_lock if self._backend else False
+    def isCapsLock(self): return self._backend.state.is_caps_lock if self._backend else False
 
     @Property(bool, notify=numLockChanged)
-    def isNumLock(self):
-        return self._backend.state.is_num_lock if self._backend else False
+    def isNumLock(self): return self._backend.state.is_num_lock if self._backend else False
 
     @Property(int, notify=batteryUpdated)
-    def systemBattery(self):
-        return self._backend.state.battery_pct if self._backend else 100
+    def systemBattery(self): return self._backend.state.battery_pct if self._backend else 100
 
     @Property(bool, notify=batteryUpdated)
-    def isSystemCharging(self):
-        return self._backend.state.battery_charging if self._backend else False
+    def isSystemCharging(self): return self._backend.state.battery_charging if self._backend else False
 
     # --- 定时器属性 ---
     @Property(str, notify=timerUpdated)
@@ -183,6 +197,12 @@ class IslandBridge(QObject):
 
     @Property(bool, notify=timerUpdated)
     def timerIsCompleted(self): return self._backend.state.timer_is_completed if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def timerIsOvertime(self): return getattr(self._backend.state, "timer_is_overtime", False) if self._backend else False
+
+    @Property(int, notify=timerUpdated)
+    def timerOvertimeSec(self): return getattr(self._backend.state, "timer_overtime_sec", 0) if self._backend else 0
 
     @Property(int, notify=timerUpdated)
     def timerRemainingSec(self): return self._backend.state.timer_remaining_sec if self._backend else 1500
@@ -201,22 +221,18 @@ class IslandBridge(QObject):
 
     # --- 打断与语音属性 ---
     @Property("QVariantMap", notify=overlayChanged)
-    def activeOverlay(self):
-        return self._backend.state.get_overlay_dict() if self._backend else {}
+    def activeOverlay(self): return self._backend.state.get_overlay_dict() if self._backend else {}
 
     @Property(bool, notify=voiceInputStateChanged)
-    def voiceInputActive(self):
-        return self._backend.state.voice_input_active if self._backend else False
+    def voiceInputActive(self): return self._backend.state.voice_input_active if self._backend else False
 
     @Property(str, notify=voiceInputStateChanged)
-    def voiceInputText(self):
-        return self._backend.state.voice_input_text if self._backend else ""
+    def voiceInputText(self): return self._backend.state.voice_input_text if self._backend else ""
 
     @Property(float, notify=voiceInputLevelChanged)
-    def voiceInputLevel(self):
-        return self._backend.state.voice_input_level if self._backend else 0.1
+    def voiceInputLevel(self): return self._backend.state.voice_input_level if self._backend else 0.1
 
-    # --- 列表模型常量 ---
+    # --- 列表模型 ---
     @Property(QObject, constant=True)
     def notificationModel(self): return self._notif_model
 
@@ -226,11 +242,8 @@ class IslandBridge(QObject):
     @Property(str, notify=unreadCountChanged)
     def latestNotificationAvatar(self): return self._notif_model.latestAvatar
 
-    @Property(QObject, constant=True)
-    def bluetoothModel(self): return self._bt_model
-
     # =========================================================================
-    # 3. 业务槽函数 (QML 触发执行)
+    # 3. 业务槽函数
     # =========================================================================
     # --- 输入法控制 ---
     @Slot()
@@ -319,56 +332,7 @@ class IslandBridge(QObject):
     def resetTimer(self):
         if self._backend and self._backend.timer: self.run_async(self._backend.timer.reset())
 
-    # --- 习惯日程与日历 ---
-    @Slot()
-    def requestHabits(self):
-        if not self._backend or not self._backend.habits: self.habitsLoaded.emit([]); return
-        async def _run():
-            data = await self._backend.habits.fetch_habits_async()
-            self.habitsLoaded.emit(data)
-        self.run_async(_run())
-
-    @Slot(str, str)
-    def requestAddHabit(self, name: str, icon: str = "📌"):
-        if not self._backend or not self._backend.habits: return
-        async def _run():
-            data = await self._backend.habits.add_habit_async(name, icon)
-            self.habitsLoaded.emit(data)
-        self.run_async(_run())
-
-    @Slot(str)
-    def requestDeleteHabit(self, habit_id: str):
-        if not self._backend or not self._backend.habits: return
-        async def _run():
-            data = await self._backend.habits.delete_habit_async(habit_id)
-            self.habitsLoaded.emit(data)
-        self.run_async(_run())
-
-    @Slot(str, int, int)
-    def requestMonthRecords(self, habit_id: str, year: int, month: int):
-        if not self._backend or not self._backend.habits: self.monthRecordsLoaded.emit(habit_id, year, month, {}); return
-        async def _run():
-            data = await self._backend.habits.fetch_month_records_async(habit_id, year, month)
-            self.monthRecordsLoaded.emit(habit_id, year, month, data)
-        self.run_async(_run())
-
-    @Slot(str, str)
-    def requestToggleRecord(self, habit_id: str, date_str: str):
-        if not self._backend or not self._backend.habits: return
-        async def _run():
-            is_checked = await self._backend.habits.toggle_record_async(habit_id, date_str)
-            self.habitRecordToggled.emit(habit_id, date_str, is_checked)
-        self.run_async(_run())
-
-    @Slot(int, int, str)
-    def requestCalendarGrid(self, year: int, month: int, habit_id: str):
-        if not self._backend or not self._backend.habits: self.calendarGridLoaded.emit(year, month, []); return
-        async def _run():
-            grid = await self._backend.habits.generate_calendar_grid_async(year, month, habit_id)
-            self.calendarGridLoaded.emit(year, month, grid)
-        self.run_async(_run())
-
-    # --- 语言与打断 ---
+    # --- 语音与打断 ---
     @Slot()
     def toggleVoiceInput(self):
         if self._backend and self._backend.voice: self.run_async(self._backend.voice.toggle_recording())
@@ -404,7 +368,6 @@ class IslandBridge(QObject):
             "brightnessWorking": bool(self._backend and self._backend.brightness and self._backend.brightness.bus is not None),
             "cavaInstalled": bool(shutil.which("cava")),
             "wlPasteInstalled": bool(shutil.which("wl-paste")),
-            "dbConnected": bool(self._backend and self._backend.habits)
         }
 
     # --- 窗口管理器代理 ---
@@ -432,16 +395,13 @@ class IslandBridge(QObject):
 
     @Slot(bool)
     def setRequireFocus(self, required: bool):
-        """🚀 动态焦点护盾控制：仅在需要打字时撕开护盾获取焦点"""
         flags = self.view.flags()
         if required:
-            # 移除不接受焦点的限制，并提权
             flags &= ~Qt.WindowType.WindowDoesNotAcceptFocus
             self.view.setFlags(flags)
-            self.view.show() # Qt 机制：修改 flag 后必须 show 使其生效
+            self.view.show()
             self.requestWindowFocus()
         else:
-            # 恢复绝对防抢夺护盾，并把焦点还给之前的宿主应用
             flags |= Qt.WindowType.WindowDoesNotAcceptFocus
             self.view.setFlags(flags)
             self.view.show()
