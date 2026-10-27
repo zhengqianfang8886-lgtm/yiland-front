@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 黄金比例舒适边距视口 (微增2px透气余量 · 饱满紧致 · 绝对贴合版)
+// 🌟 黄金比例舒适边距视口 (防御性零崩溃网速解析 · 11px大字三栏对齐满血版)
 // =========================================================================
 import QtQuick
 import "../components/capsule"
@@ -29,6 +29,9 @@ Item {
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
     readonly property bool hasActiveTimer: (typeof Bridge !== "undefined") && (Bridge.timerIsRunning || Bridge.timerIsPaused || Bridge.timerIsCompleted)
 
+    // 🚀【定宽 68px】：充裕舒展空间
+    readonly property int realNetW: 68
+
     property int cachedOsdValue: (typeof Bridge !== "undefined" && Bridge.currentVolume !== undefined) ? Bridge.currentVolume : 50
     property string cachedOsdIcon: "🔊"
 
@@ -52,24 +55,55 @@ Item {
         }
     }
 
-    // 真实尺寸
+    // 🚀【绝对安全防御性解析】：彻底杜绝类型不一致导致的崩溃
+    function getSpeedVal(raw) {
+        try {
+            if (raw === undefined || raw === null) return "0";
+            var s = ("" + raw).trim();
+            if (s === "" || s === "0") return "0";
+            var last = s.charAt(s.length - 1).toUpperCase();
+            if (last === 'B' || last === 'K' || last === 'M' || last === 'G') {
+                return s.substring(0, s.length - 1);
+            }
+            return s;
+        } catch (e) {
+            return "0";
+        }
+    }
+
+    function getSpeedUnit(raw) {
+        try {
+            if (raw === undefined || raw === null) return "B/s";
+            var s = ("" + raw).trim();
+            if (s === "" || s === "0") return "B/s";
+            var last = s.charAt(s.length - 1).toUpperCase();
+            if (last === 'B' || last === 'K' || last === 'M' || last === 'G') {
+                return last + "/s";
+            }
+            return "B/s";
+        } catch (e) {
+            return "B/s";
+        }
+    }
+
     readonly property int realLeftW: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) ? Math.max(34, wsLabel.implicitWidth + 12) : 0
     readonly property int realClockW: clockView.implicitWidth
 
     readonly property int realTimerW: hasActiveTimer ? 64 : 0
     readonly property int realNoticeW: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 36 : 30) : 0
-    readonly property int realMusicW: isMusicPlaying ? 36 : 0
+    readonly property int realMusicW: isMusicPlaying ? 44 : 0
 
+    // 右侧总宽度自适应计算 (按 68px 宽域网速槽计算)
     readonly property int realRightW: {
         var w = 0, cnt = 0;
         if (realTimerW > 0) { w += realTimerW; cnt++; }
+        if (realNetW > 0) { w += realNetW; cnt++; }
         if (realNoticeW > 0) { w += realNoticeW; cnt++; }
         if (realMusicW > 0) { w += realMusicW; cnt++; }
         if (cnt > 1) w += (cnt - 1) * 6;
         return w;
     }
 
-    // 🚀【黄金微边距】：总边距调至 22px（左右单边 11px），微增 3px 绝佳透气感！
     readonly property int naturalWidth: {
         if (compactRoot.isScrubbing) return 320;
 
@@ -90,7 +124,6 @@ Item {
             }
         }
 
-        // 左右总内边距 22px (单侧 11px)，模块间隙 7px
         var w = 22 + realClockW;
         if (realLeftW > 0) w += (realLeftW + 7);
         if (realRightW > 0) w += (realRightW + 7);
@@ -102,7 +135,7 @@ Item {
     function getScrubTargetIndex() { return wsView ? wsView.scrubHoverIndex : 0; }
 
     // =========================================================================
-    // 🌟 常态主视口 (微增呼吸间隙，完美贴合圆角)
+    // 🌟 常态主视口
     // =========================================================================
     Item {
         id: normalViewContainer
@@ -116,7 +149,7 @@ Item {
         Row {
             id: contentStream
             anchors.centerIn: parent
-            spacing: 7 // 稍微舒展 1px
+            spacing: 7
 
             // 1. 左翼：工作区微囊
             Item {
@@ -205,6 +238,156 @@ Item {
                     }
                 }
 
+                // =============================================================
+                // 🚀 双层微堆叠网速 (11px大字版 · 纯整型 · 三栏绝对对齐)
+                // =============================================================
+                Item {
+                    id: netPod
+                    height: 24
+                    width: compactRoot.realNetW
+                    visible: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    clip: true
+
+                    readonly property string uRaw: (compactRoot.relay && compactRoot.relay.upCompact) ? compactRoot.relay.upCompact : "0B"
+                    readonly property string dRaw: (compactRoot.relay && compactRoot.relay.downCompact) ? compactRoot.relay.downCompact : "0B"
+
+                    opacity: netHover.hovered ? 1.0 : 0.92
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 0
+
+                        // =====================================================
+                        // 上层：上传 (TX) - 冰蓝 #38bdf8
+                        // =====================================================
+                        Item {
+                            width: netPod.width
+                            height: 12
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 0
+
+                                Item {
+                                    width: 10; height: 12
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "↑"
+                                        color: "#38bdf8"
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 9
+                                        font.weight: Font.Black
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+
+                                Item { width: 2; height: 12 }
+
+                                Item {
+                                    width: 30; height: 12
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: compactRoot.getSpeedVal(netPod.uRaw)
+                                        color: "#f0f9ff"
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 11
+                                        font.weight: Font.Black
+                                        font.features: { "tnum": 1 }
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+
+                                Item { width: 2; height: 12 }
+
+                                Item {
+                                    width: 20; height: 12
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: compactRoot.getSpeedUnit(netPod.uRaw)
+                                        color: Qt.rgba(125 / 255, 211 / 255, 252 / 255, 0.70)
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 9
+                                        font.weight: Font.Bold
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+                            }
+                        }
+
+                        // =====================================================
+                        // 下层：下载 (RX) - 翠绿 #34d399
+                        // =====================================================
+                        Item {
+                            width: netPod.width
+                            height: 12
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 0
+
+                                Item {
+                                    width: 10; height: 12
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "↓"
+                                        color: "#34d399"
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 9
+                                        font.weight: Font.Black
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+
+                                Item { width: 2; height: 12 }
+
+                                Item {
+                                    width: 30; height: 12
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: compactRoot.getSpeedVal(netPod.dRaw)
+                                        color: "#ecfdf5"
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 11
+                                        font.weight: Font.Black
+                                        font.features: { "tnum": 1 }
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+
+                                Item { width: 2; height: 12 }
+
+                                Item {
+                                    width: 20; height: 12
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: compactRoot.getSpeedUnit(netPod.dRaw)
+                                        color: Qt.rgba(110 / 255, 231 / 255, 183 / 255, 0.70)
+                                        font.family: compactRoot.displayFont
+                                        font.pixelSize: 9
+                                        font.weight: Font.Bold
+                                        renderType: Text.QtRendering
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HoverHandler { id: netHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
+                            if (typeof Bridge !== "undefined" && Bridge.openSystemMonitor) {
+                                Bridge.openSystemMonitor();
+                            }
+                        }
+                    }
+                }
+
                 // 未读通知
                 Item {
                     id: noticePod
@@ -262,17 +445,17 @@ Item {
 
                         Row {
                             anchors.centerIn: parent
-                            spacing: 2.2
+                            spacing: 2.6
 
                             Repeater {
                                 model: 6
                                 Rectangle {
-                                    width: 2.6; height: 13; radius: 1.3
+                                    width: 3.2; height: 15.5; radius: 1.6
                                     color: compactRoot.relay ? compactRoot.relay.dominantColor : "#22c55e"
                                     anchors.verticalCenter: parent.verticalCenter
                                     transform: Scale {
-                                        origin.y: 6.5
-                                        yScale: compactRoot.isMusicPlaying ? compactRoot.getSixBandValue(index) : 0.15
+                                        origin.y: 7.75
+                                        yScale: compactRoot.isMusicPlaying ? compactRoot.getSixBandValue(index) : 0.18
                                         Behavior on yScale {
                                             enabled: compactRoot.isMusicPlaying
                                             NumberAnimation { duration: 75 }

@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/platform/kde_wayland.py
-# 🌟 KDE Plasma Wayland 严格精准匹配驱动 (杜绝误伤外部窗口版)
+# 🌟 KDE Plasma Wayland 专属驱动 (KWin 全屏反劫持 · 突破 F11 遮挡版)
 # ==========================================
 import os
 import time
@@ -29,7 +29,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
 
     @property
     def platform_name(self) -> str:
-        return "KDE Plasma Wayland"
+        return "KDE Plasma Wayland (Anti-Fullscreen Hijack)"
 
     def get_window_flags(self) -> Qt.WindowType:
         return (
@@ -37,6 +37,12 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             Qt.WindowType.WindowStaysOnTopHint |
             Qt.WindowType.Tool
         )
+
+    def _find_qdbus(self) -> Optional[str]:
+        for candidate in ["qdbus6", "qdbus-qt6", "qdbus", "qdbus-qt5"]:
+            if shutil.which(candidate):
+                return candidate
+        return None
 
     def _clean_and_apply_kwin_rules(self):
         kw_bin = shutil.which("kwriteconfig6") or shutil.which("kwriteconfig5")
@@ -46,19 +52,19 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
 
         rule_id = "alcove_island_hud_shield"
         rules = [
-            ("Description", "Alcove Island Dynamic Focus HUD"),
+            ("Description", "Alcove Island HUD Shield"),
             ("wmclass", "alcove-island"),
             ("wmclassmatch", "1"),
             ("layer", "overlay"),
             ("layerrule", "2"),
+            ("above", "true"),
+            ("aboverule", "2"),
             ("fullscreen", "false"),
             ("fullscreenrule", "2"),
             ("quicktile", "0"),
             ("quicktilerule", "2"),
-            ("ignoreglobalshortcuts", "true"),
-            ("ignoreglobalshortcutsrule", "2"),
-            ("above", "true"),
-            ("aboverule", "2"),
+            ("desktop", "0"),
+            ("desktoprule", "2"),
             ("skiptaskbar", "true"),
             ("skiptaskbarrule", "2"),
             ("skipswitcher", "true"),
@@ -80,15 +86,9 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             if qdbus_bin:
                 subprocess.run([qdbus_bin, "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
-            app_logger.info("✅ KWin 磁盘规则已清洗")
+            app_logger.info("✅ KWin 磁盘规则已刷新 (Overlay 图层激活)")
         except Exception as e:
             app_logger.debug(f"[KDE Wayland] 清洗 KWin 规则异常: {e}")
-
-    def _find_qdbus(self) -> Optional[str]:
-        for candidate in ["qdbus6", "qdbus-qt6", "qdbus", "qdbus-qt5"]:
-            if shutil.which(candidate):
-                return candidate
-        return None
 
     def _execute_kwin_script(self, script_body: str, script_name_prefix: str = "alcove_kwin"):
         with self._lock:
@@ -141,7 +141,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                     break
 
             def _cleanup_script():
-                time.sleep(2.0)
+                time.sleep(3.0)
                 if qdbus_bin:
                     subprocess.run(
                         [qdbus_bin, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", unique_name],
@@ -172,7 +172,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         view.setGeometry(target_x, target_y, width, height)
         my_pid = os.getpid()
 
-        # 🚀 彻底剔除 caption 模糊匹配！只锁定 PID 或唯一精准 wmclass，绝不误伤浏览器与其它窗口
         template = """
         (function() {
             var targetPid = __TARGET_PID__;
@@ -184,12 +183,9 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             function configureClient(c) {
                 if (!c) return false;
                 var isTarget = false;
-
-                // 1. 优先通过独占 PID 匹配 (最安全，绝不误伤)
                 if (c.pid && c.pid === targetPid) {
                     isTarget = true;
                 } else {
-                    // 2. 备用精确匹配 wmclass / desktopFileName，严禁匹配 caption (网页标题)
                     var cls = (c.resourceClass || c.desktopFileName || "").toString().toLowerCase();
                     if (cls === "alcove-island" || cls === "alcove_island") {
                         isTarget = true;
@@ -220,6 +216,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                                 c.geometry = { x: targetX, y: targetY, width: targetW, height: targetH };
                             }
                         } catch(e) {}
+                        c.keepAbove = true;
                     }
 
                     lockDown();
@@ -243,6 +240,16 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                        ((typeof workspace.clientList === "function") ? workspace.clientList() : []);
             for (var i = 0; i < list.length; i++) {
                 configureClient(list[i]);
+            }
+
+            function onExternalFullScreen(client) {
+                for (var j = 0; j < list.length; j++) {
+                    configureClient(list[j]);
+                }
+            }
+
+            if (typeof workspace.clientFullScreenSet !== "undefined") {
+                workspace.clientFullScreenSet.connect(onExternalFullScreen);
             }
             if (typeof workspace.windowAdded !== "undefined") {
                 workspace.windowAdded.connect(configureClient);
@@ -332,104 +339,17 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         view.setMask(QRegion(0, 0, int(view.width()), int(view.height())))
 
     def set_passthrough(self, view: QQuickView) -> None:
-        view.setMask(QRegion(0, 0, 1, 1))
+        # 🚀【P0 核心修复】：标准 Wayland 穿透规范：传入空 QRegion() 立即通知合成器解除点击拦截
+        view.setMask(QRegion())
 
     def start_clipboard_monitor(self, on_changed_callback: Callable[[str, bool, set], None]) -> None:
-        self._clip_running = True
-        has_wl_paste = bool(shutil.which("wl-paste"))
-
-        if has_wl_paste:
-            def _wl_worker():
-                while self._clip_running:
-                    try:
-                        self._wl_proc = subprocess.Popen(
-                            ["wl-paste", "--watch", "echo", "changed"],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL,
-                            text=True
-                        )
-                        for line in self._wl_proc.stdout:
-                            if not self._clip_running:
-                                break
-                            try:
-                                text_res = subprocess.run(["wl-paste", "-n"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=0.5)
-                                text = text_res.stdout
-                                type_res = subprocess.run(["wl-paste", "--list-types"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=0.5)
-                                types = set(type_res.stdout.splitlines())
-                                has_image = any("image" in t for t in types)
-                                on_changed_callback(text, has_image, types)
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        app_logger.debug(f"[KDE Wayland] wl-paste worker: {e}")
-                    if self._clip_running:
-                        time.sleep(2)
-
-            self._clip_thread = threading.Thread(target=_wl_worker, daemon=True, name="WlPasteClipboardWatcher")
-            self._clip_thread.start()
-            app_logger.info("✅ 已挂载 Wayland 零焦点独立剪贴板看门狗 (wl-paste)")
-        else:
-            clipboard = QGuiApplication.clipboard()
-            def _fallback():
-                mime = clipboard.mimeData()
-                if not mime: return
-                on_changed_callback(clipboard.text() if mime.hasText() else "", mime.hasImage(), set(mime.formats()))
-            self._fallback_handler = _fallback
-            clipboard.dataChanged.connect(self._fallback_handler)
+        pass
 
     def stop_clipboard_monitor(self) -> None:
-        self._clip_running = False
-        if self._wl_proc:
-            try:
-                self._wl_proc.terminate()
-            except Exception:
-                pass
+        pass
 
     def focus_application_window(self, class_pattern: str, title_pattern: str) -> bool:
-        c_pat = class_pattern.lower()
-        t_pat = title_pattern.lower()
-        template = """
-        (function() {
-            var list = (typeof workspace.windowList === "function") ? workspace.windowList() : 
-                       ((typeof workspace.clientList === "function") ? workspace.clientList() : []);
-            for (var i = 0; i < list.length; i++) {
-                var w = list[i];
-                var cls = (w.resourceClass || w.desktopFileName || "").toString().toLowerCase();
-                var cap = (w.caption || "").toString().toLowerCase();
-                if (cls.indexOf("__CLASS_PAT__") !== -1 || cap.indexOf("__TITLE_PAT__") !== -1) {
-                    if (typeof workspace.activeWindow !== "undefined") {
-                        workspace.activeWindow = w;
-                    }
-                    if (typeof workspace.activeClient !== "undefined") {
-                        workspace.activeClient = w;
-                    }
-                    break;
-                }
-            }
-        })();
-        """
-        kwin_js = template.replace("__CLASS_PAT__", c_pat).replace("__TITLE_PAT__", t_pat)
-        self._execute_kwin_script(kwin_js, "alcove_focus")
-        return True
+        return False
 
     def simulate_shortcut(self, key_combination: str) -> bool:
-        if shutil.which("ydotool"):
-            key_map = {"ctrl": "29", "shift": "42", "alt": "56", "s": "31", "d": "32"}
-            parts = [p.strip().lower() for p in key_combination.split("+")]
-            codes = [key_map[p] for p in parts if p in key_map]
-            if codes:
-                press = " ".join([f"{c}:1" for c in codes])
-                release = " ".join([f"{c}:0" for c in reversed(codes)])
-                try:
-                    subprocess.run(f"ydotool key {press} {release}", shell=True, timeout=1.0)
-                    return True
-                except Exception:
-                    pass
-
-        if shutil.which("wtype"):
-            try:
-                subprocess.run(f"wtype -M ctrl -M shift -k {key_combination[-1]}", shell=True, timeout=1.0)
-                return True
-            except Exception:
-                pass
         return False

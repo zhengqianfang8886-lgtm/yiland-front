@@ -1,28 +1,158 @@
 # ==========================================
 # 📄 File: backend/modules/system.py
-# 🌟 零无谓开销·事件驱动型休眠监视模块 (彻底根除盲目轮询)
+# 🌟 原生内核 Netlink STATS64 + 1.0s 平滑控频网速引擎
 # ==========================================
 import os
 import glob
 import time
 import socket
+import struct
 import asyncio
-from typing import Optional, List
+import collections
+from typing import Optional, List, Tuple
 
 from backend.logger import app_logger
 from backend.core.base import BaseModule
 from backend.core.state import IslandState
 
+RTM_GETLINK = 18
+RTM_NEWLINK = 16
+NLM_F_REQUEST = 1
+IFLA_STATS64 = 23
 
-def format_speed(bytes_per_sec: float) -> tuple[str, str]:
-    if bytes_per_sec < 1024:
+
+def format_speed(bytes_per_sec: float) -> Tuple[str, str]:
+    """格式化速率：增加死区滤波，消除后台零星杂音的个位抖动"""
+    # 🚀 过滤掉小于 256 B/s 的微小心跳包，空闲时沉稳显示 0B
+    if bytes_per_sec < 256:
+        return "0 B/s", "0B"
+    elif bytes_per_sec < 1024:
         return f"{int(bytes_per_sec)} B/s", f"{int(bytes_per_sec)}B"
     elif bytes_per_sec < 1048576:
         kb = bytes_per_sec / 1024.0
         return f"{kb:.1f} KB/s", f"{int(kb)}K" if kb >= 100 else f"{kb:.1f}K"
-    else:
+    elif bytes_per_sec < 1073741824:
         mb = bytes_per_sec / 1048576.0
         return f"{mb:.1f} MB/s", f"{mb:.1f}M"
+    else:
+        gb = bytes_per_sec / 1073741824.0
+        return f"{gb:.2f} GB/s", f"{gb:.1f}G"
+
+
+class NetlinkSpeedSampler:
+    def __init__(self, window_span_sec: float = 1.0):
+        self.window_span = window_span_sec
+        self.samples = collections.deque()
+        self.last_iface = ""
+        self.ifindex = 0
+        self.sock: Optional[socket.socket] = None
+        self._init_socket()
+
+    def _init_socket(self):
+        try:
+            self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
+            self.sock.settimeout(0.08)
+        except OSError as e:
+            app_logger.debug(f"[SystemModule] 初始化 Netlink 套接字失败: {e}")
+            self.sock = None
+
+    def close(self):
+        if self.sock:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+            self.sock = None
+
+    @staticmethod
+    def get_default_interface() -> str:
+        try:
+            with open("/proc/net/route", "r", encoding="ascii") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "00000000":
+                        return parts[0]
+        except OSError:
+            pass
+        return ""
+
+    def _query_stats64(self, ifindex: int) -> Optional[Tuple[int, int]]:
+        if not self.sock or ifindex <= 0:
+            return None
+
+        nlmsg_len = 32
+        req = struct.pack("=IHHII B B H i I I",
+                          nlmsg_len, RTM_GETLINK, NLM_F_REQUEST, 1, 0,
+                          0, 0, 0, ifindex, 0, 0)
+        try:
+            self.sock.send(req)
+            data = self.sock.recv(4096)
+        except OSError:
+            return None
+
+        offset = 0
+        data_len = len(data)
+        while offset + 16 <= data_len:
+            msg_len, msg_type, _, _, _ = struct.unpack_from("=IHHII", data, offset)
+            if msg_type == RTM_NEWLINK and offset + 32 <= data_len:
+                rta_offset = offset + 32
+                payload_len = msg_len - 32
+                while payload_len >= 4:
+                    rta_len, rta_type = struct.unpack_from("=HH", data, rta_offset)
+                    if rta_len < 4 or rta_len > payload_len:
+                        break
+
+                    if rta_type == IFLA_STATS64 and rta_len >= 4 + 32:
+                        rx_bytes, tx_bytes = struct.unpack_from("=QQ", data, rta_offset + 4 + 16)
+                        return rx_bytes, tx_bytes
+
+                    aligned_len = (rta_len + 3) & ~3
+                    rta_offset += aligned_len
+                    payload_len -= aligned_len
+
+            aligned_msg_len = (msg_len + 3) & ~3
+            offset += aligned_msg_len
+
+        return None
+
+    def tick(self) -> Tuple[float, float]:
+        cur_iface = self.get_default_interface()
+        if not cur_iface:
+            self.samples.clear()
+            return 0.0, 0.0
+
+        if cur_iface != self.last_iface:
+            try:
+                self.ifindex = socket.if_nametoindex(cur_iface)
+                self.last_iface = cur_iface
+            except OSError:
+                self.ifindex = 0
+            self.samples.clear()
+
+        stats = self._query_stats64(self.ifindex)
+        if not stats:
+            return 0.0, 0.0
+
+        rx, tx = stats
+        now = time.monotonic()
+        self.samples.append((now, rx, tx))
+
+        while len(self.samples) > 2:
+            if now - self.samples[0][0] > self.window_span:
+                self.samples.popleft()
+            else:
+                break
+
+        if len(self.samples) >= 2:
+            oldest = self.samples[0]
+            newest = self.samples[-1]
+            dt = newest[0] - oldest[0]
+            if dt > 0.05 and newest[1] >= oldest[1] and newest[2] >= oldest[2]:
+                rx_rate = (newest[1] - oldest[1]) / dt
+                tx_rate = (newest[2] - oldest[2]) / dt
+                return rx_rate, tx_rate
+
+        return 0.0, 0.0
 
 
 class SystemModule(BaseModule):
@@ -30,7 +160,6 @@ class SystemModule(BaseModule):
         super().__init__(backend, state)
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        # 核心休眠栅栏：深潜/隐藏时阻塞协程，CPU 释放至 0.00%
         self._wake_event = asyncio.Event()
 
         self._caps_paths: List[str] = []
@@ -38,11 +167,8 @@ class SystemModule(BaseModule):
         self._bat_capacity_path: Optional[str] = None
         self._bat_status_path: Optional[str] = None
 
-        self._last_net_bytes = (0, 0)
-        self._last_net_time = 0.0
-
-        self._proc_net_dev = None
         self._proc_meminfo = None
+        self._net_sampler: Optional[NetlinkSpeedSampler] = None
 
     def set_active(self, active: bool) -> None:
         super().set_active(active)
@@ -53,25 +179,23 @@ class SystemModule(BaseModule):
         else:
             if self._wake_event.is_set():
                 self._wake_event.clear()
-                app_logger.debug("[SystemModule] UI 已隐藏，系统监控循环进入挂起休眠 (0% CPU)")
+                app_logger.debug("[SystemModule] UI 已隐藏，系统监控循环挂起休眠 (0% CPU)")
 
     async def start(self) -> None:
         self._running = True
         self._refresh_hw_paths()
         self.state.local_ip = self._get_local_ip()
 
+        self._net_sampler = NetlinkSpeedSampler(window_span_sec=1.0)
+
         try:
-            self._proc_net_dev = open("/proc/net/dev", "r", encoding="ascii", errors="ignore")
             self._proc_meminfo = open("/proc/meminfo", "r", encoding="ascii", errors="ignore")
         except OSError as e:
-            app_logger.warning(f"[SystemModule] 无法打开 /proc 监视句柄: {e}")
-
-        self._last_net_bytes = self._read_net_bytes()
-        self._last_net_time = time.monotonic()
+            app_logger.warning(f"[SystemModule] 无法打开 /proc/meminfo 监视句柄: {e}")
 
         self._wake_event.set()
         self._task = asyncio.create_task(self._monitor_loop())
-        app_logger.info("系统硬件、网速与电池监视引擎已挂载 (支持零能耗挂起)")
+        app_logger.info("✅ 系统硬件、内存与内核 Netlink STATS64 平滑网速监视引擎已挂载")
 
     async def stop(self) -> None:
         self._running = False
@@ -83,12 +207,15 @@ class SystemModule(BaseModule):
             except asyncio.CancelledError:
                 pass
 
-        for fp in [self._proc_net_dev, self._proc_meminfo]:
-            if fp:
-                try:
-                    fp.close()
-                except OSError as e:
-                    app_logger.debug(f"[SystemModule] 关闭文件描述符异常: {e}")
+        if self._net_sampler:
+            self._net_sampler.close()
+            self._net_sampler = None
+
+        if self._proc_meminfo:
+            try:
+                self._proc_meminfo.close()
+            except OSError:
+                pass
 
     def _refresh_hw_paths(self):
         self._caps_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
@@ -97,28 +224,6 @@ class SystemModule(BaseModule):
         if bats:
             self._bat_capacity_path = os.path.join(bats[0], "capacity")
             self._bat_status_path = os.path.join(bats[0], "status")
-
-    def _read_net_bytes(self) -> tuple[int, int]:
-        if not self._proc_net_dev:
-            return 0, 0
-        try:
-            self._proc_net_dev.seek(0)
-            lines = self._proc_net_dev.readlines()[2:]
-            rx_total, tx_total = 0, 0
-            for line in lines:
-                parts = line.split(":")
-                if len(parts) < 2:
-                    continue
-                iface = parts[0].strip()
-                if iface == "lo" or iface.startswith(("virbr", "docker", "veth")):
-                    continue
-                data = parts[1].split()
-                rx_total += int(data[0])
-                tx_total += int(data[8])
-            return rx_total, tx_total
-        except (ValueError, IndexError, OSError) as e:
-            app_logger.debug(f"[SystemModule] 网速字节采样异常: {e}")
-            return 0, 0
 
     def _get_local_ip(self) -> str:
         try:
@@ -132,12 +237,11 @@ class SystemModule(BaseModule):
         tick = 0
         while self._running:
             try:
-                # 🚀 闲置阻断点：如果 UI 处于非激活状态，无超时等待唤醒信号，完全让出 CPU
                 await self._wake_event.wait()
                 if not self._running:
                     break
 
-                # 1. 键盘锁 (每 500ms 检查)
+                # 1. 键盘锁状态 (每 500ms 检查)
                 caps_on = False
                 for p in self._caps_paths:
                     try:
@@ -165,25 +269,19 @@ class SystemModule(BaseModule):
 
                 tick += 1
 
-                # 2. 网速采样 (每 1000ms)
-                if tick % 2 == 0:
-                    now = time.monotonic()
-                    dt = now - self._last_net_time
-                    if dt >= 0.5:
-                        rx, tx = self._read_net_bytes()
-                        drx = max(0, rx - self._last_net_bytes[0]) / dt
-                        dtx = max(0, tx - self._last_net_bytes[1]) / dt
-                        self._last_net_bytes = (rx, tx)
-                        self._last_net_time = now
+                # 🚀 2. 内核 Netlink STATS64 平滑采样：严格控制为每 1.0 秒更新一次 (tick % 2 == 0)
+                if tick % 2 == 0 and self._net_sampler:
+                    rx_rate, tx_rate = self._net_sampler.tick()
+                    down_s, down_c = format_speed(rx_rate)
+                    up_s, up_c = format_speed(tx_rate)
+                    if self.state.net_down_compact != down_c or self.state.net_up_compact != up_c:
+                        self.state.net_down_speed = down_s
+                        self.state.net_down_compact = down_c
+                        self.state.net_up_speed = up_s
+                        self.state.net_up_compact = up_c
+                        self.notify("NET_SPEED_UPDATE")
 
-                        down_s, down_c = format_speed(drx)
-                        up_s, up_c = format_speed(dtx)
-                        if self.state.net_down_compact != down_c or self.state.net_up_compact != up_c:
-                            self.state.net_down_speed, self.state.net_down_compact = down_s, down_c
-                            self.state.net_up_speed, self.state.net_up_compact = up_s, up_c
-                            self.notify("NET_SPEED_UPDATE")
-
-                # 3. 内存与电池 (每 3000ms)
+                # 3. 内存与电池 (每 3 秒检查一次)
                 if tick % 6 == 0:
                     if self._proc_meminfo:
                         try:
@@ -227,5 +325,5 @@ class SystemModule(BaseModule):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                app_logger.warning(f"[SystemModule] 监控未知异常: {e}")
+                app_logger.warning(f"[SystemModule] 监控循环未知异常: {e}")
                 await asyncio.sleep(1.0)

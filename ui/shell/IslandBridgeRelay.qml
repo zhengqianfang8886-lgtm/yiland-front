@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandBridgeRelay.qml
-// 🌟 统一事件中继总线 (注入高精度音频消失生命周期探针版)
+// 🌟 统一事件中继总线 (集成 Netlink STATS64 平滑网速中继)
 // =========================================================================
 import QtQuick
 
@@ -24,17 +24,12 @@ Item {
 
     property bool visualPlaying: false
 
-    onVisualPlayingChanged: {
-        console.log("[AudioDiag:Relay] 🎵 visualPlaying 状态切换 -> " + visualPlaying + " (status=" + status + ", timestamp=" + Date.now() + ")");
-    }
-
     Timer {
         id: pauseDebounceTimer
-        interval: 350 // 适度缩短防抖，提高退场干脆度
+        interval: 350
         repeat: false
         onTriggered: {
             if (relay.status !== "Playing") {
-                console.log("[AudioDiag:Relay] ⏱️ 暂停防抖结束，正式关闭 visualPlaying！");
                 relay.visualPlaying = false;
             }
         }
@@ -55,8 +50,11 @@ Item {
     property int unreadCount: (typeof Bridge !== "undefined" && Bridge.unreadCount !== undefined) ? Bridge.unreadCount : 0
     property string latestNotifAvatar: (typeof Bridge !== "undefined" && Bridge.latestNotificationAvatar !== undefined) ? Bridge.latestNotificationAvatar : ""
 
+    // 🚀 网速数据总线
     property string downSpeedStr: "0.0 B/s"
     property string upSpeedStr: "0.0 B/s"
+    property string downCompact: "0B"
+    property string upCompact: "0B"
     property string localIp: "127.0.0.1"
     property int memoryPercent: 0
 
@@ -66,8 +64,14 @@ Item {
 
         function onUnreadCountChanged(cnt) { relay.unreadCount = cnt; }
 
+        function onNetSpeedUpdated(down_s, up_s, down_c, up_c) {
+            relay.downSpeedStr = down_s;
+            relay.upSpeedStr = up_s;
+            relay.downCompact = down_c;
+            relay.upCompact = up_c;
+        }
+
         function onMediaUpdated(t, a, s, u, pos, dur) {
-            console.log("[AudioDiag:Bridge] 📡 收到底层媒体状态 -> status=" + s + ", title=" + t);
             var isTrackChanged = (relay.title !== t && t !== "" && t !== "等待播放...");
             relay.title = t; relay.artist = a; relay.status = s; relay.artUrl = u;
             if (dur !== undefined && !isNaN(dur) && Number(dur) > 0) relay.duration = Number(dur);
@@ -78,7 +82,6 @@ Item {
                 pauseDebounceTimer.stop();
                 relay.visualPlaying = true;
             } else {
-                console.log("[AudioDiag:Relay] ⏸️ 捕获到非 Playing 状态，启动暂停倒计时...");
                 pauseDebounceTimer.restart();
             }
 
@@ -96,9 +99,7 @@ Item {
         function onDominantColorUpdated(hex) { relay.dominantColor = hex; }
 
         function onAudioSpectrumUpdated(s1, s2, s3, s4) {
-            // 如果已经不处于播放态，强行切断频谱更新，严禁在收拢动画中途扰乱渲染树
             if (!relay.visualPlaying && relay.status !== "Playing") return;
-
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4;
         }
 

@@ -70,12 +70,15 @@ Item {
         var cleanH = Math.round(newH / 2) * 2;
         var cleanY = Math.round(newY);
 
-        // 🚀【死区滤波】：如果尺寸变动 <= 3px 且已在目标附近，直接忽略重启动画，彻底消灭 220->222 抖动
         var deltaW = Math.abs(targetWidth - cleanW);
         var deltaY = Math.abs(targetY - cleanY);
         var deltaH = Math.abs(targetHeight - cleanH);
 
+        // 🚀【P0 核心修复】：即使因死区不触发过渡动画，也必须发射 settled 信号，驱动外部掩码立即落实
         if (deltaW <= 2 && deltaY <= 1 && deltaH <= 1) {
+            targetRadius = newR;
+            pod.currentRadius = newR;
+            pod.motionSettled();
             return;
         }
 

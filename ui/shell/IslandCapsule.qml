@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (参数化响应式高度 · 终态单一主权版)
-// =========================================================================
+// 🌟 灵动岛主壳体 (展开申请大域 · 终态即时释放 · 注入诊断日志版)
+// ==========================================
 import QtQuick
 import "../core"
 import "../views"
@@ -15,7 +15,6 @@ Item {
     property var timeService: null
 
     property real normalTopMargin: (typeof Config !== "undefined" && Config.capsuleTopMargin !== undefined) ? Config.capsuleTopMargin : 8
-    // 🚀【动态高度】：从配置读取 (32 / 36 / 42)
     readonly property int currentConfigHeight: (typeof Config !== "undefined" && Config.capsuleHeight !== undefined) ? Config.capsuleHeight : 36
     property real islandOffsetX: 0
 
@@ -34,14 +33,10 @@ Item {
 
     PhysicsMotionPod {
         id: motionPod
-        onMotionSettled: capsuleRoot.commitPrecisionMask()
-    }
-
-    Timer {
-        id: maskSettleWatchdog
-        interval: 140
-        repeat: false
-        onTriggered: capsuleRoot.executeActualMaskCommit()
+        onMotionSettled: {
+            console.log("[CapsuleDiag] 🏁 形变动画完全静止 -> 执行物理掩码精准收拢");
+            capsuleRoot.executeActualMaskCommit();
+        }
     }
 
     width: Math.max(160, motionPod.currentWidth)
@@ -81,21 +76,21 @@ Item {
                 break;
         }
 
-        var willMove = (Math.abs(motionPod.targetY - tY) > 0.5 ||
-                        Math.abs(motionPod.targetWidth - tW) > 0.5 ||
-                        Math.abs(motionPod.targetHeight - tH) > 0.5);
-
-        if (willMove) {
+        // 展开时立即向系统放开整块 680x480 大区域用于显示和外围监测
+        if (fsm.currentState === IslandFsm.State.Expanded) {
+            console.log("[CapsuleDiag] 🚀 展开状态确立：申请放开 680x480 完整走廊掩码");
             if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                 Bridge.openFullCorridorForMotion();
             }
-            maskSettleWatchdog.stop();
         }
 
         motionPod.expressGeometry(tY, tW, tH, tR);
     }
 
-    Component.onCompleted: resolveAndExpress()
+    Component.onCompleted: {
+        resolveAndExpress();
+        executeActualMaskCommit();
+    }
 
     Connections {
         target: capsuleRoot.fsm
@@ -113,36 +108,32 @@ Item {
         }
     }
 
-    // 监听高度设置变更
-    Connections {
-        target: (typeof Config !== "undefined") ? Config : null
-        function onCapsuleHeightChanged(h) {
-            capsuleRoot.resolveAndExpress();
-        }
-    }
-
-    function commitPrecisionMask() {
-        maskSettleWatchdog.restart();
-    }
-
+    // 🚀【收缩完毕立即释放大区域】：将物理掩码精确裁剪在小胶囊轮廓上
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
+        // 处于展开态时维持大区域
         if (capsuleRoot.isCurrentExpanded) {
             Bridge.openFullCorridorForMotion();
             return;
         }
 
-        var capW = Math.round(capsuleRoot.width);
-        var capX = Math.round((parent.width - capW) / 2 + islandOffsetX);
         var safePadH = 4;
 
+        // 潜水状态
         if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
-            Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, 10);
+            var tuckW = 180;
+            var tuckX = Math.round((parent.width - tuckW) / 2 + islandOffsetX);
+            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 10);
             return;
         }
 
+        // 常态收缩完成：精准裁剪为当前小胶囊几何尺寸，大区域完全释放给底层桌面！
+        var capW = Math.round(capsuleRoot.width);
+        var capX = Math.round((parent.width - capW) / 2 + islandOffsetX);
         var actualBottomY = Math.round(capsuleRoot.y + capsuleRoot.height + 2);
+
+        console.log("[CapsuleDiag] 🔒 物理掩码落盘: x=" + (capX - safePadH) + ", y=0, w=" + (capW + safePadH * 2) + ", h=" + actualBottomY + " (大区域已完全释放)");
         Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
@@ -220,6 +211,7 @@ Item {
         }
     }
 
+    // 420x240 大卡片展示容器 (层级 z: 50，居中且完全不受外围感应环干扰)
     Item {
         anchors.fill: parent
         anchors.margins: 12

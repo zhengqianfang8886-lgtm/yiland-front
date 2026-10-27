@@ -60,7 +60,6 @@ class IslandBridge(QObject):
     voiceInputLevelChanged = Signal(float)
     voiceInputStateChanged = Signal(bool, str)
 
-    # 🚀 打卡系统完全异步化通信信号 (杜绝 QML 主线程卡顿)
     habitsLoaded = Signal("QVariantList")
     monthRecordsLoaded = Signal(str, int, int, "QVariantMap")
     habitRecordToggled = Signal(str, str, bool)
@@ -234,9 +233,6 @@ class IslandBridge(QObject):
         if self._backend and self._backend.timer:
             self.run_async(self._backend.timer.reset())
 
-    # =========================================================================
-    # 🚀 打卡异步化通道实现 (主线程零等待)
-    # =========================================================================
     @Slot()
     def requestHabits(self):
         if not self._backend or not self._backend.habits:
@@ -410,7 +406,8 @@ class IslandBridge(QObject):
             overlay = s.get_overlay_dict()
             if overlay.get("key"):
                 self.view.raise_()
-                self.wm.clear_mask()
+                # 🚀【P0 核心修复】：绝对不能在这里调用 clear_mask()！
+                # 掩码边界由 QML 视图层的真实物理尺寸严格计算并原子提交，杜绝空气墙死锁
             self.overlayChanged.emit()
             if overlay.get("key") == "ALERT":
                 self.alertTriggered.emit(
@@ -488,7 +485,6 @@ class IslandBridge(QObject):
 
     @Slot(result="QVariantMap")
     def getSystemHealth(self):
-        """探测当前运行环境各底层驱动是否真实就绪可用"""
         import shutil
         has_kwin = (self.wm.platform.platform_name.startswith("KDE"))
         has_pulse = (self._backend and self._backend.audio and self._backend.audio._running)

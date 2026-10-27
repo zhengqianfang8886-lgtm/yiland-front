@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/components/expanded/ExpandedSensorCoordinator.qml
-// 🌟 展开态动态感知协调器 (纯相对坐标映射 · 零硬编码 · 完美契合任意 Margin)
-// =========================================================================
+// 🌟 展开态动态感知协调器 (空心几何外围感应环 · 零定时器 · 深度诊断日志版)
+// ==========================================
 import QtQuick
 
 Item {
@@ -10,36 +10,34 @@ Item {
 
     property Item targetCapsule: null
     property bool isExpanded: false
-    property int leaveDelayMs: 150
+
+    // 展开动画过程中的防误触锁 (200ms)
+    property bool isArmReady: false
 
     signal requestCollapse(string reason)
     signal requestAcquireFocus()
     signal requestRestoreFocus()
 
-    // 🚀【彻底消灭硬编码】：通过 mapToItem 动态换算当前卡片在 Coordinator 视口中的真实几何包围盒
-    function isInsideCardBounds(mx, my) {
-        if (!targetCapsule) return false;
-
-        var pos = targetCapsule.mapToItem(coordinator, 0, 0);
-        var marginTolerance = 4; // 容错边缘
-
-        var minX = pos.x - marginTolerance;
-        var maxX = pos.x + targetCapsule.width + marginTolerance;
-        var minY = pos.y - marginTolerance;
-        var maxY = pos.y + targetCapsule.height + marginTolerance;
-
-        return (mx >= minX && mx <= maxX && my >= minY && my <= maxY);
-    }
-
-    function brakeTimerOnWheel() {
-        leaveTimer.stop();
+    Timer {
+        id: armTimer
+        interval: 220
+        repeat: false
+        onTriggered: {
+            coordinator.isArmReady = true;
+            console.log("[SensorDiag] 🛡️ 展开动画就绪，外围离开感应环正式激活");
+        }
     }
 
     onIsExpandedChanged: {
-        leaveTimer.stop();
         if (isExpanded) {
+            coordinator.isArmReady = false;
+            armTimer.restart();
+            console.log("[SensorDiag] 🌟 收到展开状态，向系统申请放开 680x480 大视口");
             coordinator.requestAcquireFocus();
         } else {
+            coordinator.isArmReady = false;
+            armTimer.stop();
+            console.log("[SensorDiag] 📦 收到收拢状态，外围感应环解除");
             coordinator.requestRestoreFocus();
         }
     }
@@ -48,56 +46,77 @@ Item {
         sequence: "Escape"
         enabled: coordinator.isExpanded
         onActivated: {
-            leaveTimer.stop();
+            console.log("[SensorDiag] ⌨️ 捕获到按键: Escape 快捷收起");
             coordinator.requestCollapse("Shortcut_Escape");
         }
     }
 
-    // 1. 点击大卡片外部的真正桌面空白处立即收起
-    MouseArea {
-        id: outsideBackdropClickArea
+    // =========================================================================
+    // 🚀【空心环形外围感应区】：卡片中央 420x240 完全镂空，绝不被子控件劫持！
+    // =========================================================================
+    Item {
+        id: hollowOuterField
         anchors.fill: parent
-        z: 10
-        enabled: coordinator.isExpanded
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        enabled: coordinator.isExpanded && coordinator.isArmReady
+        visible: enabled
 
-        onClicked: (mouse) => {
-            if (!coordinator.isInsideCardBounds(mouse.x, mouse.y)) {
-                leaveTimer.stop();
-                coordinator.requestCollapse("Outside_Blank_Click");
+        readonly property int cardW: 420
+        readonly property int cardH: 240
+        readonly property int cardX: Math.round((coordinator.width - cardW) / 2)
+        readonly property int cardY: coordinator.targetCapsule ? Math.round(coordinator.targetCapsule.y) : 8
+        readonly property int cardBottomY: cardY + cardH
+
+        // 1. 左侧外围带 (宽 cardX)
+        MouseArea {
+            x: 0
+            y: 0
+            width: Math.max(0, hollowOuterField.cardX - 6)
+            height: parent.height
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onEntered: {
+                console.log("[SensorDiag] 🚪 光标向左划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                coordinator.requestCollapse("Crossed_Left_Boundary");
+            }
+            onClicked: {
+                console.log("[SensorDiag] 🎯 点击卡片左侧空白处 -> 触发收拢");
+                coordinator.requestCollapse("Click_Left_Blank");
             }
         }
-    }
 
-    // 2. 动态自适应坐标雷达追踪
-    MouseArea {
-        id: coordinateRadar
-        anchors.fill: parent
-        z: 12
-        hoverEnabled: true
-        acceptedButtons: Qt.NoButton
-        enabled: coordinator.isExpanded
-
-        onPositionChanged: (mouse) => {
-            var inside = coordinator.isInsideCardBounds(mouse.x, mouse.y);
-            if (inside) {
-                leaveTimer.stop();
-            } else {
-                if (!leaveTimer.running) {
-                    leaveTimer.restart();
-                }
+        // 2. 右侧外围带 (宽 cardX)
+        MouseArea {
+            x: hollowOuterField.cardX + hollowOuterField.cardW + 6
+            y: 0
+            width: Math.max(0, coordinator.width - x)
+            height: parent.height
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onEntered: {
+                console.log("[SensorDiag] 🚪 光标向右划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                coordinator.requestCollapse("Crossed_Right_Boundary");
+            }
+            onClicked: {
+                console.log("[SensorDiag] 🎯 点击卡片右侧空白处 -> 触发收拢");
+                coordinator.requestCollapse("Click_Right_Blank");
             }
         }
-    }
 
-    // 3. 150ms 顺滑跟手收起定时器
-    Timer {
-        id: leaveTimer
-        interval: coordinator.leaveDelayMs
-        repeat: false
-        onTriggered: {
-            if (coordinator.isExpanded) {
-                coordinator.requestCollapse("Follow_Leave_" + coordinator.leaveDelayMs + "ms");
+        // 3. 下方外围带 (卡片底边以下的所有大区域)
+        MouseArea {
+            x: Math.max(0, hollowOuterField.cardX - 6)
+            y: hollowOuterField.cardBottomY + 6
+            width: hollowOuterField.cardW + 12
+            height: Math.max(0, coordinator.height - y)
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onEntered: {
+                console.log("[SensorDiag] 🚪 光标向下划出卡片 (x=" + mouseX + ", y=" + mouseY + ") -> 触发收拢");
+                coordinator.requestCollapse("Crossed_Bottom_Boundary");
+            }
+            onClicked: {
+                console.log("[SensorDiag] 🎯 点击卡片下方空白处 -> 触发收拢");
+                coordinator.requestCollapse("Click_Bottom_Blank");
             }
         }
     }

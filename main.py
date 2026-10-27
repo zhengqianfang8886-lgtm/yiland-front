@@ -14,6 +14,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+os.environ["QT_QPA_PLATFORM"] = "wayland"
+# os.environ["QT_WAYLAND_SHELL_INTEGRATION"] = "layer-shell"
 os.environ.setdefault("QSG_RENDER_LOOP", "threaded")
 
 from backend.logger import app_logger

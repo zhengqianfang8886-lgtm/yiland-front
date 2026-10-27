@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (运动态感应自锁 · 彻底根除假悬停顿挫版)
-// =========================================================================
+// 🌟 顶级窗口视图 (空心环感应适配 · 纯净稳定版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 import "../core"
@@ -16,7 +16,11 @@ Item {
     focus: true
 
     Component.onCompleted: {
-        capsule.resolveAndExpress();
+        if (capsule) {
+            capsule.resolveAndExpress();
+            capsule.executeActualMaskCommit();
+        }
+
         if (typeof Bridge !== "undefined" && Bridge.setUiActive) {
             Bridge.setUiActive(fsm.currentState !== IslandFsm.State.Hidden);
         }
@@ -50,23 +54,16 @@ Item {
 
     property bool isSettingsOpen: false
 
-    Connections {
-        target: (typeof Bridge !== "undefined") ? Bridge : null
-        function onWindowDeactivated() {
-            if (root.isSettingsOpen) return;
-            if (fsm.currentState === IslandFsm.State.Expanded) {
-                fsm.handleIntent("COLLAPSE", { source: "Wayland_External_Click_Deactivated" });
-            }
-        }
-    }
-
+    // 展开态空心感应协调器
     ExpandedSensorCoordinator {
         id: expandedCoordinator
         targetCapsule: capsule
         isExpanded: (fsm.currentState === IslandFsm.State.Expanded)
-        leaveDelayMs: 150
 
-        onRequestCollapse: (reason) => fsm.handleIntent("COLLAPSE", { source: reason })
+        onRequestCollapse: (reason) => {
+            console.log("[IslandRoot] 📢 接收到协调器收起请求，原因: " + reason);
+            fsm.handleIntent("COLLAPSE", { source: reason });
+        }
         onRequestAcquireFocus: {
             if (root.isSettingsOpen) return;
             if (typeof Bridge !== "undefined" && Bridge.requestWindowFocus) {
@@ -91,11 +88,10 @@ Item {
         onRequestSettings: root.openSettingsWindow()
     }
 
-    readonly property bool isUserHovering: corridorArea.containsMouse || capsule.isHovered
+    readonly property bool isUserHovering: corridorArea.containsMouse || (capsule && capsule.isHovered)
 
     onIsUserHoveringChanged: {
-        // 🚀【核心根治】：当灵动岛正在做物理收缩或形变时，绝对禁止触发 USER_ACTIVE 干扰减速曲线！
-        if (capsule.isMoving) {
+        if (capsule && capsule.isMoving) {
             return;
         }
 
@@ -114,12 +110,11 @@ Item {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        width: 360
+        width: capsule ? Math.max(160, capsule.width + 12) : 260
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
-        // 🚀 形变运动中自动挂起走廊感应，杜绝收缩边缘擦过引发假触控
-        enabled: !isExpanded && !capsule.isMoving
-        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : 54)
+        enabled: !isExpanded && (!capsule || !capsule.isMoving)
+        height: isExpanded ? 0 : ((fsm.currentState === IslandFsm.State.Hidden) ? 10 : (capsule ? Math.round(capsule.y + capsule.height + 2) : 40))
 
         z: 5
         hoverEnabled: true
@@ -130,7 +125,7 @@ Item {
             interval: 220
             repeat: false
             onTriggered: {
-                if (!capsule.isMoving) {
+                if ((!capsule || !capsule.isMoving) && fsm.currentState !== IslandFsm.State.Expanded) {
                     fsm.handleIntent("USER_IDLE", { source: "Corridor_Debounce" });
                 }
             }
@@ -160,7 +155,7 @@ Item {
             item.visibleChanged.connect(function() {
                 root.isSettingsOpen = item.visible;
             });
-            item.openCentered(); // 🚀 在屏幕正中心独立弹出！
+            item.openCentered();
         }
     }
 
