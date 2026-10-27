@@ -430,6 +430,23 @@ class IslandBridge(QObject):
         else:
             self.view.requestActivate()
 
+    @Slot(bool)
+    def setRequireFocus(self, required: bool):
+        """🚀 动态焦点护盾控制：仅在需要打字时撕开护盾获取焦点"""
+        flags = self.view.flags()
+        if required:
+            # 移除不接受焦点的限制，并提权
+            flags &= ~Qt.WindowType.WindowDoesNotAcceptFocus
+            self.view.setFlags(flags)
+            self.view.show() # Qt 机制：修改 flag 后必须 show 使其生效
+            self.requestWindowFocus()
+        else:
+            # 恢复绝对防抢夺护盾，并把焦点还给之前的宿主应用
+            flags |= Qt.WindowType.WindowDoesNotAcceptFocus
+            self.view.setFlags(flags)
+            self.view.show()
+            self.restorePreviousFocus()
+
     @Slot()
     def restorePreviousFocus(self):
         if hasattr(self.wm.platform, "restore_previous_focus"):

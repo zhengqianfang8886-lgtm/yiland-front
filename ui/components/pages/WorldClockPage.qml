@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/WorldClockPage.qml
-// 🌟 世界时钟页 (集成懒加载防孵化中断报错版)
+// 🌟 世界时钟页 (动态焦点护盾集成版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -56,6 +56,7 @@ Item {
         Config.savedClocks = list
         dropdownOpen = false
         filterKeyword = ""
+        if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) Bridge.setRequireFocus(false);
     }
 
     function removeClock(idx) {
@@ -84,6 +85,7 @@ Item {
         return { time: "--:--", diff: "", isDay: true, isWorking: false }
     }
 
+    // 点击背景空白处关闭搜索框并降权
     MouseArea {
         anchors.fill: parent
         visible: worldClockRoot.dropdownOpen
@@ -91,6 +93,9 @@ Item {
         onClicked: {
             worldClockRoot.dropdownOpen = false
             worldClockRoot.filterKeyword = ""
+            if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+                Bridge.setRequireFocus(false);
+            }
         }
     }
 
@@ -170,7 +175,13 @@ Item {
 
                 HoverHandler { id: addHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
-                    onTapped: worldClockRoot.dropdownOpen = !worldClockRoot.dropdownOpen
+                    onTapped: {
+                        worldClockRoot.dropdownOpen = !worldClockRoot.dropdownOpen;
+                        // 🚀【动态提权点】：打开搜索框瞬间提权，关闭时降权
+                        if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+                            Bridge.setRequireFocus(worldClockRoot.dropdownOpen);
+                        }
+                    }
                 }
             }
         }
@@ -411,7 +422,7 @@ Item {
 
                         Text {
                             text: "输入城市中文名、拼音缩写或英文..."
-                            color: Qt.rgba(1, 1, 1, 0.4)
+                            color: Qt.rgba(1, 1, 1, 0.35)
                             font.pixelSize: 11
                             font.family: worldClockRoot.effectiveFont
                             visible: !filterInput.text
@@ -425,7 +436,6 @@ Item {
                 id: dropListView
                 width: parent.width
                 height: parent.height - 32
-                // 🚀【核心修复】：仅在下拉面板展开时才挂载列表模型，从根源杜绝切页孵化中断报错
                 model: worldClockRoot.dropdownOpen ? worldClockRoot.availableCities : []
                 clip: true
 

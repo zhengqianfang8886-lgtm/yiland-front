@@ -25,14 +25,19 @@ Item {
         }
     }
 
+    // 找到 onIsExpandedChanged 块，将其替换为：
     onIsExpandedChanged: {
         if (isExpanded) {
             coordinator.isArmReady = false;
             armTimer.restart();
-            coordinator.requestAcquireFocus();
+            // 🚀 彻底删除原先的 coordinator.requestAcquireFocus()！展开卡片看日历绝不抢焦点！
         } else {
             coordinator.isArmReady = false;
             armTimer.stop();
+            // 🚀 收拢时，确保任何残留的输入法提权被强制重置，恢复绝对静默
+            if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+                Bridge.setRequireFocus(false);
+            }
             coordinator.requestRestoreFocus();
         }
     }

@@ -31,12 +31,14 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
     def platform_name(self) -> str:
         return "KDE Plasma Wayland (Anti-Fullscreen Hijack)"
 
+    # 找到 get_window_flags 方法，将其修改为：
     def get_window_flags(self) -> Qt.WindowType:
         return (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool |
-            Qt.WindowType.BypassWindowManagerHint
+            Qt.WindowType.Tool |                      # 🚀 告诉底层：这是一个工具面板，绝不进 Alt-Tab
+            Qt.WindowType.BypassWindowManagerHint |
+            Qt.WindowType.WindowDoesNotAcceptFocus    # 🚀 告诉底层：不论怎么点，绝不抢夺用户焦点
         )
 
     def _find_qdbus(self) -> Optional[str]:

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/calendar/CalendarManagerDrawer.qml
-// 🌟 事项设置抽屉 (注入焦点诊断探针版)
+// 🌟 事项设置抽屉 (动态焦点护盾集成版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -20,6 +20,13 @@ Rectangle {
     signal habitCreated(string name)
     signal habitDeleted(string id)
     signal closeRequested()
+
+    // 🚀【生命周期降权】：抽屉一旦不可见，立即释放输入焦点并交还给宿主
+    onVisibleChanged: {
+        if (!visible && typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+            Bridge.setRequireFocus(false);
+        }
+    }
 
     Column {
         anchors.fill: parent
@@ -48,7 +55,12 @@ Rectangle {
 
                 Text { anchors.centerIn: parent; text: "✕"; color: Qt.rgba(1, 1, 1, 0.6); font.pixelSize: 9; font.weight: Font.Bold }
                 HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: drawerRoot.closeRequested() }
+                TapHandler {
+                    onTapped: {
+                        if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) Bridge.setRequireFocus(false);
+                        drawerRoot.closeRequested();
+                    }
+                }
             }
         }
 
@@ -73,13 +85,6 @@ Rectangle {
                 selectByMouse: true
                 activeFocusOnTab: true
 
-                // 🚀【按键雷达 2】：输入框焦点与按键探测
-                onActiveFocusChanged: {
-                    console.log("[CalendarDrawer:Input] 🎯 输入框 activeFocus 变为 -> " + activeFocus);
-                }
-                Keys.onPressed: (event) => {
-                    console.log("[CalendarDrawer:Input] ⌨️ 输入框捕获按键 -> key=" + event.key + ", text=" + event.text);
-                }
                 Keys.onReturnPressed: commitAdd()
 
                 Text {
@@ -91,9 +96,12 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                 }
 
+                // 🚀【动态提权点】：只有当用户明确点击输入框准备打字时，才临时向系统索取键盘焦点
                 TapHandler {
                     onTapped: {
-                        console.log("[CalendarDrawer:Input] 点击了输入框，强制索取焦点 forceActiveFocus()");
+                        if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+                            Bridge.setRequireFocus(true);
+                        }
                         input.forceActiveFocus();
                     }
                 }
@@ -190,6 +198,9 @@ Rectangle {
     }
 
     function focusInput() {
+        if (typeof Bridge !== "undefined" && Bridge.setRequireFocus) {
+            Bridge.setRequireFocus(true);
+        }
         input.forceActiveFocus();
     }
 }
