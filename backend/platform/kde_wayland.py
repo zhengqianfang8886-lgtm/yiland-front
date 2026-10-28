@@ -36,9 +36,9 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
         return (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool |                      # 🚀 告诉底层：这是一个工具面板，绝不进 Alt-Tab
-            Qt.WindowType.BypassWindowManagerHint |
-            Qt.WindowType.WindowDoesNotAcceptFocus    # 🚀 告诉底层：不论怎么点，绝不抢夺用户焦点
+            # Qt.WindowType.BypassWindowManagerHint |
+            Qt.WindowType.WindowDoesNotAcceptFocus |   # 🚀 告诉底层：不论怎么点，绝不抢夺用户焦点
+            Qt.WindowType.SplashScreen
         )
 
     def _find_qdbus(self) -> Optional[str]:

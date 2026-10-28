@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/MediaPage.qml
-// 🌟 媒体控制页 (修复本地封面拼接 query 404 变黑 Bug)
+// 🌟 媒体控制页 (攻克 Chrome 伪时长 · 强语义直播识别版)
 // ==========================================
 import QtQuick
 import QtQuick.Shapes
@@ -18,9 +18,41 @@ Item {
     property string artUrl: ""
     property real position: 0
     property real duration: 0
-
-    property color dominantColor: "#22c55e"
+    property color dominantColor: "#38bdf8"
     property int mediaRevision: 0
+
+    // =========================================================================
+    // 🚀【核心识别引擎】：完美破解 Chrome / YouTube Live 上报伪造 DVR 时长的 Bug
+    // =========================================================================
+    readonly property bool isLiveStream: {
+        // 1. 物理极值判定：没有时长、或者时长大于 24 小时的，绝对是直播
+        if (duration <= 0 || duration >= 86400) return true;
+
+        var t = (title || "").toLowerCase();
+        var a = (artist || "").toLowerCase();
+        var fullInfo = t + " " + a;
+
+        // 2. 强语义特征：只要包含这些关键字，无视系统瞎报的几分钟时长，强判为直播！
+        if (fullInfo.indexOf("🔴") !== -1 ||
+            fullInfo.indexOf("直播中") !== -1 ||
+            fullInfo.indexOf("live stream") !== -1 ||
+            fullInfo.indexOf("livestream") !== -1 ||
+            fullInfo.indexOf("24/7 live") !== -1 ||
+            fullInfo.indexOf("live 4k") !== -1 ||
+            t.indexOf("[live]") !== -1 ||
+            t.indexOf("【live】") !== -1 ||
+            t.indexOf("(live)") !== -1) {
+            return true;
+        }
+
+        // 3. 弱特征词防误判：如果只是单纯带个 "live" 词汇，可能是 "XX演唱会 Live版" 的普通歌曲
+        // 只有当它同时满足时长极其离谱(>2小时)时，才判定为直播
+        if (fullInfo.indexOf("live") !== -1 || fullInfo.indexOf("直播") !== -1) {
+            if (duration > 7200) return true;
+        }
+
+        return false;
+    }
 
     onTitleChanged: {
         mediaRevision++
@@ -33,7 +65,7 @@ Item {
     signal startCollapse()
 
     function formatMediaTime(sec, forceHours) {
-        if (!sec || isNaN(sec) || sec <= 0) return forceHours ? "0:00:00" : "0:00"
+        if (!sec || isNaN(sec) || sec <= 0 || sec >= 86400) return forceHours ? "0:00:00" : "0:00"
         var totalSec = Math.floor(sec)
         var h = Math.floor(totalSec / 3600)
         var m = Math.floor((totalSec % 3600) / 60)
@@ -49,7 +81,9 @@ Item {
         anchors.centerIn: parent
         spacing: 10
 
-        // 1. 媒体头栏信息
+        // =====================================================================
+        // 1. 头栏信息
+        // =====================================================================
         Item {
             width: parent.width
             height: 48
@@ -70,13 +104,10 @@ Item {
                     Image {
                         id: coverImg
                         anchors.fill: parent
-                        // 🚀【核心修复】：本地文件绝不能加 ?rev= 参数，避免 Linux 文件系统把 ?rev= 当作文件名找不到文件
                         source: {
                             if (!mediaRoot.artUrl) return ""
                             var url = mediaRoot.artUrl.trim()
-                            if (url.indexOf("://") === -1) {
-                                url = "file://" + url
-                            }
+                            if (url.indexOf("://") === -1) url = "file://" + url
                             if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) {
                                 var sep = url.indexOf("?") !== -1 ? "&" : "?"
                                 return url + sep + "rev=" + mediaRoot.mediaRevision
@@ -105,7 +136,7 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "🎵"
+                        text: mediaRoot.isLiveStream ? "📡" : "🎵"
                         font.pixelSize: 18
                         visible: coverImg.status !== Image.Ready || coverImg.opacity <= 0.5
                     }
@@ -125,7 +156,26 @@ Item {
 
                     Row {
                         width: parent.width
-                        spacing: 4
+                        spacing: 6
+
+                        // 🔴 智能直播红标
+                        Rectangle {
+                            height: 16
+                            width: liveBadgeText.implicitWidth + 8
+                            radius: 4
+                            color: "#ef4444"
+                            visible: mediaRoot.isLiveStream
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            Text {
+                                id: liveBadgeText
+                                anchors.centerIn: parent
+                                text: "LIVE"
+                                color: "white"
+                                font.pixelSize: 9
+                                font.weight: Font.Black
+                            }
+                        }
 
                         Text {
                             text: mediaRoot.title ? mediaRoot.title : "等待播放..."
@@ -134,7 +184,7 @@ Item {
                             font.pixelSize: 13
                             font.weight: Font.Black
                             elide: Text.ElideRight
-                            width: parent.width - 20
+                            width: parent.width - (mediaRoot.isLiveStream ? 56 : 20)
                         }
 
                         Text {
@@ -148,7 +198,7 @@ Item {
                     }
 
                     Text {
-                        text: (mediaRoot.artist ? mediaRoot.artist : "未知歌手") + (mediaPortalHover.containsMouse ? " · 点击聚焦音乐客户端" : "")
+                        text: (mediaRoot.artist ? mediaRoot.artist : (mediaRoot.isLiveStream ? "实时音频流" : "未知歌手")) + (mediaPortalHover.containsMouse ? " · 点击聚焦客户端" : "")
                         color: Theme.textSecondary
                         font.family: mediaRoot.effectiveFont
                         font.pixelSize: 11
@@ -173,18 +223,22 @@ Item {
             }
         }
 
-        // 2. 音乐播放时间轴
+        // =====================================================================
+        // 2. 媒体时间轴：歌曲进度 vs 直播流光能量带
+        // =====================================================================
         Item {
             width: parent.width
-            height: 12
+            height: 14
 
             Text {
                 id: posText
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: mediaRoot.formatMediaTime(mediaRoot.position, mediaRoot.duration >= 3600)
-                color: Theme.textMuted
-                font.family: mediaRoot.displayFont
+                text: mediaRoot.isLiveStream ? 
+                      (mediaRoot.position > 0 ? mediaRoot.formatMediaTime(mediaRoot.position, false) : "实时流") : 
+                      mediaRoot.formatMediaTime(mediaRoot.position, mediaRoot.duration >= 3600)
+                color: mediaRoot.isLiveStream ? "#ef4444" : Theme.textMuted
+                font.family: mediaRoot.isLiveStream ? mediaRoot.effectiveFont : mediaRoot.displayFont
                 font.pixelSize: 10
                 font.weight: Font.Bold
             }
@@ -192,36 +246,107 @@ Item {
             Rectangle {
                 id: progressTrack
                 anchors.left: posText.right
-                anchors.right: durText.left
+                anchors.right: durItem.left
                 anchors.leftMargin: 10
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
                 height: 4
                 radius: 2
                 color: Qt.rgba(1, 1, 1, 0.14)
+                clip: true
 
+                // 普通歌曲进度
                 Rectangle {
+                    visible: !mediaRoot.isLiveStream
                     width: mediaRoot.duration > 0 ? (progressTrack.width * Math.min(1.0, Math.max(0.0, mediaRoot.position / mediaRoot.duration))) : 0
                     height: parent.height
                     radius: 2
                     color: mediaRoot.dominantColor
-                    Behavior on color { ColorAnimation { duration: 250 } }
+
+                    Behavior on width {
+                        NumberAnimation { duration: 250; easing.type: Easing.Linear }
+                    }
+                }
+
+                // 🔴 直播专属：红色流光呼吸脉冲能量带
+                Rectangle {
+                    visible: mediaRoot.isLiveStream
+                    anchors.fill: parent
+                    radius: 2
+                    color: Qt.rgba(239 / 255, 68 / 68, 68 / 255, 0.35)
+
+                    Rectangle {
+                        id: livePulseGlow
+                        width: parent.width * 0.4
+                        height: parent.height
+                        radius: 2
+                        color: "#ef4444"
+
+                        SequentialAnimation on x {
+                            running: mediaRoot.isLiveStream && mediaRoot.status === "Playing"
+                            loops: Animation.Infinite
+                            NumberAnimation { from: -livePulseGlow.width; to: progressTrack.width; duration: 2200; easing.type: Easing.InOutQuad }
+                        }
+                    }
                 }
             }
 
-            Text {
-                id: durText
+            Item {
+                id: durItem
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                text: mediaRoot.formatMediaTime(mediaRoot.duration)
-                color: Theme.textMuted
-                font.family: mediaRoot.displayFont
-                font.pixelSize: 10
-                font.weight: Font.Bold
+                width: mediaRoot.isLiveStream ? liveBadgeRow.implicitWidth : durText.implicitWidth
+                height: parent.height
+
+                Text {
+                    id: durText
+                    visible: !mediaRoot.isLiveStream
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: mediaRoot.formatMediaTime(mediaRoot.duration)
+                    color: Theme.textMuted
+                    font.family: mediaRoot.displayFont
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                }
+
+                // 🔴 直播专属：右侧呼吸灯微标
+                Row {
+                    id: liveBadgeRow
+                    visible: mediaRoot.isLiveStream
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4
+
+                    Rectangle {
+                        id: liveDot
+                        width: 6; height: 6; radius: 3
+                        color: "#ef4444"
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        SequentialAnimation on opacity {
+                            running: mediaRoot.isLiveStream && mediaRoot.status === "Playing"
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.25; duration: 800; easing.type: Easing.InOutQuad }
+                            NumberAnimation { to: 1.00; duration: 800; easing.type: Easing.InOutQuad }
+                        }
+                    }
+
+                    Text {
+                        text: "LIVE"
+                        color: "#ef4444"
+                        font.pixelSize: 10
+                        font.weight: Font.Black
+                        font.family: mediaRoot.effectiveFont
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
             }
         }
 
+        // =====================================================================
         // 3. 播控按键区
+        // =====================================================================
         Item {
             width: parent.width
             height: 42
@@ -234,6 +359,7 @@ Item {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
                     color: prevArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                    opacity: mediaRoot.isLiveStream ? 0.35 : 1.0 // 🔴 直播弱化
                     scale: prevArea.pressed ? 0.9 : 1.0
                     Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
@@ -261,8 +387,13 @@ Item {
 
                     MouseArea {
                         id: prevArea
-                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: (mouse) => { mouse.accepted = true; Bridge.sendMediaCmd("MEDIA_PREV") }
+                        anchors.fill: parent; hoverEnabled: !mediaRoot.isLiveStream; cursorShape: mediaRoot.isLiveStream ? Qt.ArrowCursor : Qt.PointingHandCursor
+                        onClicked: (mouse) => { 
+                            if (!mediaRoot.isLiveStream) {
+                                mouse.accepted = true; 
+                                Bridge.sendMediaCmd("MEDIA_PREV") 
+                            }
+                        }
                     }
                 }
 
@@ -323,6 +454,7 @@ Item {
                     width: 32; height: 32; radius: 16
                     anchors.verticalCenter: parent.verticalCenter
                     color: nextArea.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                    opacity: mediaRoot.isLiveStream ? 0.35 : 1.0 // 🔴 直播弱化
                     scale: nextArea.pressed ? 0.9 : 1.0
                     Behavior on scale { NumberAnimation { duration: Theme.animInstant } }
 
@@ -350,8 +482,13 @@ Item {
 
                     MouseArea {
                         id: nextArea
-                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                        onClicked: (mouse) => { mouse.accepted = true; Bridge.sendMediaCmd("MEDIA_NEXT") }
+                        anchors.fill: parent; hoverEnabled: !mediaRoot.isLiveStream; cursorShape: mediaRoot.isLiveStream ? Qt.ArrowCursor : Qt.PointingHandCursor
+                        onClicked: (mouse) => { 
+                            if (!mediaRoot.isLiveStream) {
+                                mouse.accepted = true; 
+                                Bridge.sendMediaCmd("MEDIA_NEXT") 
+                            }
+                        }
                     }
                 }
             }

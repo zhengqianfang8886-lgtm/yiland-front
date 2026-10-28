@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (单权威总线门面 · 零冗余纯净版)
+# 🌟 Qt / QML 统一交互中枢 (已彻底剔除 OSD 弹窗信号)
 # ==========================================
 import atexit
 import asyncio
@@ -36,8 +36,7 @@ class IslandBridge(QObject):
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
-    # 硬件与按键状态
-    osdTriggered = Signal(str, str, int)
+    # 硬件与按键状态 (已移除 osdTriggered 信号)
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
     brightnessChanged = Signal(int)
@@ -65,7 +64,7 @@ class IslandBridge(QObject):
     voiceInputStateChanged = Signal(bool, str)
 
     # 系统输入法
-    imeUpdated = Signal(bool, str, str, str)  # is_active, label, im_name, icon_url
+    imeUpdated = Signal(bool, str, str, str)
     imeMenuUpdated = Signal("QVariantList")
     windowDeactivated = Signal()
 
@@ -94,7 +93,6 @@ class IslandBridge(QObject):
         self._event_filter = WindowEventFilter(self)
         self.view.installEventFilter(self._event_filter)
 
-        # 窗口失焦时触发边缘输入法状态校准
         self.windowDeactivated.connect(self._on_window_deactivated)
         atexit.register(self.cleanup)
 
@@ -131,9 +129,6 @@ class IslandBridge(QObject):
     def _handle_inproc_event(self, event_type: str, s):
         self._dispatcher.dispatch(event_type, s)
 
-    # =========================================================================
-    # 2. QML 绑定属性
-    # =========================================================================
     # --- 输入法属性 ---
     @Property(bool, notify=imeUpdated)
     def isImeActive(self): return self._backend.state.ime_active if self._backend else False
@@ -153,13 +148,12 @@ class IslandBridge(QObject):
 
     @Slot()
     def refreshImeMenu(self):
-        """右键点击菜单时即时从系统拉取最新项"""
         if self._backend and self._backend.ime:
             self.run_async(self._backend.ime.fetch_menu_async())
 
     @Slot(int, str)
     def activateImeMenuItem(self, item_id: int, unique_name: str = ""):
-        """点击菜单项时回传给系统执行"""
+        print(f"\033[33;1m[Bridge] 收到前端 activateImeMenuItem(id={item_id}, unique_name='{unique_name}')\033[0m")
         if self._backend and self._backend.ime:
             self.run_async(self._backend.ime.activate_menu_item(item_id, unique_name))
 
@@ -185,7 +179,10 @@ class IslandBridge(QObject):
     @Property(bool, notify=batteryUpdated)
     def isSystemCharging(self): return self._backend.state.battery_charging if self._backend else False
 
-    # --- 定时器属性 ---
+    # =========================================================================
+    # 定时器双轨独立属性 (支持前端同时展示)
+    # =========================================================================
+    # --- 兼容视图属性 ---
     @Property(str, notify=timerUpdated)
     def timerType(self): return self._backend.state.timer_type if self._backend else "countdown"
 
@@ -219,6 +216,52 @@ class IslandBridge(QObject):
     @Property(list, notify=timerUpdated)
     def timerLaps(self): return self._backend.state.timer_laps if self._backend else []
 
+    # --- 🚀 独立【倒计时轨】专有属性 ---
+    @Property(bool, notify=timerUpdated)
+    def cdActive(self):
+        s = self._backend.state if self._backend else None
+        return bool(s and (s.cd_is_running or s.cd_is_paused or s.cd_is_overtime))
+
+    @Property(bool, notify=timerUpdated)
+    def cdIsRunning(self): return self._backend.state.cd_is_running if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def cdIsPaused(self): return self._backend.state.cd_is_paused if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def cdIsOvertime(self): return self._backend.state.cd_is_overtime if self._backend else False
+
+    @Property(int, notify=timerUpdated)
+    def cdRemainingSec(self): return self._backend.state.cd_remaining_sec if self._backend else 1500
+
+    @Property(int, notify=timerUpdated)
+    def cdOvertimeSec(self): return self._backend.state.cd_overtime_sec if self._backend else 0
+
+    @Property(str, notify=timerUpdated)
+    def cdMode(self): return self._backend.state.cd_mode if self._backend else "focus"
+
+    # --- 🚀 独立【正向秒表轨】专有属性 ---
+    @Property(bool, notify=timerUpdated)
+    def swActive(self):
+        s = self._backend.state if self._backend else None
+        return bool(s and (s.sw_is_running or s.sw_is_paused))
+
+    @Property(bool, notify=timerUpdated)
+    def swIsRunning(self): return self._backend.state.sw_is_running if self._backend else False
+
+    @Property(bool, notify=timerUpdated)
+    def swIsPaused(self): return self._backend.state.sw_is_paused if self._backend else False
+
+    @Property(int, notify=timerUpdated)
+    def swElapsedSec(self): return self._backend.state.sw_elapsed_sec if self._backend else 0
+
+    # --- 槽函数 ---
+    @Slot(str)
+    def resetSpecificTimer(self, track_type: str):
+        """精准重置某一轨 (countdown 或 stopwatch)"""
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.reset_specific(track_type))
+
     # --- 打断与语音属性 ---
     @Property("QVariantMap", notify=overlayChanged)
     def activeOverlay(self): return self._backend.state.get_overlay_dict() if self._backend else {}
@@ -245,20 +288,22 @@ class IslandBridge(QObject):
     # =========================================================================
     # 3. 业务槽函数
     # =========================================================================
-    # --- 输入法控制 ---
     @Slot()
     def toggleIme(self):
-        if self._backend and self._backend.ime: self.run_async(self._backend.ime.toggle())
+        print("\033[33;1m[Bridge] 收到前端 toggleIme() 槽函数调用\033[0m")
+        if self._backend and self._backend.ime:
+            self.run_async(self._backend.ime.toggle())
 
     @Slot(str)
     def switchImeTo(self, im_name: str):
-        if self._backend and self._backend.ime: self.run_async(self._backend.ime.switch_to_im(im_name))
+        print(f"\033[33;1m[Bridge] 收到前端 switchImeTo('{im_name}')\033[0m")
+        if self._backend and self._backend.ime:
+            self.run_async(self._backend.ime.switch_to_im(im_name))
 
     @Slot()
     def openImeConfig(self):
         if self._backend and self._backend.ime: self.run_async(self._backend.ime.open_config())
 
-    # --- 硬件调节 ---
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         if not self._backend: return
@@ -277,7 +322,6 @@ class IslandBridge(QObject):
         if mode == 0: self.run_async(self._backend.audio.toggle_mute())
         elif mode == 2: self.run_async(self._backend.audio.toggle_mic_mute())
 
-    # --- 工作区与平铺网格 ---
     @Slot(int)
     @Slot(str)
     def switchWorkspace(self, target):
@@ -295,7 +339,6 @@ class IslandBridge(QObject):
     def toggleDesktopGrid(self):
         if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.toggle_desktop_grid())
 
-    # --- 媒体控制 ---
     @Slot(str)
     def sendMediaCmd(self, action: str):
         if not self._backend or not self._backend.mpris: return
@@ -307,7 +350,6 @@ class IslandBridge(QObject):
     def focusMediaWindow(self, title="", artist=""):
         if self._backend and self._backend.mpris: self.run_async(self._backend.mpris.raise_player())
 
-    # --- 定时器控制 ---
     @Slot(str)
     def switchTimerType(self, t_type: str):
         if self._backend and self._backend.timer: self.run_async(self._backend.timer.switch_type(t_type))
@@ -332,7 +374,6 @@ class IslandBridge(QObject):
     def resetTimer(self):
         if self._backend and self._backend.timer: self.run_async(self._backend.timer.reset())
 
-    # --- 语音与打断 ---
     @Slot()
     def toggleVoiceInput(self):
         if self._backend and self._backend.voice: self.run_async(self._backend.voice.toggle_recording())
@@ -351,7 +392,6 @@ class IslandBridge(QObject):
     def setUiActive(self, active: bool):
         if self._backend: self._backend.set_ui_active(active)
 
-    # --- 工具函数与系统诊断 ---
     @Slot(str, bool, result=dict)
     def getWorldTime(self, tz_name, is_24h=True): return get_world_time(tz_name, is_24h)
 
@@ -370,7 +410,6 @@ class IslandBridge(QObject):
             "wlPasteInstalled": bool(shutil.which("wl-paste")),
         }
 
-    # --- 窗口管理器代理 ---
     @Slot()
     def openSystemMonitor(self): self.wm.open_system_monitor()
 

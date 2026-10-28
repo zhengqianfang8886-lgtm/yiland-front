@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandBridgeRelay.qml
-// 🌟 统一事件中继总线 (结构化网速 + 零 JS 计算数据透传版)
+// 🌟 统一事件中继总线 (已剔除 OSD 弹窗处理)
 // =========================================================================
 import QtQuick
 
@@ -50,7 +50,6 @@ Item {
     property int unreadCount: (typeof Bridge !== "undefined" && Bridge.unreadCount !== undefined) ? Bridge.unreadCount : 0
     property string latestNotifAvatar: (typeof Bridge !== "undefined" && Bridge.latestNotificationAvatar !== undefined) ? Bridge.latestNotificationAvatar : ""
 
-    // 🚀【结构化网速属性】：前端直绑，无须任何 split / substring
     property string netDownVal: "0"
     property string netDownUnit: "B/s"
     property string netUpVal: "0"
@@ -66,7 +65,6 @@ Item {
 
         function onUnreadCountChanged(cnt) { relay.unreadCount = cnt; }
 
-        // 接收结构化网速下发
         function onNetSpeedUpdated(d_val, d_unit, u_val, u_unit, d_compact, u_compact) {
             relay.netDownVal = d_val;
             relay.netDownUnit = d_unit;
@@ -108,16 +106,7 @@ Item {
             relay.spec1 = s1; relay.spec2 = s2; relay.spec3 = s3; relay.spec4 = s4;
         }
 
-        function onOsdTriggered(icon, label, val) {
-            if (relay.fsm) {
-                relay.fsm.postTransient("OSD", {
-                    icon: icon,
-                    title: label,
-                    value: val,
-                    color: (icon === "🔇") ? "#ef4444" : "#ffffff"
-                }, 1500);
-            }
-        }
+        // 🚀 已彻底剔除 onOsdTriggered
 
         function onWorkspaceTriggered(curr, tot, name) {
             relay.wsCurrent = curr; relay.wsTotal = tot; relay.wsName = name;
@@ -169,6 +158,16 @@ Item {
             relay.isCalling = false;
             if (relay.fsm) {
                 relay.fsm.dismissTransient("CALL");
+            }
+        }
+
+        // 🚀【核心补全】：接收底层进度更新，每秒推送至各页面
+        function onProgressUpdated(pos, dur, prog) {
+            if (pos !== undefined && !isNaN(pos) && Number(pos) >= 0) {
+                relay.position = Number(pos);
+            }
+            if (dur !== undefined && !isNaN(dur) && Number(dur) > 0) {
+                relay.duration = Number(dur);
             }
         }
     }

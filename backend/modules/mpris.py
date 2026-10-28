@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/mpris.py
-# 🌟 MPRIS 媒体流多播放源仲裁驱动 (C++ QImage + Numpy SIMD 毫秒级取色重构版)
+# 🌟 MPRIS 媒体驱动 (补全 Seeked 监听 · 完美支持直播流版)
 # ==========================================
 import os
 import io
@@ -15,8 +15,7 @@ import urllib.parse
 import urllib.request
 from typing import Dict, Any, Optional
 
-import numpy as np
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QImage, QColor
 from PySide6.QtCore import Qt
 
 from dbus_next.aio import MessageBus
@@ -28,7 +27,6 @@ from backend.core.state import IslandState
 
 
 class SinglePlayerRecord:
-    """单一播放源状态容器"""
     def __init__(self, bus_name: str, unique_name: str = ""):
         self.bus_name: str = bus_name
         self.unique_name: str = unique_name
@@ -57,7 +55,6 @@ class MprisModule(BaseModule):
         self._cava_proc: Optional[subprocess.Popen] = None
         self._spectrum_thread: Optional[threading.Thread] = None
         
-        # 封面颜色缓存
         self._color_cache: Dict[str, str] = {}
         self._last_spec_cache = (0.2, 0.2, 0.2, 0.2)
 
@@ -101,7 +98,7 @@ class MprisModule(BaseModule):
         await self.discover_all_players()
         self._ticker_task = asyncio.create_task(self._progress_ticker())
         self._start_spectrum_engine()
-        app_logger.info("✅ MPRIS 仲裁总线与 SIMD 零拷贝色彩引擎已就绪")
+        app_logger.info("✅ MPRIS 仲裁总线就绪 (已挂载进度心跳与 Seeked 监听)")
 
     async def stop(self) -> None:
         self._spectrum_running = False
@@ -117,9 +114,6 @@ class MprisModule(BaseModule):
         if self._ticker_task and not self._ticker_task.done():
             self._ticker_task.cancel()
 
-    # =========================================================================
-    # 多播放源生命周期维护
-    # =========================================================================
     async def discover_all_players(self):
         try:
             reply = await self.bus.call(Message(
@@ -193,16 +187,22 @@ class MprisModule(BaseModule):
             if art_url.startswith("file://"): art_url = "file://" + urllib.parse.unquote(art_url[7:])
             elif art_url.startswith("/") and not art_url.startswith("file://"): art_url = "file://" + art_url
         
-        # 只要 URL 变动，重新提取颜色
         if art_url != rec.art_url:
             rec.art_url = art_url
             if rec.art_url:
                 self._extract_and_assign_color(rec.art_url, rec)
             else:
-                rec.dominant_color = "#22c55e"
+                rec.dominant_color = "#38bdf8"
 
+        # 🚀【核心修复】：识别 Chrome 网页直播的 INT64_MAX (25亿小时) 伪无穷大时长
         length_us = meta.get("mpris:length", 0)
-        rec.duration = round(float(length_us) / 1_000_000.0, 1) if length_us else 0.0
+        raw_dur = round(float(length_us) / 1_000_000.0, 1) if (length_us and length_us > 0) else 0.0
+
+        # 超过 24 小时 (86400秒) 的媒体在物理上必然是直播流，直接强制归零为直播！
+        if raw_dur >= 86400:
+            rec.duration = 0.0
+        else:
+            rec.duration = raw_dur
 
     async def _arbitrate_active_player(self, force_notify: bool = False):
         candidates = list(self._players.values())
@@ -225,7 +225,7 @@ class MprisModule(BaseModule):
             dominant_color=best.dominant_color,
             position=best.position
         )
-        current_sig = f"{best.bus_name}|{best.title}|{best.artist}|{best.playback_status}|{best.art_url}"
+        current_sig = f"{best.bus_name}|{best.title}|{best.artist}|{best.playback_status}|{best.art_url}|{best.duration}"
         if force_notify or is_switched or (current_sig != self._last_emitted_signature):
             self._last_emitted_signature = current_sig
             self.notify("MEDIA_UPDATE")
@@ -233,20 +233,23 @@ class MprisModule(BaseModule):
     def _clear_player_state(self):
         self.state.batch_update(
             active_player=None, playback_status="Stopped", title="等待播放媒体...",
-            artist="空闲", art_url="", position=0.0, duration=0.0, dominant_color="#22c55e"
+            artist="空闲", art_url="", position=0.0, duration=0.0, dominant_color="#38bdf8"
         )
         self._last_emitted_signature = ""
         self.notify("MEDIA_UPDATE")
 
     # =========================================================================
-    # D-Bus 监听器处理
+    # 🚀【核心加固：新增 Seeked 信号监听】
     # =========================================================================
     async def _setup_listeners(self):
         rules = [
             "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/mpris/MediaPlayer2'",
+            "type='signal',interface='org.mpris.MediaPlayer2.Player',member='Seeked',path='/org/mpris/MediaPlayer2'", # 🚀 进度条跳转瞬时捕获
             "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'"
         ]
+
         def signal_handler(msg: Message):
+            # 1. 播放器关闭/创建
             if msg.member == "NameOwnerChanged" and msg.body:
                 name, old_owner, new_owner = msg.body
                 if name.startswith("org.mpris.MediaPlayer2."):
@@ -255,11 +258,16 @@ class MprisModule(BaseModule):
                     elif old_owner and not new_owner:
                         self._remove_player(name)
                         asyncio.create_task(self._arbitrate_active_player(force_notify=True))
-                elif old_owner and not new_owner and old_owner in self._unique_to_wellknown:
-                    well_name = self._unique_to_wellknown.get(old_owner)
-                    if well_name:
-                        self._remove_player(well_name)
-                        asyncio.create_task(self._arbitrate_active_player(force_notify=True))
+
+            # 2. 拖动进度条跳转信号 (Seeked)
+            if msg.member == "Seeked" and msg.body:
+                pos_us = self._unwrap_variant(msg.body[0])
+                current_sec = round(float(pos_us) / 1_000_000.0, 2)
+                self.state.position = current_sec
+                self.notify("MEDIA_PROGRESS")
+                return
+
+            # 3. 属性变动 (PropertiesChanged)
             if msg.interface == "org.freedesktop.DBus.Properties" and msg.member == "PropertiesChanged":
                 interface_name, changed_props, _ = msg.body
                 if interface_name == "org.mpris.MediaPlayer2.Player":
@@ -287,7 +295,8 @@ class MprisModule(BaseModule):
                     if has_st_change or target == self.state.active_player:
                         asyncio.create_task(self._arbitrate_active_player())
 
-        for r in rules: await self.bus.call(Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus", interface="org.freedesktop.DBus", member="AddMatch", signature="s", body=[r]))
+        for r in rules:
+            await self.bus.call(Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus", interface="org.freedesktop.DBus", member="AddMatch", signature="s", body=[r]))
         self.bus.add_message_handler(signal_handler)
 
     async def _on_new_player(self, name):
@@ -304,11 +313,14 @@ class MprisModule(BaseModule):
         except Exception: pass
         return 0.0
 
+    # 🚀【核心加固：平滑进度心跳，由 2 秒缩短至 1 秒，消除延迟感】
     async def _progress_ticker(self):
         while True:
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
             if self._is_active and self.state.playback_status == "Playing" and self.state.active_player:
-                self.state.position = await self._fetch_position_for_bus(self.state.active_player)
+                # 只有在非零总时长（普通歌曲）或报告了有效 Position 时才更新
+                current_pos = await self._fetch_position_for_bus(self.state.active_player)
+                self.state.position = current_pos
                 self.notify("MEDIA_PROGRESS")
 
     async def control(self, action: str):
@@ -327,9 +339,6 @@ class MprisModule(BaseModule):
             return r.message_type != MessageType.ERROR
         except Exception: return False
 
-    # =========================================================================
-    # 🚀 核心优化：Qt C++ 图像解码 + Numpy SIMD 向量化取色引擎 (零拷贝·无循环)
-    # =========================================================================
     def _extract_and_assign_color(self, art_url: str, rec: SinglePlayerRecord):
         clean_url = art_url.strip().split("?")[0]
         if clean_url in self._color_cache:
@@ -339,14 +348,13 @@ class MprisModule(BaseModule):
                 self.notify("MEDIA_UPDATE")
             return
 
-        def _calc_simd():
+        def _calc_color_safe():
             t0 = time.time()
             try:
-                # 1. 抓取字节流
                 img_bytes = None
                 if clean_url.startswith("http://") or clean_url.startswith("https://"):
-                    req = urllib.request.Request(clean_url, headers={"User-Agent": "AlcoveIsland/SIMD"})
-                    with urllib.request.urlopen(req, timeout=1.5) as resp:
+                    req = urllib.request.Request(clean_url, headers={"User-Agent": "AlcoveIsland/Media"})
+                    with urllib.request.urlopen(req, timeout=2.0) as resp:
                         img_bytes = resp.read()
                 else:
                     path = urllib.parse.unquote(clean_url[7:] if clean_url.startswith("file://") else clean_url)
@@ -355,98 +363,98 @@ class MprisModule(BaseModule):
                             img_bytes = f.read()
 
                 if not img_bytes:
-                    raise ValueError("Empty image")
+                    raise ValueError("封面字节为空")
 
-                # 2. C++ 硬件缩放 (QImage)
                 qimg = QImage()
                 qimg.loadFromData(img_bytes)
                 if qimg.isNull():
-                    raise ValueError("QImage load failed")
-                
-                # 降采样到 32x32，极大地降低计算量，并强制转换为 RGBA8888 以保证内存 4 字节对齐
+                    raise ValueError("QImage 解析失败")
+
                 qimg = qimg.scaled(32, 32, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-                qimg = qimg.convertToFormat(QImage.Format.Format_RGBA8888)
 
-                # 3. 内存零拷贝映射到 Numpy (SIMD 向量化数组)
-                ptr = qimg.constBits()
-                arr = np.array(ptr).reshape(32, 32, 4)
-                
-                # 舍弃 Alpha 通道，扁平化为 1024 x 3 的浮点 RGB 矩阵
-                pixels = arr[:, :, :3].reshape(-1, 3).astype(np.float32)
+                margin_x = int(qimg.width() * 0.15)
+                margin_y = int(qimg.height() * 0.15)
 
-                # 4. SIMD 高速色相/饱和度 (HSV) 计算与过滤 (完全替代 Python 循环)
-                cmax = np.max(pixels, axis=1)
-                cmin = np.min(pixels, axis=1)
-                delta = cmax - cmin
-                
-                v = cmax / 255.0
-                s = np.zeros_like(cmax, dtype=np.float32)
-                valid_mask = cmax > 0
-                s[valid_mask] = delta[valid_mask] / cmax[valid_mask]
+                buckets: Dict[int, list] = {}
+                fallback_pixels = []
 
-                # 过滤掉暗色与灰白色 (V > 0.22, S > 0.16)
-                color_mask = (s > 0.16) & (v > 0.22)
-                good_pixels = pixels[color_mask]
+                for y in range(margin_y, qimg.height() - margin_y):
+                    for x in range(margin_x, qimg.width() - margin_x):
+                        c: QColor = qimg.pixelColor(x, y)
+                        r, g, b = c.red(), c.green(), c.blue()
+                        fallback_pixels.append((r, g, b))
 
-                if len(good_pixels) == 0:
-                    good_pixels = pixels # 降级：全灰暗封面直接求平均
+                        max_c = max(r, g, b)
+                        min_c = min(r, g, b)
+                        v = max_c / 255.0
+                        delta = max_c - min_c
+                        s = (delta / max_c) if max_c > 0 else 0.0
 
-                # 5. SIMD 聚类：通过位移 (Bit Shift) 降维合并相似色，打包为 32 位整型
-                # RGB 各取高 4 位 (16x16x16 = 4096色空间)，避免过拟合
-                quantized = (good_pixels.astype(np.uint32) & 0xF0)
-                packed = (quantized[:, 0] << 16) | (quantized[:, 1] << 8) | quantized[:, 2]
+                        if v < 0.15: continue
+                        if v > 0.95 and s < 0.08: continue
 
-                # 高速统计最高频色块 (相当于 C 语言层的哈希表计数)
-                vals, counts = np.unique(packed, return_counts=True)
-                
-                # 6. 打分函数：色彩浓郁度与出现频次加权 (复制原始 Python 逻辑但 SIMD 并发)
-                u_r = (vals >> 16) & 0xFF
-                u_g = (vals >> 8) & 0xFF
-                u_b = vals & 0xFF
-                
-                u_cmax = np.maximum(np.maximum(u_r, u_g), u_b) / 255.0
-                u_cmin = np.minimum(np.minimum(u_r, u_g), u_b) / 255.0
-                u_delta = u_cmax - u_cmin
-                
-                u_v = u_cmax
-                u_s = np.zeros_like(u_cmax, dtype=np.float32)
-                u_nz = u_cmax > 0
-                u_s[u_nz] = u_delta[u_nz] / u_cmax[u_nz]
-                
-                # 核心评分矩阵
-                scores = (u_s * 1.6 + u_v * 0.5) * np.sqrt(counts)
-                best_idx = np.argmax(scores)
-                
-                # 补偿 4-bit 量化丢失的亮度 (加上 0x08)
-                final_r = min(255, u_r[best_idx] + 8)
-                final_g = min(255, u_g[best_idx] + 8)
-                final_b = min(255, u_b[best_idx] + 8)
+                        qr = (r & 0xF0)
+                        qg = (g & 0xF0)
+                        qb = (b & 0xF0)
+                        key = (qr << 16) | (qg << 8) | qb
 
-                hex_c = f"#{int(final_r):02x}{int(final_g):02x}{int(final_b):02x}"
+                        if key not in buckets:
+                            buckets[key] = [0, r, g, b, s, v]
+                        buckets[key][0] += 1
+
+                if not buckets:
+                    if fallback_pixels:
+                        r, g, b = max(fallback_pixels, key=lambda p: max(p))
+                    else:
+                        r, g, b = (226, 232, 240)
+                else:
+                    best_key = None
+                    best_score = -1.0
+                    for key, val in buckets.items():
+                        count, pr, pg, pb, s, v = val
+                        score = count * (1.0 + s * 1.2)
+                        if score > best_score:
+                            best_score = score
+                            best_key = key
+
+                    best_val = buckets[best_key]
+                    r, g, b = best_val[1], best_val[2], best_val[3]
+
+                max_val = max(r, g, b)
+                delta_val = max_val - min(r, g, b)
+                sat = (delta_val / max_val) if max_val > 0 else 0.0
+
+                if max_val < 120:
+                    if sat > 0.12 and max_val > 0:
+                        scale_factor = 180.0 / float(max_val)
+                        r = min(255, int(r * scale_factor))
+                        g = min(255, int(g * scale_factor))
+                        b = min(255, int(b * scale_factor))
+                    else:
+                        r, g, b = (226, 232, 240)
+
+                hex_c = f"#{r:02x}{g:02x}{b:02x}"
                 self._color_cache[clean_url] = hex_c
                 rec.dominant_color = hex_c
 
                 if self.state.active_player == rec.bus_name:
                     self.state.dominant_color = hex_c
                     self.notify("MEDIA_UPDATE")
-                    
-                t1 = time.time()
-                app_logger.debug(f"[MPRIS] 🚀 SIMD C++ 封面主色提取成功 -> {hex_c} (耗时: {(t1-t0)*1000:.2f}ms)")
-                return
-            except Exception as e:
-                app_logger.debug(f"[MPRIS] 取色异常降级: {e}")
 
-            rec.dominant_color = "#22c55e"
+                t1 = time.time()
+                app_logger.info(f"[MPRIS] 🎨 封面主色提取成功 -> {hex_c} (耗时: {(t1-t0)*1000:.1f}ms, URL: {clean_url[:40]})")
+                return
+
+            except Exception as e:
+                app_logger.debug(f"[MPRIS] 封面取色异常: {e}")
+
+            rec.dominant_color = "#38bdf8"
             if self.state.active_player == rec.bus_name:
-                self.state.dominant_color = "#22c55e"
+                self.state.dominant_color = "#38bdf8"
                 self.notify("MEDIA_UPDATE")
 
-        # 将重任务投入后台线程池，绝对不阻碍事件循环
-        threading.Thread(target=_calc_simd, daemon=True).start()
+        threading.Thread(target=_calc_color_safe, daemon=True, name="MediaColorExtractor").start()
 
-    # =========================================================================
-    # 频域频谱引擎 (CAVA / 拟真保底)
-    # =========================================================================
     def _emit_spectrum_safe(self, s1: float, s2: float, s3: float, s4: float):
         if not self._spectrum_running: return
         ls1, ls2, ls3, ls4 = self._last_spec_cache

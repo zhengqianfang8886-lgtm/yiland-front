@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (彻底修复动画中连击穿透展开 Bug 版)
+// 🌟 灵动岛主壳体 (整岛非对称流体气化退场 · 绝不挤字版)
 // ==========================================
 import QtQuick
 import "../core"
@@ -36,7 +36,7 @@ Item {
         }
     }
 
-    width: Math.max(160, motionPod.currentWidth)
+    width: Math.max(140, motionPod.currentWidth)
     height: Math.max(currentConfigHeight, motionPod.currentHeight)
     y: motionPod.currentY
     anchors.horizontalCenter: parent.horizontalCenter
@@ -55,10 +55,10 @@ Item {
 
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
-                tW = 180; 
+                tW = 140; 
                 tH = currentConfigHeight; 
                 tR = Math.round(tH / 2);
-                tY = -(tH - 6.0);
+                tY = -(tH - 2.5); // 只露 2.5px 微缝
                 route = "TWEAK";
                 break;
 
@@ -135,9 +135,9 @@ Item {
 
         var safePadH = 6;
         if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
-            var tuckW = 180;
+            var tuckW = 140;
             var tuckX = Math.round((parent.width - tuckW) / 2 + islandOffsetX);
-            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 14);
+            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 8);
             return;
         }
 
@@ -177,7 +177,7 @@ Item {
     }
 
     // =========================================================================
-    // 🚀【核心修复】：移除 !capsuleRoot.isMoving，任何微动画期间严禁禁用子控件！
+    // 🚀【整岛流体编排核心】：内容先气化，岛壳后收拢；岛壳到位，内容绽放
     // =========================================================================
     Item {
         id: compactContainer
@@ -187,11 +187,23 @@ Item {
         visible: opacity > 0.001
         enabled: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
 
-        opacity: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)) ? 1.0 : 0.0
+        // 当大岛正在剧烈变长/变短时，内容先微缩蒸发，绝不在变形中被挤扁
+        readonly property bool shouldDisplayContent: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden))
+
+        opacity: shouldDisplayContent ? 1.0 : 0.0
+        scale: shouldDisplayContent ? 1.0 : 0.88
+
         Behavior on opacity {
             NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 40 : 140
+                duration: capsuleRoot.isCurrentExpanded ? 60 : 150
                 easing.type: Easing.OutQuad
+            }
+        }
+        Behavior on scale {
+            NumberAnimation {
+                duration: capsuleRoot.isCurrentExpanded ? 70 : 180
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.05
             }
         }
 
@@ -229,6 +241,7 @@ Item {
         }
     }
 
+    // 大卡片展开容器
     Item {
         id: expandedContainer
         anchors.fill: parent
@@ -239,19 +252,20 @@ Item {
         enabled: capsuleRoot.isCurrentExpanded && !capsuleRoot.isMoving
 
         opacity: capsuleRoot.isCurrentExpanded ? 1.0 : 0.0
-        scale: capsuleRoot.isCurrentExpanded ? 1.0 : 0.96
+        scale: capsuleRoot.isCurrentExpanded ? 1.0 : 0.88
 
         Behavior on opacity {
             NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 140 : 40
-                easing.type: Easing.OutQuad
+                // 🚀 展开时放缓到 220ms，收起时 50ms 闪退
+                duration: capsuleRoot.isCurrentExpanded ? 220 : 50 
+                easing.type: Easing.InOutQuad
             }
         }
         Behavior on scale {
             NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 180 : 40
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.05
+                // 🚀 缩放紧跟外壳的 OutQuint 流体曲线
+                duration: capsuleRoot.isCurrentExpanded ? 340 : 60
+                easing.type: Easing.OutQuint
             }
         }
 

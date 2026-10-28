@@ -1,97 +1,115 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/FluidPill.qml
-// 🌟 纯正流体微囊 (物理参数归一化 · 消除双重缓动畸变版)
+// 🌟 苹果级流体微囊容器 (OutQuint 丝滑共振版)
 // =========================================================================
 import QtQuick
 
 Item {
     id: pillRoot
 
-    default property alias contentData: contentHolder.data
-    property int preferredWidth: 40
-    property bool active: false
+    property int targetWidth: 0
+    property int pillHeight: 26
+    property real pillRadius: pillHeight / 2
+
+    readonly property bool isAlive: targetWidth > 0
+    readonly property bool isDying: !isAlive
+
     property color pillColor: Qt.rgba(255, 255, 255, 0.08)
     property color pillBorderColor: "transparent"
-    property int flowDirection: 1
-    property string debugName: "FluidPill"
+    property color hoverColor: "transparent"
+    property color pressColor: "transparent"
+    property color hoverBorderColor: "transparent"
 
-    signal clicked()
+    property bool interactive: true
+    property int acceptedButtons: Qt.LeftButton | Qt.RightButton
+    property int cursorShape: Qt.PointingHandCursor
 
-    height: 24
+    signal clicked(var mouse)
+    signal rightClicked(var mouse)
+
+    default property alias contentData: contentSlot.data
+
+    height: pillHeight
     anchors.verticalCenter: parent ? parent.verticalCenter : undefined
-    clip: true
+    clip: pillRoot.isDying || (pillRoot.width < pillRoot.targetWidth - 2)
 
-    // 统一物理参数
-    readonly property int animSpeed: (typeof Theme !== "undefined") ? Theme.animFast : 160
-    readonly property var motionEasing: (typeof Theme !== "undefined") ? Theme.curveSpring : Easing.OutCubic
+    width: isAlive ? targetWidth : 0
+    visible: width > 0.5 || bgRect.opacity > 0.01
 
-    width: active ? preferredWidth : 0
-    visible: width > 0.5 || pillRoot.opacity > 0.01
-
+    // 🚀 同步外层大岛的黄金流体曲线：340ms + OutQuint
     Behavior on width {
         NumberAnimation {
-            duration: pillRoot.animSpeed
-            easing.type: pillRoot.motionEasing
-            easing.overshoot: 1.12
+            duration: 340
+            easing.type: Easing.OutQuint
         }
     }
 
-    Item {
-        id: liquidMorphWrapper
+    Rectangle {
+        id: bgRect
         anchors.fill: parent
+        radius: pillRoot.pillRadius
+        antialiasing: true
 
-        transform: [
-            Scale {
-                id: morphScale
-                origin.x: pillRoot.flowDirection > 0 ? 0 : liquidMorphWrapper.width
-                origin.y: liquidMorphWrapper.height / 2
-                xScale: pillRoot.active ? 1.0 : 0.4
-                yScale: pillRoot.active ? 1.0 : 1.15
+        color: {
+            if (mouseArea.pressed && pillRoot.pressColor.a > 0.001) return pillRoot.pressColor;
+            if (mouseArea.containsMouse && pillRoot.hoverColor.a > 0.001) return pillRoot.hoverColor;
+            return pillRoot.pillColor;
+        }
+        border.color: {
+            if (mouseArea.containsMouse && pillRoot.hoverBorderColor.a > 0.001) return pillRoot.hoverBorderColor;
+            return pillRoot.pillBorderColor;
+        }
+        border.width: (border.color !== "transparent" && border.color.a > 0.01) ? 1 : 0
 
-                Behavior on xScale {
-                    NumberAnimation {
-                        duration: pillRoot.animSpeed
-                        easing.type: pillRoot.motionEasing
-                    }
-                }
-                Behavior on yScale {
-                    NumberAnimation {
-                        duration: pillRoot.animSpeed
-                        easing.type: Easing.OutQuad
-                    }
-                }
-            },
-            Translate {
-                id: driftTranslate
-                x: pillRoot.active ? 0 : (pillRoot.flowDirection * -8)
-                Behavior on x {
-                    NumberAnimation {
-                        duration: pillRoot.animSpeed
-                        easing.type: Easing.OutQuad
-                    }
-                }
-            }
-        ]
+        scale: mouseArea.pressed ? 0.94 : 1.0
+        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+        Behavior on color { ColorAnimation { duration: 120 } }
+        Behavior on border.color { ColorAnimation { duration: 120 } }
 
-        Rectangle {
-            id: bgCapsule
+        opacity: pillRoot.isDying ? 0.0 : 1.0
+        Behavior on opacity { NumberAnimation { duration: 180 } }
+
+        Item {
+            id: contentSlot
             anchors.fill: parent
-            radius: height / 2
-            color: pillHover.hovered ? Qt.lighter(pillRoot.pillColor, 1.2) : pillRoot.pillColor
-            border.color: pillRoot.pillBorderColor
-            border.width: pillRoot.pillBorderColor !== "transparent" ? 1 : 0
 
-            opacity: pillRoot.active ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: pillRoot.active ? 120 : 80 } }
+            // 🚀 让内容更晚出现、更早蒸发（阈值提升到 85%），避免在扩张初期发生视觉拥挤
+            readonly property bool shouldVaporize: pillRoot.isDying || (pillRoot.width < Math.max(30, pillRoot.targetWidth * 0.85))
 
-            Item {
-                id: contentHolder
-                anchors.centerIn: parent
-                opacity: bgCapsule.opacity
+            opacity: shouldVaporize ? 0.0 : 1.0
+            scale: shouldVaporize ? 0.75 : 1.0
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: 90
+                    easing.type: Easing.OutQuad
+                }
             }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: 120
+                    easing.type: Easing.OutQuint // 缩放也用更柔和的曲线
+                }
+            }
+        }
 
-            HoverHandler { id: pillHover; cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: pillRoot.clicked() }
+        MouseArea {
+            id: mouseArea
+            anchors.fill: parent
+            anchors.margins: -4
+            enabled: pillRoot.interactive && pillRoot.isAlive
+            hoverEnabled: true
+            cursorShape: pillRoot.cursorShape
+            acceptedButtons: pillRoot.acceptedButtons
+
+            onClicked: (mouse) => {
+                mouse.accepted = true;
+                if (mouse.button === Qt.LeftButton) {
+                    pillRoot.clicked(mouse);
+                } else if (mouse.button === Qt.RightButton) {
+                    pillRoot.rightClicked(mouse);
+                }
+            }
         }
     }
 }

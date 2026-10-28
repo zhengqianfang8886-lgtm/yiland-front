@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/timer/TimerDashboard.qml
-// 🌟 沉浸式计时大仪表盘 (支持超时追溯视觉联动版)
+// 🌟 沉浸式计时大仪表盘 (满血补全小时滚轮微调 · 状态文案修复版)
 // ==========================================
 import QtQuick
 
@@ -22,7 +22,7 @@ Rectangle {
     property bool isRunning: false
     property bool isPaused: false
     property bool isCompleted: false
-    property bool isOvertime: false  // 🚀
+    property bool isOvertime: false
     property bool isCountUp: false
     property string currentMode: "focus"
     property real progress: 0.0
@@ -34,6 +34,7 @@ Rectangle {
     signal adjustRequested(int deltaSec)
 
     readonly property bool hasHours: hoursPart > 0
+    // 非运行状态（就绪或已暂停）时均可微调倒计时
     readonly property bool canAdjust: !dashRoot.isRunning && !dashRoot.isCountUp && !dashRoot.isOvertime
 
     Column {
@@ -41,7 +42,7 @@ Rectangle {
         anchors.margins: 10
         spacing: 6
 
-        // 顶栏徽标
+        // 顶栏状态徽标
         Item {
             width: parent.width
             height: 18
@@ -74,12 +75,17 @@ Rectangle {
                         }
                     }
 
+                    // 🚀 精准状态文案 (修复秒表暂停时误判为专注状态)
                     Text {
                         text: {
                             if (dashRoot.isOvertime) return "已超时 · 追溯中";
                             if (dashRoot.isCompleted) return "已完成";
-                            if (dashRoot.isCountUp) return dashRoot.isRunning ? "秒表计时中" : (dashRoot.isPaused ? "已暂停" : "秒表就绪");
-                            if (dashRoot.currentMode === "break") return dashRoot.isRunning ? "休息放松中" : "小憩暂停";
+                            if (dashRoot.isCountUp) {
+                                return dashRoot.isRunning ? "秒表计时中" : (dashRoot.isPaused ? "秒表已暂停" : "正向秒表");
+                            }
+                            if (dashRoot.currentMode === "break") {
+                                return dashRoot.isRunning ? "休息放松中" : (dashRoot.isPaused ? "休息已暂停" : "准备休息");
+                            }
                             return dashRoot.isRunning ? "深度专注中" : (dashRoot.isPaused ? "专注已暂停" : "专注倒计时");
                         }
                         font.pixelSize: 9
@@ -103,7 +109,7 @@ Rectangle {
             }
         }
 
-        // 核心大字
+        // 核心大字展示区 (时:分:秒)
         Item {
             width: parent.width
             height: parent.height - 18 - 6 - 8 - 14
@@ -112,7 +118,7 @@ Rectangle {
                 anchors.centerIn: parent
                 spacing: 1
 
-                // 🚀 超时前置 "+"
+                // 超时前置加号 "+"
                 Text {
                     visible: dashRoot.isOvertime
                     text: "+"
@@ -124,20 +130,37 @@ Rectangle {
                     anchors.verticalCenterOffset: -2
                 }
 
-                // 时
+                // -------------------------------------------------------------
+                // 🚀【核心补全】：小时槽位 (已补齐 MouseArea 与悬停高亮)
+                // -------------------------------------------------------------
                 Item {
                     visible: dashRoot.hasHours
-                    width: 32
+                    width: 34
                     height: parent.height
 
                     Text {
                         anchors.centerIn: parent
                         text: (dashRoot.hoursPart < 10 ? "0" : "") + dashRoot.hoursPart
-                        font.pixelSize: 26
+                        font.pixelSize: 28
                         font.weight: Font.Black
                         font.family: dashRoot.displayFont
-                        color: dashRoot.accentColor
+                        // 悬停时响应式高亮为 accentColor
+                        color: dashRoot.isOvertime ? dashRoot.accentColor : 
+                               (hArea.containsMouse && dashRoot.canAdjust ? dashRoot.accentColor : "#ffffff")
                         renderType: Text.QtRendering
+                    }
+
+                    MouseArea {
+                        id: hArea
+                        anchors.fill: parent
+                        hoverEnabled: dashRoot.canAdjust
+                        cursorShape: dashRoot.canAdjust ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onWheel: (wheel) => {
+                            if (!dashRoot.canAdjust) return;
+                            wheel.accepted = true;
+                            // 滚轮每次调节 ±1 小时 (3600 秒)
+                            dashRoot.adjustRequested(wheel.angleDelta.y > 0 ? 3600 : -3600);
+                        }
                     }
                 }
 
@@ -152,7 +175,9 @@ Rectangle {
                     anchors.verticalCenterOffset: -2
                 }
 
-                // 分
+                // -------------------------------------------------------------
+                // 分钟槽位 (滚轮调节 ±60 秒)
+                // -------------------------------------------------------------
                 Item {
                     width: dashRoot.hasHours ? 34 : 58
                     height: parent.height
@@ -163,7 +188,8 @@ Rectangle {
                         font.pixelSize: dashRoot.hasHours ? 28 : 42
                         font.weight: Font.Black
                         font.family: dashRoot.displayFont
-                        color: dashRoot.isOvertime ? dashRoot.accentColor : (mArea.containsMouse && dashRoot.canAdjust ? dashRoot.accentColor : "#ffffff")
+                        color: dashRoot.isOvertime ? dashRoot.accentColor : 
+                               (mArea.containsMouse && dashRoot.canAdjust ? dashRoot.accentColor : "#ffffff")
                         renderType: Text.QtRendering
                     }
 
@@ -190,7 +216,9 @@ Rectangle {
                     anchors.verticalCenterOffset: -2
                 }
 
-                // 秒
+                // -------------------------------------------------------------
+                // 秒钟槽位 (滚轮调节 ±5 秒)
+                // -------------------------------------------------------------
                 Item {
                     width: dashRoot.hasHours ? 34 : 58
                     height: parent.height
@@ -201,7 +229,8 @@ Rectangle {
                         font.pixelSize: dashRoot.hasHours ? 28 : 42
                         font.weight: Font.Black
                         font.family: dashRoot.displayFont
-                        color: dashRoot.isOvertime ? dashRoot.accentColor : (sArea.containsMouse && dashRoot.canAdjust ? dashRoot.accentColor : "#ffffff")
+                        color: dashRoot.isOvertime ? dashRoot.accentColor : 
+                               (sArea.containsMouse && dashRoot.canAdjust ? dashRoot.accentColor : "#ffffff")
                         renderType: Text.QtRendering
                     }
 

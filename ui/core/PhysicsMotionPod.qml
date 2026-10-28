@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/PhysicsMotionPod.qml
-// 🌟 纯正流体动力学引擎 (单调递增膨胀 · 彻底根除反向收缩版)
+// 🌟 纯正流体动力学引擎 (苹果级 OutQuint 五次方丝滑水滴版)
 // =========================================================================
 import QtQuick
 
@@ -24,7 +24,10 @@ Item {
     readonly property bool isMoving: emergePipelineAnim.running || unifiedMotionAnim.running
 
     readonly property bool isJelly: (typeof Theme !== "undefined") ? Theme.isJellyMode : false
-    readonly property int motionDuration: (typeof Theme !== "undefined") ? Theme.animNormal : 220
+    
+    // 🚀 核心流体参数：340ms 黄金时长 + OutQuint 极长尾缓出
+    readonly property int motionDuration: isJelly ? 380 : 340
+    readonly property var fluidCurve: Easing.OutQuint
     readonly property real springOvershoot: (typeof Theme !== "undefined") ? Theme.springOvershootFirm : 1.10
 
     signal motionStarted()
@@ -35,61 +38,54 @@ Item {
         else motionSettled();
     }
 
-    // =========================================================================
-    // 🚀【管线 A】：真·深潜破土展开 (仅在胶囊 Y 轴真正在天花板外负坐标时触发)
-    // 阶段 1: Y 轴 70ms 闪电落入视野零点 (维持当前宽度，绝不缩小！)
-    // 阶段 2: 单调流畅向 420x240 膨胀
-    // =========================================================================
     SequentialAnimation {
         id: emergePipelineAnim
 
         ParallelAnimation {
-            NumberAnimation { target: pod; property: "y"; to: pod.targetY; duration: 75; easing.type: Easing.OutCubic }
-            NumberAnimation { target: pod; property: "currentRadius"; to: 18; duration: 75 }
+            NumberAnimation { target: pod; property: "y"; to: pod.targetY; duration: 90; easing.type: Easing.OutCubic }
+            NumberAnimation { target: pod; property: "currentRadius"; to: 18; duration: 90 }
         }
 
         ParallelAnimation {
             NumberAnimation {
                 target: pod; property: "width"; to: pod.targetWidth
                 duration: pod.motionDuration
-                easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+                easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
                 easing.overshoot: pod.springOvershoot
             }
             NumberAnimation {
                 target: pod; property: "height"; to: pod.targetHeight
                 duration: pod.motionDuration
-                easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+                easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
                 easing.overshoot: pod.isJelly ? 1.08 : 1.0
             }
-            NumberAnimation { target: pod; property: "currentRadius"; to: pod.targetRadius; duration: pod.motionDuration; easing.type: Easing.OutQuad }
+            NumberAnimation { target: pod; property: "currentRadius"; to: pod.targetRadius; duration: pod.motionDuration; easing.type: pod.fluidCurve }
         }
     }
 
-    // =========================================================================
-    // 🚀【管线 B】：标准单调统一运动管线 (从当前尺寸直达目标尺寸，无任何中间反向缩水)
-    // =========================================================================
+    // 🚀【标准单调统一运动管线：纯正流体塌缩/舒展】
     ParallelAnimation {
         id: unifiedMotionAnim
 
         NumberAnimation {
             id: animY; target: pod; property: "y"
-            duration: pod.motionDuration; easing.type: Easing.OutCubic
+            duration: pod.motionDuration; easing.type: pod.fluidCurve
         }
         NumberAnimation {
             id: animW; target: pod; property: "width"
             duration: pod.motionDuration
-            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
+            easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
             easing.overshoot: pod.springOvershoot
         }
         NumberAnimation {
             id: animH; target: pod; property: "height"
             duration: pod.motionDuration
-            easing.type: pod.isJelly ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: pod.isJelly ? 1.08 : 1.0
+            easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
+            easing.overshoot: pod.isJelly ? 1.05 : 1.0
         }
         NumberAnimation {
             id: animR; target: pod; property: "currentRadius"
-            duration: pod.motionDuration; easing.type: Easing.OutQuad
+            duration: pod.motionDuration; easing.type: pod.fluidCurve
         }
     }
 
@@ -106,7 +102,6 @@ Item {
         emergePipelineAnim.stop();
         unifiedMotionAnim.stop();
 
-        // 核心法则：只有当物理坐标确实处于负值（屏幕外）且目标是展开时，才走破土降落
         if (routeType === "EMERGE_AND_EXPAND" && pod.y < -5) {
             emergePipelineAnim.restart();
         } else {

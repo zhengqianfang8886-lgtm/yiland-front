@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/views/ExpandedCardView.qml
-// 🌟 展开态卡片中枢 (移除硬件控制页纯净版)
-// =========================================================================
+// 🌟 展开态卡片中枢 (彻底移除 Workspace 与 Hardware 展开卡片版)
+// ==========================================
 import QtQuick
 import QtQuick.Controls
 import "../components/expanded"
@@ -15,16 +15,17 @@ Item {
     property var relay: null
     property string chosenFont: ""
 
-    property string activeTabId: "workspace"
+    // 默认展开落在日历页
+    property string activeTabId: "calendar"
     property var sensorCoordinator: null
 
     readonly property var enabledPlugins: {
         var order = (typeof Config !== "undefined" && Config.tabOrder && Config.tabOrder.length > 0) ? 
                     Config.tabOrder : 
-                    ["workspace", "media", "calendar", "timer", "clock", "notification"];
+                    ["media", "calendar", "timer", "clock", "notification"];
 
+        // 🚀 仅保留纯粹需要展开的页面元数据 (已剔除 hardware 与 workspace)
         var allMeta = {
-            "workspace":    { id: "workspace",    title: "WORKSPACE",      sub: (cardRoot.relay && cardRoot.relay.wsName) ? cardRoot.relay.wsName : "工作空间", color: Theme.workspace },
             "media":        { id: "media",        title: "MEDIA",          sub: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.title : "媒体播控", color: (cardRoot.relay && cardRoot.relay.status === "Playing") ? cardRoot.relay.dominantColor : "#22c55e" },
             "calendar":     { id: "calendar",     title: "CALENDAR",       sub: "系统日历", color: "#38bdf8" },
             "timer":        { id: "timer",        title: "TIMER",          sub: "专注时钟", color: Theme.timer },
@@ -35,10 +36,11 @@ Item {
         var list = [];
         for (var i = 0; i < order.length; i++) {
             var k = order[i];
+            if (k === "workspace" || k === "hardware") continue; // 绝对不进展开态
+
             var isEnabled = true;
             if (typeof Config !== "undefined") {
-                if (k === "workspace") isEnabled = Config.showWorkspaceTab !== false;
-                else if (k === "media") isEnabled = Config.showMediaTab !== false;
+                if (k === "media") isEnabled = Config.showMediaTab !== false;
                 else if (k === "calendar") isEnabled = Config.showCalendarTab !== false;
                 else if (k === "timer") isEnabled = Config.showTimerTab !== false;
                 else if (k === "clock") isEnabled = Config.showClockTab !== false;
@@ -60,7 +62,7 @@ Item {
             }
         }
         if (enabledPlugins.length > 0) return enabledPlugins[0];
-        return { title: "WORKSPACE", sub: "工作空间", color: Theme.workspace };
+        return { title: "CALENDAR", sub: "系统日历", color: "#38bdf8" };
     }
 
     function getPluginIndex(tabId) {
@@ -71,7 +73,7 @@ Item {
     }
 
     function switchTab(targetId, explicitDir) {
-        if (activeTabId === targetId) return;
+        if (!targetId || activeTabId === targetId) return;
 
         var curIdx = getPluginIndex(activeTabId);
         var targetIdx = getPluginIndex(targetId);
@@ -107,6 +109,7 @@ Item {
         }
     }
 
+    // 1. 顶栏
     ExpandedHeaderBar {
         id: headerBar
         anchors.top: parent.top
@@ -124,6 +127,7 @@ Item {
         onTabWheel: (wheel) => cardRoot.handleHeaderWheel(wheel)
     }
 
+    // 2. 传送带
     Item {
         id: contentContainer
         anchors.top: headerBar.bottom
@@ -138,7 +142,6 @@ Item {
             anchors.fill: parent
             currentKey: cardRoot.activeTabId
             keyToComponentMap: ({
-                "workspace": compWorkspace,
                 "media": compMedia,
                 "calendar": compCalendar,
                 "timer": compTimer,
@@ -148,8 +151,21 @@ Item {
         }
     }
 
-    Component { id: compWorkspace; WorkspacePage { chosenFont: cardRoot.chosenFont; currentWs: cardRoot.relay ? cardRoot.relay.wsCurrent : 1; totalWs: cardRoot.relay ? cardRoot.relay.wsTotal : 4; currentWsName: cardRoot.relay ? cardRoot.relay.wsName : ""; wsList: cardRoot.relay ? cardRoot.relay.wsList : [] } }
-    Component { id: compMedia; MediaPage { chosenFont: cardRoot.chosenFont; title: cardRoot.relay ? cardRoot.relay.title : ""; artist: cardRoot.relay ? cardRoot.relay.artist : ""; status: cardRoot.relay ? cardRoot.relay.status : "Paused"; artUrl: cardRoot.relay ? cardRoot.relay.artUrl : ""; position: cardRoot.relay ? cardRoot.relay.position : 0; duration: cardRoot.relay ? cardRoot.relay.duration : 0; dominantColor: cardRoot.relay ? cardRoot.relay.dominantColor : "#22c55e"; onStartCollapse: if (cardRoot.fsm) cardRoot.fsm.handleIntent("COLLAPSE", { source: "MediaPage_Collapse" }) } }
+    // 🚀 已彻底删除 compWorkspace (以及 compHardware)
+    Component { 
+        id: compMedia
+        MediaPage { 
+            chosenFont: cardRoot.chosenFont
+            title: cardRoot.relay ? cardRoot.relay.title : ""
+            artist: cardRoot.relay ? cardRoot.relay.artist : ""
+            status: cardRoot.relay ? cardRoot.relay.status : "Paused"
+            artUrl: cardRoot.relay ? cardRoot.relay.artUrl : ""
+            position: cardRoot.relay ? cardRoot.relay.position : 0
+            duration: cardRoot.relay ? cardRoot.relay.duration : 0
+            dominantColor: cardRoot.relay ? cardRoot.relay.dominantColor : "#22c55e"
+            onStartCollapse: if (cardRoot.fsm) cardRoot.fsm.handleIntent("COLLAPSE", { source: "MediaPage_Collapse" })
+        } 
+    }
     Component { id: compCalendar; CalendarPage { chosenFont: cardRoot.chosenFont } }
     Component { id: compTimer; TimerPage { chosenFont: cardRoot.chosenFont } }
     Component { id: compClock; WorldClockPage { chosenFont: cardRoot.chosenFont } }

@@ -209,7 +209,7 @@ Item {
                 sensorRoot.requestExpand("notification");
                 return;
             }
-            sensorRoot.requestExpand("workspace");
+            sensorRoot.requestExpand("calendar");
         }
     }
 }

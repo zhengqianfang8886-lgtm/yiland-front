@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/compact/CompactClockView.qml
-// 🌟 实用大字号高饱满度时钟 (17px醒目时间 · 紧凑机械次级秒数 · 零虚浮空间)
+// 🌟 紧凑饱满大字号时钟 (主时间18px · 纯整数字号 · 零虚浮间距版)
 // ==========================================
 import QtQuick
 
@@ -36,29 +36,29 @@ Item {
     Row {
         id: contentRow
         anchors.centerIn: parent
-        spacing: 5
+        spacing: 4 // 紧凑咬合，避免松散
 
         // =====================================================================
-        // 1. 日期槽位 (放大到 12.5px，清晰饱满)
+        // 1. 日期槽位 (清晰饱满的整型 12px)
         // =====================================================================
         Row {
             visible: clockRoot.hasDate
-            spacing: 4
+            spacing: 3
             anchors.verticalCenter: parent.verticalCenter
 
             Text {
                 text: clockRoot.displayDate
-                color: Qt.rgba(255, 255, 255, 0.78)
+                color: Qt.rgba(255, 255, 255, 0.85)
                 font.family: clockRoot.effectiveFont
-                font.pixelSize: 13
+                font.pixelSize: 12 // 🚀 严格纯整数字号
                 font.weight: Font.DemiBold
                 anchors.verticalCenter: parent.verticalCenter
                 renderType: Text.QtRendering
             }
 
             Rectangle {
-                width: 2.5; height: 2.5; radius: 1.25
-                color: Qt.rgba(255, 255, 255, 0.35)
+                width: 2; height: 2; radius: 1
+                color: Qt.rgba(255, 255, 255, 0.4)
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -66,7 +66,7 @@ Item {
         // 2. CapsLock 指示灯
         Item {
             visible: clockRoot.isCapsLock
-            width: 6; height: 16
+            width: 5; height: 16
             anchors.verticalCenter: parent.verticalCenter
             Rectangle {
                 anchors.centerIn: parent
@@ -76,7 +76,7 @@ Item {
         }
 
         // =====================================================================
-        // 3. 主时间 (放大到 17px，醒目实用，一眼即知)
+        // 3. 主时间 (饱满放大至纯整型 18px，高度完全处于24px安全内)
         // =====================================================================
         Text {
             id: mainTime
@@ -84,72 +84,70 @@ Item {
             text: clockRoot.displayTime
             color: "#ffffff"
             font.family: clockRoot.displayFont
-            font.pixelSize: 17
+            font.pixelSize: 18 // 🚀 严格纯整数字号，醒目大字
             font.weight: Font.Black
-            font.letterSpacing: 0.2
+            font.letterSpacing: 0
             font.features: { "tnum": 1 }
             renderType: Text.QtRendering
         }
 
         // =====================================================================
-        // 4. 次级秒数：字号稍小(10.5px)，但紧紧贴在主时间旁边，间距极度紧凑
+        // 4. 次级秒数 (纯整型 11px，紧贴主时间，定宽防抖)
         // =====================================================================
         Row {
             visible: clockRoot.hasSec
             anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: 0.5
             spacing: 0
 
-            // 微型冒号
             Text {
                 text: ":"
-                color: Qt.rgba(255, 255, 255, 0.40)
+                color: Qt.rgba(255, 255, 255, 0.45)
                 font.family: clockRoot.displayFont
-                font.pixelSize: 11
+                font.pixelSize: 11 // 🚀 严格整型
                 font.weight: Font.Bold
                 anchors.verticalCenter: parent.verticalCenter
                 renderType: Text.QtRendering
             }
 
-            // 十位槽 (定宽 6.5px)
             Item {
                 width: 7; height: 14
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
                     anchors.centerIn: parent
                     text: clockRoot.secTen
-                    color: Qt.rgba(255, 255, 255, 0.55)
+                    color: Qt.rgba(255, 255, 255, 0.65)
                     font.family: clockRoot.displayFont
-                    font.pixelSize: 11
+                    font.pixelSize: 11 // 🚀 严格整型
                     font.weight: Font.Bold
                     renderType: Text.QtRendering
                 }
             }
 
-            // 个位槽 (定宽 6.5px)
             Item {
                 width: 7; height: 14
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
                     anchors.centerIn: parent
                     text: clockRoot.secUnit
-                    color: Qt.rgba(255, 255, 255, 0.55)
+                    color: Qt.rgba(255, 255, 255, 0.65)
                     font.family: clockRoot.displayFont
-                    font.pixelSize: 11
+                    font.pixelSize: 11 // 🚀 严格整型
                     font.weight: Font.Bold
                     renderType: Text.QtRendering
                 }
             }
         }
 
-        // 5. AM/PM 微标
+        // =====================================================================
+        // 5. AM/PM 徽标 (整型 10px)
+        // =====================================================================
         Text {
             visible: clockRoot.hasPeriod
             anchors.verticalCenter: parent.verticalCenter
             text: clockRoot.displayPeriod
-            color: Qt.rgba(255, 255, 255, 0.45)
+            color: Qt.rgba(255, 255, 255, 0.5)
             font.family: clockRoot.effectiveFont
-            font.pixelSize: 9
+            font.pixelSize: 10 // 🚀 严格整型
             font.weight: Font.Bold
             font.capitalization: Font.AllUppercase
             renderType: Text.QtRendering

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/pages/CalendarPage.qml
-// 🌟 纯粹极简日历主页 (修复点击日期顶栏不联动 Bug 版)
+// 🌟 纯粹极简双栏日历页面 (全新优雅排版 · 零打卡负担版)
 // ==========================================
 import QtQuick
 import "../calendar"
@@ -20,33 +20,62 @@ Item {
     property int calYear: todayDate.getFullYear()
     property int calMonth: todayDate.getMonth()  // 0-11
 
-    // 🚀 当前鼠标点击选中的年月日 (默认初始化为今天)
+    // 当前鼠标点击选中的年月日
     property int selYear: todayDate.getFullYear()
     property int selMonth: todayDate.getMonth()
     property int selDay: todayDate.getDate()
 
-    // 判断选中的是不是今天
+    // 选中状态推导
     readonly property bool isSelectedToday: (selYear === todayDate.getFullYear() &&
                                              selMonth === todayDate.getMonth() &&
                                              selDay === todayDate.getDate())
-
-    // 判断是否在看当月
     readonly property bool isViewingCurrentMonth: (calYear === todayDate.getFullYear() && calMonth === todayDate.getMonth())
 
-    // 🚀【核心修复】：动态计算当前选中的日期是星期几！
-    readonly property string selWeekdayStr: {
-        var days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-        var d = new Date(calRoot.selYear, calRoot.selMonth, calRoot.selDay);
-        return days[d.getDay()];
+    // 选中日的时间对象
+    readonly property var selDateObj: new Date(selYear, selMonth, selDay)
+
+    // 格式化信息：星期全称
+    readonly property string selWeekdayFull: {
+        var days = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+        return days[selDateObj.getDay()];
+    }
+
+    // 格式化信息：相对今天的时间距离提示
+    readonly property string relativeDayText: {
+        var d1 = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+        var d2 = new Date(selYear, selMonth, selDay);
+        var diffTime = d2.getTime() - d1.getTime();
+        var diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+        if (diffDays === 0) return "今天";
+        if (diffDays === 1) return "明天";
+        if (diffDays === -1) return "昨天";
+        if (diffDays > 0) return diffDays + " 天后";
+        return Math.abs(diffDays) + " 天前";
+    }
+
+    // 格式化信息：本年度第几周
+    readonly property int weekOfYear: {
+        var d = new Date(Date.UTC(selYear, selMonth, selDay));
+        var dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+
+    // 格式化信息：本年度第几天
+    readonly property int dayOfYear: {
+        var start = new Date(selYear, 0, 0);
+        var diff = selDateObj - start;
+        var oneDay = 1000 * 60 * 60 * 24;
+        return Math.floor(diff / oneDay);
     }
 
     // =========================================================================
-    // 纯前端 35 / 42 格日历标准矩阵计算
+    // 标准公历网格矩阵计算
     // =========================================================================
     readonly property var calGridModel: {
         var grid = [];
-        var firstDayOfWeek = new Date(calYear, calMonth, 1).getDay(); // 0(周日) ~ 6(周六)
-        // 周一为每周第一列：0(周一) ~ 6(周日)
+        var firstDayOfWeek = new Date(calYear, calMonth, 1).getDay();
         var startOffset = (firstDayOfWeek === 0) ? 6 : (firstDayOfWeek - 1);
 
         var daysInCurrentMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -54,11 +83,10 @@ Item {
 
         // 1. 上月余留格
         for (var p = startOffset - 1; p >= 0; p--) {
-            var dPrev = daysInPrevMonth - p;
             grid.push({
                 year: calMonth === 0 ? calYear - 1 : calYear,
                 month: calMonth === 0 ? 11 : calMonth - 1,
-                day: dPrev,
+                day: daysInPrevMonth - p,
                 isCurrentMonth: false,
                 isToday: false
             });
@@ -92,7 +120,6 @@ Item {
         return grid;
     }
 
-    // 一键回到今天
     function gotoToday() {
         calYear = todayDate.getFullYear();
         calMonth = todayDate.getMonth();
@@ -111,7 +138,6 @@ Item {
         else { calMonth++; }
     }
 
-    // 鼠标滚轮翻月
     property real wheelAccum: 0
     Timer { id: wheelResetTimer; interval: 260; onTriggered: calRoot.wheelAccum = 0 }
 
@@ -125,175 +151,172 @@ Item {
         }
     }
 
-    Column {
+    // =========================================================================
+    // 纯粹日历主界面：左侧【时光印记牌】 + 右侧【优雅月历网格】
+    // =========================================================================
+    Row {
         anchors.fill: parent
-        spacing: 4
+        spacing: 12
 
         // =====================================================================
-        // 1. 顶栏：选中的日期实时同步显示
+        // 1. 左侧：高质感时光信息看板
         // =====================================================================
-        Item {
-            width: parent.width
-            height: 24
+        Rectangle {
+            width: 132
+            height: parent.height
+            radius: 12
+            color: Qt.rgba(1, 1, 1, 0.04)
+            border.color: calRoot.isSelectedToday ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.35) : Qt.rgba(255, 255, 255, 0.10)
+            border.width: 1
 
-            // 左侧：年月与【当前选中日期】
-            Row {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 7
+            Behavior on border.color { ColorAnimation { duration: 200 } }
 
-                Text {
-                    text: calRoot.calYear + "年 " + (calRoot.calMonth + 1) + "月"
-                    color: "white"
-                    font.pixelSize: 14
-                    font.weight: Font.Black
-                    font.family: calRoot.effectiveFont
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+            Column {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 6
 
-                Rectangle {
-                    width: 3; height: 3; radius: 1.5
-                    color: Qt.rgba(1, 1, 1, 0.3)
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-
-                // 🚀【核心修复点】：绑定 selMonth / selDay / selWeekdayStr
-                Text {
-                    text: (calRoot.selMonth + 1) + "月" + calRoot.selDay + "日 " + calRoot.selWeekdayStr + (calRoot.isSelectedToday ? " (今天)" : "")
-                    color: calRoot.isSelectedToday ? "#38bdf8" : Qt.rgba(1, 1, 1, 0.75)
-                    font.pixelSize: 11
-                    font.weight: Font.Bold
-                    font.family: calRoot.effectiveFont
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                }
-            }
-
-            // 右侧：[↺ 今天] [‹] [›] 控制器
-            Row {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
-
-                // 🚀 只要翻了月、或者点击了别的非今天日期，立即浮现回今天按钮
+                // 顶部：月份与年份胶囊
                 Rectangle {
                     height: 20
-                    width: todayBtnRow.implicitWidth + 12
-                    radius: 10
-                    visible: !calRoot.isViewingCurrentMonth || !calRoot.isSelectedToday
-                    opacity: visible ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-                    color: todayTap.pressed ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.35) :
-                           (todayHover.hovered ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.20) : Qt.rgba(1, 1, 1, 0.08))
-                    border.color: todayHover.hovered ? "#38bdf8" : Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.4)
-                    border.width: 1
+                    width: parent.width
+                    radius: 6
+                    color: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.16)
 
                     Row {
-                        id: todayBtnRow
                         anchors.centerIn: parent
-                        spacing: 3
-                        Text { text: "↺"; color: "#38bdf8"; font.pixelSize: 10; font.weight: Font.Bold }
-                        Text { text: "今天"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: calRoot.effectiveFont }
-                    }
-
-                    HoverHandler { id: todayHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { id: todayTap; onTapped: calRoot.gotoToday() }
-                }
-
-                // ‹ 翻上月
-                Rectangle {
-                    width: 22; height: 20; radius: 10
-                    color: prevHover.hovered ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
-                    Text { anchors.centerIn: parent; text: "‹"; font.pixelSize: 15; font.weight: Font.Bold; color: "white" }
-                    HoverHandler { id: prevHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: calRoot.gotoPrevMonth() }
-                }
-
-                // › 翻下月
-                Rectangle {
-                    width: 22; height: 20; radius: 10
-                    color: nextHover.hovered ? Qt.rgba(1, 1, 1, 0.15) : "transparent"
-                    Text { anchors.centerIn: parent; text: "›"; font.pixelSize: 15; font.weight: Font.Bold; color: "white" }
-                    HoverHandler { id: nextHover; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: calRoot.gotoNextMonth() }
-                }
-            }
-        }
-
-        // =====================================================================
-        // 2. 星期表头行
-        // =====================================================================
-        Row {
-            width: parent.width
-            height: 16
-
-            Repeater {
-                model: ["一", "二", "三", "四", "五", "六", "日"]
-                Item {
-                    width: parent.width / 7
-                    height: parent.height
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: modelData
-                        font.pixelSize: 11
-                        font.weight: Font.Bold
-                        color: (index >= 5) ? Qt.rgba(244 / 255, 114 / 255, 182 / 255, 0.85) : Qt.rgba(1, 1, 1, 0.45)
-                        font.family: calRoot.effectiveFont
-                    }
-                }
-            }
-        }
-
-        // =====================================================================
-        // 3. 全宽日历网格 (点击更新选中状态)
-        // =====================================================================
-        Item {
-            id: gridContainer
-            width: parent.width
-            height: parent.height - 24 - 16 - 8
-            clip: true
-
-            readonly property real rowHeight: height / (calRoot.calGridModel.length > 35 ? 6.0 : 5.0)
-
-            Grid {
-                id: grid
-                columns: 7
-                width: parent.width
-                spacing: 0
-
-                Repeater {
-                    model: calRoot.calGridModel
-
-                    CalendarDayCell {
-                        width: grid.width / 7
-                        height: gridContainer.rowHeight
-                        cellData: modelData
-                        effectiveMonoFont: calRoot.effectiveMonoFont
-                        // 选中的判定规则：与当前选中的年月日完全一致
-                        isSelected: (modelData.year === calRoot.selYear && modelData.month === calRoot.selMonth && modelData.day === calRoot.selDay)
-                        
-                        onCellClicked: (item) => {
-                            // 🚀 点击后立即更新选中的年月日
-                            calRoot.selYear = item.year;
-                            calRoot.selMonth = item.month;
-                            calRoot.selDay = item.day;
-
-                            // 如果点击了上个月/下个月的灰色格，自动翻到该月份
-                            if (item.month !== calRoot.calMonth || item.year !== calRoot.calYear) {
-                                calRoot.calYear = item.year;
-                                calRoot.calMonth = item.month;
-                            }
+                        spacing: 4
+                        Text {
+                            text: (calRoot.selMonth + 1) + "月"
+                            color: "#38bdf8"
+                            font.pixelSize: 11
+                            font.weight: Font.Black
+                            font.family: calRoot.effectiveFont
+                        }
+                        Text {
+                            text: calRoot.selYear
+                            color: Qt.rgba(255, 255, 255, 0.7)
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                            font.family: calRoot.effectiveMonoFont
                         }
                     }
                 }
-            }
 
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (event) => calRoot.handleWheelStep(event.angleDelta.y)
+                // 核心：特大公历日号
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: calRoot.selDay
+                    color: "#ffffff"
+                    font.pixelSize: 42
+                    font.weight: Font.Black
+                    font.family: calRoot.effectiveMonoFont
+                }
+
+                // 星期与相对距离
+                Column {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 2
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: calRoot.selWeekdayFull
+                        color: calRoot.isSelectedToday ? "#38bdf8" : "#ffffff"
+                        font.pixelSize: 12
+                        font.weight: Font.Black
+                        font.family: calRoot.effectiveFont
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: calRoot.relativeDayText
+                        color: Qt.rgba(255, 255, 255, 0.5)
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        font.family: calRoot.effectiveFont
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: Qt.rgba(255, 255, 255, 0.08) }
+
+                // 纯日历维度数据：第几周 & 第几天
+                Column {
+                    width: parent.width
+                    spacing: 3
+
+                    Row {
+                        spacing: 4
+                        Text { text: "周次:"; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 9; font.family: calRoot.effectiveFont }
+                        Text { text: "第 " + calRoot.weekOfYear + " 周"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: calRoot.effectiveMonoFont }
+                    }
+
+                    Row {
+                        spacing: 4
+                        Text { text: "累积:"; color: Qt.rgba(1, 1, 1, 0.4); font.pixelSize: 9; font.family: calRoot.effectiveFont }
+                        Text { text: "第 " + calRoot.dayOfYear + " 天"; color: "white"; font.pixelSize: 9; font.weight: Font.Bold; font.family: calRoot.effectiveMonoFont }
+                    }
+                }
+
+                Item { height: 2 }
+
+                // 快捷“回到今天”按钮 (仅在非今天时显现)
+                Rectangle {
+                    width: parent.width
+                    height: 24
+                    radius: 12
+                    visible: !calRoot.isSelectedToday || !calRoot.isViewingCurrentMonth
+                    color: returnTodayTap.pressed ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.35) :
+                           (returnTodayHover.hovered ? Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.22) : Qt.rgba(1, 1, 1, 0.08))
+                    border.color: returnTodayHover.hovered ? "#38bdf8" : Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.4)
+                    border.width: 1
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        Text { text: "↺"; color: "#38bdf8"; font.pixelSize: 11; font.weight: Font.Bold }
+                        Text { text: "回到今天"; color: "white"; font.pixelSize: 10; font.weight: Font.Bold; font.family: calRoot.effectiveFont }
+                    }
+
+                    HoverHandler { id: returnTodayHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { id: returnTodayTap; onTapped: calRoot.gotoToday() }
+                }
+            }
+        }
+
+        // =====================================================================
+        // 2. 右侧：全幅无障碍纯日历网格
+        // =====================================================================
+        Item {
+            width: parent.width - 132 - 12
+            height: parent.height
+
+            CalendarMonthView {
+                anchors.fill: parent
+                calYear: calRoot.calYear
+                calMonth: calRoot.calMonth
+                calGridModel: calRoot.calGridModel
+                selYear: calRoot.selYear
+                selMonth: calRoot.selMonth
+                selDay: calRoot.selDay
+                isAlreadyToday: calRoot.isSelectedToday && calRoot.isViewingCurrentMonth
+                effectiveFont: calRoot.effectiveFont
+                effectiveMonoFont: calRoot.effectiveMonoFont
+
+                onPrevMonthRequested: calRoot.gotoPrevMonth()
+                onNextMonthRequested: calRoot.gotoNextMonth()
+                onTodayRequested: calRoot.gotoToday()
+                onWheelFlipped: (deltaY) => calRoot.handleWheelStep(deltaY)
+
+                onDaySelected: (item) => {
+                    calRoot.selYear = item.year;
+                    calRoot.selMonth = item.month;
+                    calRoot.selDay = item.day;
+
+                    if (item.month !== calRoot.calMonth || item.year !== calRoot.calYear) {
+                        calRoot.calYear = item.year;
+                        calRoot.calMonth = item.month;
+                    }
+                }
             }
         }
     }

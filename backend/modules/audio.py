@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/audio.py
-# 🌟 原生 pulsectl 驱动 (单一常驻指令管道 · 自动折叠防抖 · 零线程泄露版)
+# 🌟 原生 pulsectl 驱动 (纯净静默版 · 彻底拔除高频刷屏日志)
 # ==========================================
 import time
 import asyncio
@@ -58,11 +58,11 @@ class AudioModule(BaseModule):
         )
         self._cmd_thread.start()
 
-        app_logger.info("✅ 原生 pulsectl 音频引擎就绪 (双长连接管道架构: 监听+指令执行)")
+        app_logger.info("✅ 原生 pulsectl 音频引擎就绪 (纯净静默模式)")
 
     async def stop(self) -> None:
         self._running = False
-        self._cmd_event.set()  # 唤醒指令线程以安全退出
+        self._cmd_event.set()
 
     # =========================================================================
     # 1. 监听通道 (Monitor Pipeline)
@@ -80,11 +80,7 @@ class AudioModule(BaseModule):
                 vol = int(round(sink.volume.value_flat * 100))
                 muted = bool(sink.mute)
                 if self.state.volume != vol or self.state.is_muted != muted:
-                    # 🔊【音量日志触发点 1】：检测到来自底层系统/硬件按键/外部程序的音量或静音状态突变
-                    app_logger.info(
-                        f"[AudioModule] 硬件事件驱动音量更新 -> 原状态:({self.state.volume}%, Mute={self.state.is_muted}) "
-                        f"| 新状态:({vol}%, Mute={muted})"
-                    )
+                    # 🚀 彻底清除了这里的【音量日志触发点 1】
                     self.state.volume = max(0, min(100, vol))
                     self.state.is_muted = muted
                     self.notify("VOLUME_UPDATE")
@@ -133,7 +129,6 @@ class AudioModule(BaseModule):
             try:
                 with pulsectl.Pulse('alcove-island-cmd') as pulse:
                     while self._running:
-                        # 挂起等待新指令（若无指令，0% CPU 占用）
                         self._cmd_event.wait(timeout=1.0)
                         if not self._running:
                             break
@@ -141,7 +136,7 @@ class AudioModule(BaseModule):
                         if not self._cmd_event.is_set():
                             continue
 
-                        # 🔒 原子取出并重置目标状态（瞬间合并此前堆积的所有中间态）
+                        # 🔒 原子取出并重置目标状态
                         with self._cmd_lock:
                             self._cmd_event.clear()
                             target_vol = self._target_sink_volume
@@ -154,7 +149,6 @@ class AudioModule(BaseModule):
                         try:
                             server_info = pulse.server_info()
 
-                            # 处理扬声器音量与静音
                             if (target_vol is not None or target_sink_mute is not None) and server_info.default_sink_name:
                                 sink = pulse.get_sink_by_name(server_info.default_sink_name)
                                 if target_vol is not None:
@@ -162,7 +156,6 @@ class AudioModule(BaseModule):
                                 if target_sink_mute is not None:
                                     pulse.mute(sink, target_sink_mute)
 
-                            # 处理麦克风静音
                             if target_src_mute is not None and server_info.default_source_name:
                                 source = pulse.get_source_by_name(server_info.default_source_name)
                                 pulse.mute(source, target_src_mute)
@@ -181,8 +174,7 @@ class AudioModule(BaseModule):
     async def set_volume(self, target_percent: int) -> None:
         target = max(0, min(100, int(target_percent)))
 
-        # 🔊【音量日志触发点 2】：UI 滑块拖动或直接调用 set_volume
-        app_logger.info(f"[AudioModule] UI/代码直接请求设置音量 -> 目标音量: {target}% (触发乐观更新)")
+        # 🚀 彻底清除了这里的【音量日志触发点 2】
         
         # 1. 乐观更新内存事实源与 GUI（零输入延迟）
         self.state.volume = target
@@ -196,17 +188,12 @@ class AudioModule(BaseModule):
             self._cmd_event.set()
 
     async def set_delta(self, delta_percent: int) -> None:
-        # 🔊【音量日志触发点 3】：通过滚轮或快捷键触发音量相对步进调节
-        app_logger.info(
-            f"[AudioModule] 相对调节音量步进 -> delta: {delta_percent:+}%, "
-            f"当前音量: {self.state.volume}% -> 目标: {self.state.volume + delta_percent}%"
-        )
+        # 🚀 彻底清除了这里的【音量日志触发点 3】
         await self.set_volume(self.state.volume + delta_percent)
 
     async def toggle_mute(self) -> None:
         self.state.is_muted = not self.state.is_muted
-        # 🔊【音量日志触发点 4】：扬声器静音状态主动反转
-        app_logger.info(f"[AudioModule] 主动切换扬声器静音状态 -> 当前静音已变为: {self.state.is_muted}")
+        # 🚀 彻底清除了这里的【音量日志触发点 4】
         self.notify("VOLUME_UPDATE")
 
         with self._cmd_lock:

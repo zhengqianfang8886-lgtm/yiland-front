@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandFsm.qml
-// 🌟 生产级有限状态机 (纯 QtObject 根对象 · 彻底移除洗牌锁定版)
+// 🌟 生产级有限状态机 (彻底剔除 OSD 暂态)
 // =========================================================================
 import QtQuick
 
@@ -26,13 +26,13 @@ QtObject {
         }
     }
 
+    // 🚀 已彻底剔除 "OSD"
     readonly property var priorityTable: ({
         "CALL": 100,
         "VOICE_INPUT": 80,
         "VOICE": 80,
         "SEDENTARY": 60,
         "ALERT": 40,
-        "OSD": 35,
         "WORKSPACE": 20,
         "MEDIA_PEEK": 10
     })
@@ -182,7 +182,7 @@ QtObject {
                 currentDurationMs = 0;
                 transientStack = [];
 
-                var targetTab = (args && args.tab) ? args.tab : "workspace";
+                var targetTab = (args && args.tab) ? args.tab : "calendar";
                 transitionTo(IslandFsm.State.Expanded, { reason: "intent_EXPAND", source: src, tab: targetTab });
                 break;
 

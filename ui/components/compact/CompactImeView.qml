@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/compact/CompactImeView.qml
-// 🌟 系统原生级输入法组件 (加固连击防穿透 · 任意手速秒切版)
+// 🌟 系统原生级输入法组件 (彻底消除半透明黑底 · 纯净通透版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -18,13 +18,9 @@ Item {
 
     readonly property bool isMenuOpen: menuPopup.opened || subPopup.opened
 
-    property var currentSubmenuItems: []
-    property real currentSubmenuY: 0
-
     function closeAllMenus() {
         subPopup.close();
         menuPopup.close();
-        currentSubmenuItems = [];
     }
 
     Connections {
@@ -34,6 +30,7 @@ Item {
         }
     }
 
+    // 胶囊本体按钮
     Rectangle {
         id: imeBox
         anchors.centerIn: parent
@@ -81,76 +78,62 @@ Item {
             renderType: Text.QtRendering
         }
 
-        // =====================================================================
-        // 🚀【核心加固点】：独占拦截点击与连击，绝对禁止事件向下穿透
-        // =====================================================================
         MouseArea {
             id: imeMouse
             anchors.fill: parent
             anchors.margins: -4
             hoverEnabled: true
-            preventStealing: true  // 🚀 锁死事件所有权，严禁底层底板抢走事件
+            preventStealing: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: Qt.PointingHandCursor
 
             onPressed: (mouse) => {
                 mouse.accepted = true;
+                if (mouse.button === Qt.RightButton && typeof Bridge !== "undefined" && Bridge.refreshImeMenu) {
+                    Bridge.refreshImeMenu();
+                }
             }
 
             onClicked: (mouse) => {
                 mouse.accepted = true;
-                handleMouse(mouse);
-            }
-
-            onDoubleClicked: (mouse) => {
-                mouse.accepted = true;
-                handleMouse(mouse); // 🚀 快速连续点击也能顺畅触发切换，绝不变成展开
-            }
-
-            function handleMouse(mouse) {
                 if (mouse.button === Qt.LeftButton) {
                     imeRoot.closeAllMenus();
                     if (typeof Bridge !== "undefined" && Bridge.toggleIme) {
                         Bridge.toggleIme();
                     }
                 } else if (mouse.button === Qt.RightButton) {
-                    if (imeRoot.isMenuOpen) imeRoot.closeAllMenus();
-                    else menuPopup.open();
+                    if (imeRoot.isMenuOpen) {
+                        imeRoot.closeAllMenus();
+                    } else {
+                        if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
+                            Bridge.openFullCorridorForMotion();
+                        }
+                        menuPopup.open();
+                    }
                 }
             }
         }
     }
 
-    // 1. 一级主菜单
+    // =========================================================================
+    // 1. 一级主菜单 (彻底关闭黑底遮罩 dim: false)
+    // =========================================================================
     Popup {
         id: menuPopup
-        y: imeRoot.height + 8
-        x: Math.round((imeRoot.width - width) / 2)
+        y: imeBox.height + 8
+        x: Math.round((imeBox.width - width) / 2)
         width: 204
         padding: 6
         modal: true
-        focus: true
+        dim: false            // 🚀 核心修复：彻底关闭背景变暗变黑！
+        focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-        Overlay.modal: MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
-            onPressed: (mouse) => {
-                mouse.accepted = true;
-                imeRoot.closeAllMenus();
-            }
-        }
-
-        onOpened: {
-            if (typeof Bridge !== "undefined") {
-                if (Bridge.openFullCorridorForMotion) Bridge.openFullCorridorForMotion();
-                if (Bridge.refreshImeMenu) Bridge.refreshImeMenu();
-            }
-        }
+        // 覆盖默认模态背景为纯透明，不产生任何黑影
+        Overlay.modal: Item {}
 
         onClosed: {
             subPopup.close();
-            currentSubmenuItems = [];
         }
 
         background: Rectangle {
@@ -177,7 +160,7 @@ Item {
                         anchors.centerIn: parent
                         width: parent.width - 8
                         height: 1
-                        color: Qt.rgba(255, 255, 255, 0.08)
+                        color: Qt.rgba(255, 255, 255, 0.12)
                         visible: modelData.isSeparator
                     }
 
@@ -186,7 +169,7 @@ Item {
                         radius: 6
                         visible: !modelData.isSeparator
 
-                        color: (modelData.isActive || (modelData.hasSubmenu && subPopup.opened && imeRoot.currentSubmenuItems === modelData.children)) ? 
+                        color: (modelData.isActive || (modelData.hasSubmenu && subPopup.opened && subPopup.parentItemId === modelData.id)) ? 
                                Qt.rgba(255, 255, 255, 0.15) : 
                                (rowMouse.containsMouse && (modelData.enabled !== false) ? Qt.rgba(255, 255, 255, 0.08) : "transparent")
 
@@ -237,20 +220,22 @@ Item {
                             cursorShape: (modelData.enabled !== false) ? Qt.PointingHandCursor : Qt.ArrowCursor
 
                             onEntered: {
-                                if (modelData.hasSubmenu && modelData.children && modelData.children.length > 0) {
-                                    openSubmenu(modelData.children, rowItem.y);
+                                var hasKids = modelData.children && modelData.children.length > 0;
+                                if (modelData.hasSubmenu && hasKids) {
+                                    subPopup.openSubmenu(modelData.id, modelData.children, rowItem.y);
                                 } else {
                                     subPopup.close();
                                 }
                             }
 
                             onClicked: {
-                                if (modelData.hasSubmenu && modelData.children && modelData.children.length > 0) {
-                                    openSubmenu(modelData.children, rowItem.y);
+                                var hasKids = modelData.children && modelData.children.length > 0;
+                                if (modelData.hasSubmenu && hasKids) {
+                                    subPopup.openSubmenu(modelData.id, modelData.children, rowItem.y);
                                 } else {
                                     imeRoot.closeAllMenus();
                                     if (typeof Bridge !== "undefined" && Bridge.activateImeMenuItem) {
-                                        Bridge.activateImeMenuItem(modelData.id, modelData.uniqueName || "");
+                                        Bridge.activateImeMenuItem(modelData.id, modelData.uniqueName || modelData.label || "");
                                     }
                                 }
                             }
@@ -261,16 +246,30 @@ Item {
         }
     }
 
+    // =========================================================================
     // 2. 二级子菜单
+    // =========================================================================
     Popup {
         id: subPopup
-        x: (menuPopup.x + menuPopup.width + 188 <= 660) ? (menuPopup.x + menuPopup.width + 4) : (menuPopup.x - width - 4)
-        y: menuPopup.y + imeRoot.currentSubmenuY - 4
+        x: (menuPopup.x + menuPopup.width + width + 4 <= 680) ? (menuPopup.x + menuPopup.width + 4) : (menuPopup.x - width - 4)
+        y: menuPopup.y + anchorY
         width: 188
         padding: 6
         modal: false
+        dim: false            // 🚀 关闭遮罩变暗
         focus: false
         closePolicy: Popup.CloseOnEscape
+
+        property int parentItemId: -1
+        property var items: []
+        property real anchorY: 0
+
+        function openSubmenu(itemId, subItems, targetY) {
+            parentItemId = itemId;
+            items = subItems;
+            anchorY = targetY;
+            open();
+        }
 
         background: Rectangle {
             color: "#181a20"
@@ -285,7 +284,7 @@ Item {
             width: parent.width
 
             Repeater {
-                model: imeRoot.currentSubmenuItems
+                model: subPopup.items
 
                 delegate: Item {
                     width: subCol.width
@@ -341,7 +340,7 @@ Item {
                             onClicked: {
                                 imeRoot.closeAllMenus();
                                 if (typeof Bridge !== "undefined" && Bridge.activateImeMenuItem) {
-                                    Bridge.activateImeMenuItem(modelData.id, "");
+                                    Bridge.activateImeMenuItem(modelData.id, modelData.label || "");
                                 }
                             }
                         }
@@ -349,11 +348,5 @@ Item {
                 }
             }
         }
-    }
-
-    function openSubmenu(items, anchorY) {
-        currentSubmenuItems = items;
-        currentSubmenuY = anchorY;
-        subPopup.open();
     }
 }

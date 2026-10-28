@@ -105,7 +105,7 @@ Item {
         color: "#818cf8" // 靛蓝色静谧光带
         
         // 宽度动态展开
-        width: bgRoot.isTucked ? Math.min(64, parent.width * 0.35) : 0
+        width: bgRoot.isTucked ? Math.min(42, parent.width * 0.35) : 0
         Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
 
         // 呼吸动画

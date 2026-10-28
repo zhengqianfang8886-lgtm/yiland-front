@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/timer/TimerSegmentedBar.qml
-// 🌟 鼠标悬停意图识别（即停即切）分段器 (时序安全加固版)
+// 🌟 顶部分段切换器 (自由无阻断切换版)
 // ==========================================
 import QtQuick
 
@@ -19,7 +19,6 @@ Rectangle {
 
     signal switchRequested(string targetType)
 
-    // 人体工程学意图识别时间窗口 (120ms)
     readonly property int intentDwellInterval: 120
 
     Timer {
@@ -27,7 +26,7 @@ Rectangle {
         interval: segBarRoot.intentDwellInterval
         repeat: false
         onTriggered: {
-            if (!segBarRoot.isRunning && segBarRoot.isCountUp && cdHover.hovered) {
+            if (segBarRoot.isCountUp && cdHover.hovered) {
                 segBarRoot.switchRequested("countdown");
             }
         }
@@ -38,13 +37,13 @@ Rectangle {
         interval: segBarRoot.intentDwellInterval
         repeat: false
         onTriggered: {
-            if (!segBarRoot.isRunning && !segBarRoot.isCountUp && swHover.hovered) {
+            if (!segBarRoot.isCountUp && swHover.hovered) {
                 segBarRoot.switchRequested("stopwatch");
             }
         }
     }
 
-    // 滑动弹性高亮底块
+    // 弹性滑块指示器
     Rectangle {
         x: segBarRoot.isCountUp ? Math.round(parent.width / 2 + 2) : 2
         y: 2
@@ -63,9 +62,7 @@ Rectangle {
     Row {
         anchors.fill: parent
 
-        // ---------------------------------------------------------------------
-        // 【左标签】：倒计时
-        // ---------------------------------------------------------------------
+        // 倒计时标签
         Item {
             width: parent.width / 2
             height: parent.height
@@ -82,20 +79,14 @@ Rectangle {
 
             HoverHandler {
                 id: cdHover
-                cursorShape: segBarRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
+                cursorShape: Qt.PointingHandCursor
                 onHoveredChanged: {
-                    if (hovered) {
-                        if (!segBarRoot.isRunning && segBarRoot.isCountUp) {
-                            cdIntentTimer.restart();
-                        }
-                    } else {
-                        cdIntentTimer.stop();
-                    }
+                    if (hovered && segBarRoot.isCountUp) cdIntentTimer.restart();
+                    else cdIntentTimer.stop();
                 }
             }
 
             TapHandler {
-                enabled: !segBarRoot.isRunning
                 onTapped: {
                     cdIntentTimer.stop();
                     segBarRoot.switchRequested("countdown");
@@ -103,9 +94,7 @@ Rectangle {
             }
         }
 
-        // ---------------------------------------------------------------------
-        // 【右标签】：正向计时
-        // ---------------------------------------------------------------------
+        // 正向计时 (秒表) 标签
         Item {
             width: parent.width / 2
             height: parent.height
@@ -122,20 +111,14 @@ Rectangle {
 
             HoverHandler {
                 id: swHover
-                cursorShape: segBarRoot.isRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
+                cursorShape: Qt.PointingHandCursor
                 onHoveredChanged: {
-                    if (hovered) {
-                        if (!segBarRoot.isRunning && !segBarRoot.isCountUp) {
-                            swIntentTimer.restart();
-                        }
-                    } else {
-                        swIntentTimer.stop();
-                    }
+                    if (hovered && !segBarRoot.isCountUp) swIntentTimer.restart();
+                    else swIntentTimer.stop();
                 }
             }
 
             TapHandler {
-                enabled: !segBarRoot.isRunning
                 onTapped: {
                     swIntentTimer.stop();
                     segBarRoot.switchRequested("stopwatch");

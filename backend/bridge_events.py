@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge_events.py
-# 🌟 后端事件到 Qt 信号注册表派发器 (开机防抖无敌帧加固版)
+# 🌟 后端事件到 Qt 信号注册表派发器 (彻底剔除 OSD 弹窗派发)
 # ==========================================
 import time
 
@@ -10,7 +10,7 @@ class BridgeEventDispatcher:
 
     def __init__(self, bridge):
         self.b = bridge
-        self._startup_time = time.time()  # 👈 记录引擎启动时间
+        self._startup_time = time.time()
         
         self._handlers = {
             "GRID_STATE_CHANGED": self._on_grid,
@@ -21,8 +21,8 @@ class BridgeEventDispatcher:
             "MEDIA_PROGRESS": self._on_media_progress,
             "MEDIA_TICK": self._on_media_progress,
             "WORKSPACE_CHANGED": self._on_workspace,
-            "VOLUME_UPDATE": lambda s: self._on_volume(s, trigger_osd=True),
-            "BRIGHTNESS_UPDATE": lambda s: self._on_brightness(s, trigger_osd=True),
+            "VOLUME_UPDATE": self._on_volume,
+            "BRIGHTNESS_UPDATE": self._on_brightness,
             "KEYBOARD_LOCK_UPDATE": self._on_keyboard,
             "MEMORY_UPDATE": self._on_memory,
             "NET_SPEED_UPDATE": self._on_net_speed,
@@ -80,20 +80,14 @@ class BridgeEventDispatcher:
         self.b.workspaceTriggered.emit(s.workspace_index, s.workspace_total, s.workspace_name)
         self.b.workspaceListUpdated.emit(s.workspaces)
 
-    def _on_volume(self, s, trigger_osd: bool = False):
+    def _on_volume(self, s):
         self.b.volumeChanged.emit(s.volume)
         self.b.hardwareMuteStateChanged.emit(s.is_muted, s.is_mic_muted)
-        
-        # 🚀【核心修复】：开机前 2 秒的底层硬件异步探针延后送达，绝对拦截，严禁闪现弹窗！
-        if trigger_osd and (time.time() - self._startup_time > 2.0):
-            icon = "🔇" if s.is_muted else ("🔈" if s.volume == 0 else "🔊")
-            self.b.osdTriggered.emit(icon, "Volume", s.volume)
+        # 🚀 彻底移除 osdTriggered，调音量时绝不弹出覆盖框
 
-    def _on_brightness(self, s, trigger_osd: bool = False):
+    def _on_brightness(self, s):
         self.b.brightnessChanged.emit(s.brightness)
-        # 🚀 同理拦截屏幕亮度的开机异步探针
-        if trigger_osd and (time.time() - self._startup_time > 2.0):
-            self.b.osdTriggered.emit("☀️", "Display", s.brightness)
+        # 🚀 彻底移除 osdTriggered，调亮度时绝不弹出覆盖框
 
     def _on_keyboard(self, s):
         self.b.capsLockChanged.emit(s.is_caps_lock)
@@ -122,7 +116,6 @@ class BridgeEventDispatcher:
             str(getattr(s, "ime_name", "")),
             str(getattr(s, "ime_icon_url", ""))
         )
-        # 🚀 派发系统动态菜单数据给前端
         self.b.imeMenuUpdated.emit(getattr(s, "ime_menu_items", []))
 
     def _on_teams_call_incoming(self, s):
@@ -152,8 +145,8 @@ class BridgeEventDispatcher:
         self._on_grid(s)
         self._on_media_update(s)
         self._on_workspace(s)
-        self._on_volume(s, trigger_osd=False)
-        self._on_brightness(s, trigger_osd=False)
+        self._on_volume(s)
+        self._on_brightness(s)
         self._on_keyboard(s)
         self._on_memory(s)
         self._on_net_speed(s)
