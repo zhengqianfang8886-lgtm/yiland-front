@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位离散量化主视口 (桌面名称60ms闪电气化 · 彻底消灭消失残留版)
+// 🌟 槽位自动化排版引擎 (修复 QML 单行解析 Bug 版)
 // ==========================================
 import QtQuick
 import "../components/capsule"
@@ -51,24 +51,7 @@ Item {
     readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
         ? Math.max(38, wsLabel.implicitWidth + 16) : 0
 
-    readonly property int slotClockWidth: clockView.implicitWidth
-    readonly property int slotNetWidth: (typeof Config !== "undefined" && Config.showNetSpeed === false) ? 0 : 56
-    readonly property int slotImeWidth: isImeActive ? 28 : 0
-    readonly property int slotNoticeWidth: unreadNoticeCount > 0 ? (unreadNoticeCount >= 10 ? 40 : 34) : 0
-    readonly property int slotMusicWidth: isMusicPlaying ? 40 : 0
-
-    readonly property int slotRightGroupWidth: {
-        var w = 0, count = 0;
-        if (slotCdWidth > 0)     { w += slotCdWidth; count++; }
-        if (slotSwWidth > 0)     { w += slotSwWidth; count++; }
-        if (slotNetWidth > 0)    { w += slotNetWidth; count++; }
-        if (slotImeWidth > 0)    { w += slotImeWidth; count++; }
-        if (slotNoticeWidth > 0) { w += slotNoticeWidth; count++; }
-        if (slotMusicWidth > 0)  { w += slotMusicWidth; count++; }
-        if (count > 1) w += (count - 1) * 4;
-        return w;
-    }
-
+    // 🚀【自动化槽位引擎】：直接利用 QML Row 的原生排版能力
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
@@ -86,15 +69,15 @@ Item {
             }
         }
 
-        var total = 20 + slotClockWidth;
-        if (slotLeftWidth > 0) total += (slotLeftWidth + 6);
-        if (slotRightGroupWidth > 0) total += (slotRightGroupWidth + 6);
+        var total = 20 + clockView.implicitWidth;
+        if (leftSlot.width > 0) total += (leftSlot.width + 5); 
+        if (rightSlotGroup.width > 0) total += (rightSlotGroup.width + 5);
 
         return Math.ceil(total / 4.0) * 4;
     }
 
     // =========================================================================
-    // 1. 常态视口 (打断来临 60ms 极速隐退，杜绝新旧文字叠印)
+    // 常态视口 (打断来临 60ms 极速隐退)
     // =========================================================================
     Item {
         id: normalViewContainer
@@ -105,7 +88,7 @@ Item {
         opacity: !compactRoot.hasActiveTransient ? 1.0 : 0.0
         Behavior on opacity {
             NumberAnimation {
-                duration: compactRoot.hasActiveTransient ? 60 : 150 // 🚀 离场 60ms 闪电腾出舞台
+                duration: compactRoot.hasActiveTransient ? 60 : 150
                 easing.type: Easing.OutQuad
             }
         }
@@ -115,23 +98,20 @@ Item {
             anchors.centerIn: parent
             spacing: 5
 
-            // =================================================================
-            // 🚀【核心重构：左侧桌面名称，带 60ms 闪电气化 + 物理防溢裁切】
-            // =================================================================
+            // 左侧桌面名称
             Item {
                 id: leftSlot
                 height: 24
                 width: compactRoot.slotLeftWidth
                 visible: width > 0 || wsBgRect.opacity > 0.01
                 anchors.verticalCenter: parent.verticalCenter
-                clip: true // 🚀 物理防线：绝对不让文字溢出容器边界！
+                clip: true
 
-                // 退场状态判定：宽度归零、或者有打断暂态来临
                 readonly property bool isDying: compactRoot.slotLeftWidth <= 0 || compactRoot.hasActiveTransient
 
                 Behavior on width {
                     NumberAnimation {
-                        duration: 180 // 🚀 由 240ms 提速至 180ms，更加利落跟手
+                        duration: 180
                         easing.type: Easing.OutCubic
                     }
                 }
@@ -147,31 +127,16 @@ Item {
                     opacity: leftSlot.isDying ? 0.0 : 1.0
                     Behavior on opacity { NumberAnimation { duration: 140 } }
 
-                    // =========================================================
-                    // 🚀 桌面文字气化层：一旦检测到要消失，60ms 瞬间消散蒸发！
-                    // =========================================================
                     Item {
                         id: wsTextSlot
                         anchors.fill: parent
-
-                        // 核心判断：处于退场态，或宽度不足以容纳文字时，文字率先隐去！
                         readonly property bool shouldVaporize: leftSlot.isDying || (leftSlot.width < 28)
 
                         opacity: shouldVaporize ? 0.0 : 1.0
                         scale: shouldVaporize ? 0.70 : 1.0
 
-                        Behavior on opacity {
-                            NumberAnimation {
-                                duration: 60 // 🚀 60ms 极速消散，视野内绝无残留！
-                                easing.type: Easing.OutQuad
-                            }
-                        }
-                        Behavior on scale {
-                            NumberAnimation {
-                                duration: 80
-                                easing.type: Easing.OutQuad
-                            }
-                        }
+                        Behavior on opacity { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                        Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
 
                         Text {
                             id: wsLabel
@@ -199,18 +164,17 @@ Item {
                 displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
             }
 
-            // 右侧微囊流
+            // =================================================================
+            // 🚀 右侧自动化槽位 (Slot Engine)：微囊增删全自动流式响应
+            // =================================================================
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
-                visible: compactRoot.slotRightGroupWidth > 0
 
-                // 1. 倒计时微囊
                 FluidPill {
                     id: cdPill
                     targetWidth: compactRoot.slotCdWidth
-
                     readonly property bool isOvertime: (typeof Bridge !== "undefined") && Bridge.cdIsOvertime
 
                     pillColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)
@@ -238,11 +202,9 @@ Item {
                     }
                 }
 
-                // 2. 正向秒表微囊
                 FluidPill {
                     id: swPill
                     targetWidth: compactRoot.slotSwWidth
-
                     pillColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.10)
                     hoverColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
                     pressColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.28)
@@ -268,11 +230,10 @@ Item {
                     }
                 }
 
-                // 3. 网速微囊 (56px 纯净无边框，完整呈现 /s)
                 CompactNetSpeedView {
                     id: netSpeedPill
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: compactRoot.slotNetWidth > 0
+                    visible: (typeof Config !== "undefined" && Config.showNetSpeed !== false)
                     fontFam: compactRoot.displayFont
                     downVal: compactRoot.relay ? compactRoot.relay.netDownVal : "0"
                     downUnit: compactRoot.relay ? compactRoot.relay.netDownUnit : "B/s"
@@ -282,18 +243,15 @@ Item {
                     upCompact: compactRoot.relay ? compactRoot.relay.upCompact : "0B"
                 }
 
-                // 4. 输入法微囊
                 CompactImeView {
                     id: imePill
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: compactRoot.slotImeWidth > 0
+                    visible: isImeActive
                 }
 
-                // 5. 通知气泡微囊
                 FluidPill {
                     id: noticePill
-                    targetWidth: compactRoot.slotNoticeWidth
-
+                    targetWidth: compactRoot.unreadNoticeCount > 0 ? (compactRoot.unreadNoticeCount >= 10 ? 40 : 34) : 0
                     pillColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
                     hoverColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32)
                     pressColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45)
@@ -322,15 +280,11 @@ Item {
                     }
                 }
 
-                // 6. 媒体律动微囊
                 FluidPill {
                     id: musicPill
-                    targetWidth: compactRoot.slotMusicWidth
-
+                    targetWidth: compactRoot.isMusicPlaying ? 40 : 0
                     readonly property color themeColor: {
-                        if (compactRoot.relay && compactRoot.relay.dominantColor) {
-                            return compactRoot.relay.dominantColor;
-                        }
+                        if (compactRoot.relay && compactRoot.relay.dominantColor) return compactRoot.relay.dominantColor;
                         return "#22c55e";
                     }
 
@@ -416,6 +370,7 @@ Item {
         }
     }
 
+    // 🚀【组件安全包裹区：每个 Component 严格独立分行，杜绝解析崩溃】
     Component {
         id: compWs
         CompactWorkspaceView {

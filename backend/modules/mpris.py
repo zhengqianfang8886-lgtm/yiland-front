@@ -443,6 +443,11 @@ class MprisModule(BaseModule):
 
                 t1 = time.time()
                 app_logger.info(f"[MPRIS] 🎨 封面主色提取成功 -> {hex_c} (耗时: {(t1-t0)*1000:.1f}ms, URL: {clean_url[:40]})")
+                
+                # 🚀【强制斩断内存泄漏源】：立即清理 C++ 侧解码出的 QImage 裸内存与中间大字典
+                buckets.clear()
+                del qimg
+                del img_bytes
                 return
 
             except Exception as e:
@@ -454,7 +459,7 @@ class MprisModule(BaseModule):
                 self.notify("MEDIA_UPDATE")
 
         threading.Thread(target=_calc_color_safe, daemon=True, name="MediaColorExtractor").start()
-
+        
     def _emit_spectrum_safe(self, s1: float, s2: float, s3: float, s4: float):
         if not self._spectrum_running: return
         ls1, ls2, ls3, ls4 = self._last_spec_cache

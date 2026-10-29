@@ -1,7 +1,9 @@
 # ==========================================
 # 📄 File: backend/core/backend.py
-# 🌟 单一异步控制调度总线 (彻底剥离习惯打卡模块版)
+# 🌟 单一异步控制调度总线 (集成深层内存守卫版)
 # ==========================================
+import os
+import gc
 import asyncio
 from typing import Optional, List
 
@@ -34,7 +36,6 @@ class DirectIslandBackend:
         self.modules: List[BaseModule] = []
         self.loop: Optional[asyncio.AbstractEventLoop] = None
 
-        # 核心功能模块直通引用 (已移除 habits)
         self.workspace: Optional[WorkspaceModule] = None
         self.mpris: Optional[MprisModule] = None
         self.brightness: Optional[BrightnessModule] = None
@@ -70,7 +71,6 @@ class DirectIslandBackend:
         except Exception as e:
             app_logger.error(f"❌ D-Bus Session 连接失败: {e}")
 
-        # 实例化驱动子模块 (已移除 habits)
         self.workspace = WorkspaceModule(self, self.state, self.session_bus)
         self.mpris = MprisModule(self, self.state, self.session_bus)
         self.brightness = BrightnessModule(self, self.state, self.session_bus)
@@ -99,8 +99,31 @@ class DirectIslandBackend:
             if isinstance(res, Exception):
                 app_logger.error(f"模块 [{mod.__class__.__name__}] 启动异常: {res}")
 
+        # 🚀 启动系统内存自净守卫
+        self.loop.create_task(self._memory_watchdog_loop())
+
         self.broadcast("FULL_SYNC")
         app_logger.info("✨ 所有原生硬件驱动、计时引擎与语音识别管道接入完毕。")
+
+    async def _memory_watchdog_loop(self):
+        """深层内存守卫：每小时深度 GC 清理，保障 7x24 续航"""
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+        except ImportError:
+            process = None
+
+        while True:
+            await asyncio.sleep(3600)  # 每 1 小时触发一次
+            try:
+                collected = gc.collect()
+                msg = f"🛡️ [系统守卫] 后台深度 GC 清理完成. 释放幽灵对象: {collected}"
+                if process:
+                    mem_mb = process.memory_info().rss / (1024 * 1024)
+                    msg += f", 当前常驻内存(RSS): {mem_mb:.1f} MB"
+                app_logger.info(msg)
+            except Exception as e:
+                app_logger.debug(f"[系统守卫] 内存回收异常: {e}")
 
     async def shutdown(self):
         app_logger.info("🛑 正在卸载后端服务...")
