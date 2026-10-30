@@ -1,8 +1,9 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (内容定宽冷冻隔离 · 零重排风暴 · 满帧流体版)
+// 🌟 灵动岛主壳体 (修正手势遮罩层级 · 释放子组件右键点击响应版)
 // =========================================================================
 import QtQuick
+import QtQml
 import "../core"
 import "../views"
 import "../components/capsule"
@@ -26,6 +27,12 @@ Item {
 
     signal requestSettings()
 
+    IslandActionBus {
+        id: actionBus
+        bridge: (typeof Bridge !== "undefined") ? Bridge : null
+        fsm: capsuleRoot.fsm
+    }
+
     PhysicsMotionPod {
         id: motionPod
         onMotionSettled: {
@@ -33,12 +40,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 🌊【物理骨骼参数体系】
-    // =========================================================================
-    // 稳态基准宽度：绝不随手势动态拉动而改变，作为内容视口的永久定宽锚
     readonly property real baseRestingWidth: motionPod.targetWidth
-
     readonly property real pullOffset: (!sensorArea || capsuleRoot.isCurrentExpanded) ? 0.0 : sensorArea.visualPullY
     readonly property real pullRatio: (!sensorArea || capsuleRoot.isCurrentExpanded) ? 0.0 : sensorArea.pullRatio
     readonly property bool isActivelyPulling: sensorArea ? sensorArea.isPullingDown : false
@@ -50,32 +52,24 @@ Item {
 
     y: motionPod.currentY
 
-    // 纵向物理拉伸
-    readonly property real liquidExtraHeight: pullOffset * 0.85
+    readonly property real liquidExtraHeight: pullOffset * 0.95
     height: Math.max(currentConfigHeight, Math.round(motionPod.currentHeight + liquidExtraHeight))
 
-    // 横向向心收缩
-    readonly property real liquidPillMinWidth: 124.0
-    readonly property real contractionFactor: smoothStep(0.0, 1.0, pullRatio)
+    readonly property real liquidPillMinWidth: 136.0
+    readonly property real contractionFactor: smoothStep(0.0, 1.0, pullRatio) * 0.22
     readonly property real dynamicTargetWidth: baseRestingWidth - ((baseRestingWidth - liquidPillMinWidth) * contractionFactor)
 
-    // 外壳几何宽度 (由手势实时 1:1 无阻碍驱动)
     width: Math.max(liquidPillMinWidth, Math.round(dynamicTargetWidth))
     Behavior on width {
         enabled: !capsuleRoot.isActivelyPulling
-        NumberAnimation {
-            duration: Theme.animFast
-            easing.type: Easing.OutQuad
-        }
+        NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutQuint }
     }
 
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
 
     scale: (capsuleRoot.isRightPressing) ? 0.95 : ((sensorArea && sensorArea.isTriggerPrimed) ? 1.02 : 1.0)
-    Behavior on scale {
-        NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
-    }
+    Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutQuad } }
 
     function resolveAndExpress() {
         if (!fsm) return;
@@ -175,7 +169,6 @@ Item {
         Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
-    // 黑曜石背景材质 (仅由几何外壳驱动拉伸，零子布局开销)
     CapsuleBackground {
         id: bg
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
@@ -185,15 +178,29 @@ Item {
         isTriggerPrimed: sensorArea ? sensorArea.isTriggerPrimed : false
     }
 
-    readonly property real clockFadeout: smoothStep(0.04, 0.40, pullRatio)
-    readonly property real glyphFadein: smoothStep(0.12, 0.55, pullRatio)
-    readonly property real dotSpread: smoothStep(0.18, 0.82, pullRatio)
+    readonly property real clockFadeout: smoothStep(0.06, 0.45, pullRatio)
+    readonly property real glyphFadein: smoothStep(0.12, 0.60, pullRatio)
+    readonly property real dotSpread: smoothStep(0.18, 0.85, pullRatio)
 
-    // =========================================================================
-    // 🚀【核心架构重构 1】：内容视口定宽冷冻隔离
-    // 容器宽度绝对绑定至 baseRestingWidth，在拖拽期间绝对不发生尺寸缩放！
-    // 彻底切断任何 Text/Row 级联重排重算，实现极其丝滑的 GPU 级淡出！
-    // =========================================================================
+    // 🚀【核心设计：静态手势感应面位于底层 z: 1】
+    // 保证上面的子微囊（输入法、OBS托盘等 z: 10）拥有绝对优先的左键与右键点击响应权！
+    CapsuleSensorArea {
+        id: sensorArea
+        actionBus: actionBus
+        width: capsuleRoot.baseRestingWidth
+        height: Math.max(capsuleRoot.currentConfigHeight, capsuleRoot.height)
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        z: 1
+        visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+        enabled: visible
+        isExpanded: capsuleRoot.isCurrentExpanded
+        isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
+
+        onRequestSettingsWindow: capsuleRoot.requestSettings()
+    }
+
+    // 🚀【内容视口层 z: 10】：优先接收鼠标点击，拖拽时才由手势层接管
     Item {
         id: compactContainer
         width: capsuleRoot.baseRestingWidth
@@ -204,12 +211,11 @@ Item {
         z: 10
         visible: opacity > 0.001
         
-        // 拖拽激活时物理断开交互，杜绝任何子药丸事件抢占
         enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isActivelyPulling && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
 
         opacity: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)) ? (1.0 - capsuleRoot.clockFadeout) : 0.0
         scale: 1.0 - capsuleRoot.clockFadeout * 0.06
-        transform: Translate { y: capsuleRoot.clockFadeout * 1.5 }
+        transform: Translate { y: capsuleRoot.pullOffset * 0.3 }
 
         CompactCapsuleView {
             id: compactView
@@ -221,7 +227,7 @@ Item {
         }
     }
 
-    // 4 点微标无跳跃显现
+    // 平铺网格微标
     Item {
         id: morphicGlyphContainer
         anchors.horizontalCenter: parent.horizontalCenter
@@ -268,39 +274,6 @@ Item {
                 y: parent.height / 2 + parent.gap / 2
                 width: parent.dotSize; height: parent.dotSize; radius: parent.dotRadius
                 color: morphicGlyphContainer.glyphColor
-            }
-        }
-    }
-
-    // =========================================================================
-    // 🚀【核心架构重构 2】：传感器空间静止绑定
-    // 传感器的宽度同样绝对锁定 baseRestingWidth，绝不随水滴收缩而变窄位移！
-    // 坐标系在触控全程保持绝对欧几里得恒定，彻底根除自激漂移泥潭感！
-    // =========================================================================
-    CapsuleSensorArea {
-        id: sensorArea
-        width: capsuleRoot.baseRestingWidth
-        height: Math.max(capsuleRoot.currentConfigHeight, capsuleRoot.height)
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        z: 20
-        visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
-        enabled: visible
-        isExpanded: capsuleRoot.isCurrentExpanded
-        isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
-
-        onRequestExpand: (tab) => {
-            if (fsm) fsm.handleIntent("EXPAND", { tab: tab, source: "SensorArea_Expand" });
-        }
-        onRequestTuckToggle: {
-            if (fsm) fsm.handleIntent("TOGGLE_TUCK", { source: "SensorArea_Tuck" });
-        }
-        onRequestSettingsWindow: capsuleRoot.requestSettings()
-
-        onWheelScrolled: (deltaY) => {
-            if (typeof Bridge !== "undefined") {
-                if (deltaY > 0) Bridge.switchWorkspacePrev();
-                else Bridge.switchWorkspaceNext();
             }
         }
     }

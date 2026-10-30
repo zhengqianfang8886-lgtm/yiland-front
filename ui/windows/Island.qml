@@ -1,8 +1,9 @@
 // =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (高灵敏过道捕获 · 零死角下探唤醒版)
+// 🌟 顶级窗口视图 (对齐动作总线 · 物理手势互锁 · 规范 QtQml 版)
 // =========================================================================
 import QtQuick
+import QtQml
 import QtQuick.Controls
 import "../core"
 import "../shell"
@@ -128,17 +129,17 @@ Item {
         }
     }
 
-    // 🌟【核心调优】：将隐藏时的过道感应宽扩充至 300px，高度增至 14px，光标一碰秒级激活
+    // 静态过道感应区：拖拽下拉时严格互锁禁用
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        width: capsule ? Math.max(300, capsule.width + 12) : 320
+        width: capsule ? Math.max(340, capsule.baseRestingWidth + 24) : 340
         property bool isRightPressing: false
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
-        enabled: !isExpanded && !root.isGridActive
-        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 14 : (capsule ? Math.round(capsule.y + capsule.height + 4) : 46))
+        enabled: !isExpanded && !root.isGridActive && !(capsule && capsule.isActivelyPulling)
+        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 14 : 52)
 
         z: 5
         hoverEnabled: true
@@ -146,7 +147,7 @@ Item {
 
         Timer {
             id: userLeaveDebounce
-            interval: (fsm && fsm.isTuckedPreference) ? 70 : 90 // 提升离场灵敏度
+            interval: (fsm && fsm.isTuckedPreference) ? 70 : 90
             repeat: false
             onTriggered: {
                 if (fsm.currentState !== IslandFsm.State.Expanded && !root.isUserHovering) {

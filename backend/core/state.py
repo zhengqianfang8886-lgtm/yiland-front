@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/state.py
-# 🌟 全量系统状态单一事实源 (集成录制感知与双轨计时独立存在版)
+# 🌟 全量系统状态单一事实源 (集成红点隐私+OBS独立托盘双轨状态版)
 # ==========================================
 import threading
 from typing import Dict, Any, Optional, List, Tuple
@@ -77,7 +77,7 @@ class IslandState:
         self.net_up_compact: str = "0B"
         self.local_ip: str = "127.0.0.1"
 
-        # 7. 专注计时器核心状态 (双轨独立)
+        # 7. 专注计时器核心状态
         self.timer_type: str = "countdown"
         self.timer_is_running: bool = False
         self.timer_is_paused: bool = False
@@ -112,12 +112,12 @@ class IslandState:
         self.notification_sender_bus: str = ""
         self.notification_id: int = 0
 
-        # 9. 端侧语音输入核心状态
+        # 9. 语音输入
         self.voice_input_active: bool = False
         self.voice_input_text: str = ""
         self.voice_input_level: float = 0.1
 
-        # 10. 系统级暂态打断
+        # 10. 系统级暂态
         self.overlay_key: str = ""
         self.overlay_icon: str = ""
         self.overlay_title: str = ""
@@ -133,12 +133,15 @@ class IslandState:
         self.ime_icon_url: str = ""
         self.ime_menu_items: List[Dict[str, Any]] = []
 
-        # 11. 🚀 隐私与硬件录制指示器 (OBS / 麦克风采集)
+        # 🚀【双轨录制状态声明】
+        # 轨道 1: 红色采音/录屏隐私指示器
         self.recording_active: bool = False
-        self.recording_title: str = "麦克风"
-        self.recording_subtitle: str = "OBS Studio"
-        self.recording_icon_url: str = ""
-        self.recording_menu_items: List[Dict[str, Any]] = []
+        self.recording_items: List[Dict[str, Any]] = []
+
+        # 轨道 2: OBS 独立托盘与真实右键菜单
+        self.obs_running: bool = False
+        self.obs_icon_url: str = ""
+        self.obs_menu_items: List[Dict[str, Any]] = []
 
     def __enter__(self):
         self._lock.acquire()

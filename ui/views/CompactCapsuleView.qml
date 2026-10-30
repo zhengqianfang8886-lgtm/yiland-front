@@ -1,8 +1,9 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位全生命周期共振排版引擎 (零间距断层 · 相位锁相对齐版)
+// 🌟 槽位自动化排版视图 (物理掩码提权打通版)
 // ==========================================
 import QtQuick
+import "../core"
 import "../components/capsule"
 import "../components/compact"
 
@@ -16,47 +17,29 @@ Item {
     property var sedentaryService: null
 
     property string chosenFont: ""
-    readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? Theme.activeFont : chosenFont
-    readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? Theme.displayMonoFont : "Monospace"
+    readonly property string effectiveFont: (typeof Theme !== "undefined" && Theme.activeFont) ? String(Theme.activeFont) : chosenFont
+    readonly property string displayFont: (typeof Theme !== "undefined" && Theme.displayMonoFont) ? String(Theme.displayMonoFont) : "Monospace"
 
-    readonly property bool hasActiveTransient: fsm ? (fsm.activeTransientKey !== "") : false
-    readonly property string currentKey: fsm ? fsm.activeTransientKey : ""
+    readonly property bool hasActiveTransient: fsm ? Boolean(fsm.activeTransientKey !== "") : false
+    readonly property string currentKey: fsm ? String(fsm.activeTransientKey) : ""
     readonly property var currentPayload: (fsm && fsm.activePayload) ? fsm.activePayload : ({})
 
-    readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
-    readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
-    readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Bridge.isImeActive : false
-    readonly property bool isRecordingActive: (typeof Bridge !== "undefined" && Bridge.isRecordingActive !== undefined) ? Bridge.isRecordingActive : false
-
-    readonly property bool hasCountdown: (typeof Bridge !== "undefined") && Bridge.cdActive
-    readonly property bool hasStopwatch: (typeof Bridge !== "undefined") && Bridge.swActive
-
-    // 槽位物理宽度 (纯内容宽度)
-    readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
-        ? Math.max(38, wsLabel.implicitWidth + 16) : 0
-
-    readonly property int slotCdWidth: {
-        if (!hasCountdown) return 0;
-        var isOt = Bridge.cdIsOvertime;
-        var s = isOt ? Bridge.cdOvertimeSec : Bridge.cdRemainingSec;
-        if (s >= 3600) return isOt ? 114 : 102;
-        return isOt ? 84 : 76;
+    IslandSlotPipeline {
+        id: pipeline
+        bridge: (typeof Bridge !== "undefined" && Bridge !== null) ? Bridge : null
+        relay: compactRoot.relay
+        config: (typeof Config !== "undefined" && Config !== null) ? Config : null
+        clockWidth: clockView.implicitWidth
     }
 
-    readonly property int slotSwWidth: {
-        if (!hasStopwatch) return 0;
-        var s = Bridge.swElapsedSec;
-        if (s >= 3600) return 102;
-        return 76;
-    }
+    readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying !== undefined) ? Boolean(compactRoot.relay.visualPlaying) : false
+    readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount !== undefined) ? Number(compactRoot.relay.unreadCount) : 0
+    readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Boolean(Bridge.isImeActive) : false
 
-    readonly property int slotNetSpeedWidth: (typeof Config !== "undefined" && Config.showNetSpeed !== false) ? 56 : 0
-    readonly property int slotRecordWidth: compactRoot.isRecordingActive ? 28 : 0
-    readonly property int slotImeWidth: compactRoot.isImeActive ? 26 : 0
-    readonly property int slotNoticeWidth: compactRoot.unreadNoticeCount > 0 ? (compactRoot.unreadNoticeCount >= 10 ? 40 : 34) : 0
-    readonly property int slotMusicWidth: compactRoot.isMusicPlaying ? 40 : 0
+    // 🚀【核心机制】：向外暴露菜单展开状态！
+    // 将 IME 与 录制模块(OBS) 的状态合并暴露给外层 IslandCapsule 维持物理穿透掩码
+    readonly property bool isImeMenuOpen: (imeSlot && imeSlot.isMenuOpen) || (recPill && recPill.isMenuOpen)
 
-    // 自然宽度：包含各槽位的 4px 动态呼吸间距
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
@@ -73,57 +56,36 @@ Item {
                 default: return 280;
             }
         }
-
-        var total = 24 + clockView.implicitWidth;
-        if (compactRoot.slotLeftWidth > 0) total += (compactRoot.slotLeftWidth + 5);
-
-        var rightTotal = 0;
-        if (compactRoot.slotCdWidth > 0) rightTotal += (compactRoot.slotCdWidth + 4);
-        if (compactRoot.slotSwWidth > 0) rightTotal += (compactRoot.slotSwWidth + 4);
-        if (compactRoot.slotNetSpeedWidth > 0) rightTotal += (compactRoot.slotNetSpeedWidth + 4);
-        if (compactRoot.slotRecordWidth > 0) rightTotal += (compactRoot.slotRecordWidth + 4);
-        if (compactRoot.slotImeWidth > 0) rightTotal += (compactRoot.slotImeWidth + 4);
-        if (compactRoot.slotNoticeWidth > 0) rightTotal += (compactRoot.slotNoticeWidth + 4);
-        if (compactRoot.slotMusicWidth > 0) rightTotal += (compactRoot.slotMusicWidth + 4);
-
-        if (rightTotal > 0) total += rightTotal;
-
-        return Math.ceil(total / 4.0) * 4;
+        return pipeline.naturalCapsuleWidth;
     }
 
     Item {
         id: normalViewContainer
         anchors.fill: parent
         visible: opacity > 0.001
-
         opacity: !compactRoot.hasActiveTransient ? 1.0 : 0.0
-        Behavior on opacity {
-            NumberAnimation {
-                duration: compactRoot.hasActiveTransient ? 60 : 150
-                easing.type: Easing.OutQuad
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: compactRoot.hasActiveTransient ? 60 : 150; easing.type: Easing.OutQuad } }
 
         Row {
             id: contentStream
             anchors.centerIn: parent
             spacing: 5
 
-            // 左侧：工作区
-            FluidPill {
-                id: leftSlotPill
-                pillName: "workspace"
-                targetWidth: compactRoot.slotLeftWidth
+            // [左侧]: 工作区
+            FluidSlotPod {
+                id: wsSlot
+                slotId: "workspace"
+                slotName: "工作区标识"
+                targetWidth: pipeline.wsWidth
                 gapSpacing: 5
-                pillHeight: 22
-                pillColor: Qt.rgba(255, 255, 255, 0.12)
-                pillBorderColor: Qt.rgba(255, 255, 255, 0.22)
+                podHeight: 22
+                podColor: Qt.rgba(255, 255, 255, 0.12)
+                podBorderColor: Qt.rgba(255, 255, 255, 0.22)
                 interactive: false
 
                 Text {
-                    id: wsLabel
                     anchors.centerIn: parent
-                    text: (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName : (compactRoot.relay ? compactRoot.relay.wsCurrent : "1")
+                    text: (compactRoot.relay && compactRoot.relay.wsName !== undefined) ? String(compactRoot.relay.wsName) : (compactRoot.relay && compactRoot.relay.wsCurrent !== undefined ? String(compactRoot.relay.wsCurrent) : "1")
                     color: "#ffffff"
                     font.pixelSize: 12
                     font.weight: Font.Black
@@ -132,41 +94,40 @@ Item {
                 }
             }
 
-            // 中间：时钟主座
+            // [中间]: 时钟
             CompactClockView {
                 id: clockView
                 anchors.verticalCenter: parent.verticalCenter
                 chosenFont: compactRoot.effectiveFont
-                isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Bridge.isCapsLock : false
-                displayDate: compactRoot.timeService ? compactRoot.timeService.displayDate : ""
-                displayTime: compactRoot.timeService ? compactRoot.timeService.displayTime : "12:00"
-                displaySeconds: compactRoot.timeService ? compactRoot.timeService.displaySeconds : ""
-                displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
+                isCapsLock: (typeof Bridge !== "undefined" && Bridge.isCapsLock !== undefined) ? Boolean(Bridge.isCapsLock) : false
+                displayDate: (compactRoot.timeService && compactRoot.timeService.displayDate !== undefined) ? String(compactRoot.timeService.displayDate) : ""
+                displayTime: (compactRoot.timeService && compactRoot.timeService.displayTime !== undefined) ? String(compactRoot.timeService.displayTime) : "12:00"
+                displaySeconds: (compactRoot.timeService && compactRoot.timeService.displaySeconds !== undefined) ? String(compactRoot.timeService.displaySeconds) : ""
+                displayPeriod: (compactRoot.timeService && compactRoot.timeService.displayPeriod !== undefined) ? String(compactRoot.timeService.displayPeriod) : ""
             }
 
-            // 🚀【核心改动】：spacing 严格设为 0！所有间距内化到每个微囊的 gapSpacing 中！
+            // [右侧]: 零间距流体插槽
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 0
 
                 // 倒计时
-                FluidPill {
-                    id: cdPill
-                    pillName: "countdown"
-                    targetWidth: compactRoot.slotCdWidth
+                FluidSlotPod {
+                    id: cdSlot
+                    slotId: "countdown"
+                    targetWidth: pipeline.cdWidth
                     gapSpacing: 4
-                    readonly property bool isOvertime: (typeof Bridge !== "undefined") && Bridge.cdIsOvertime
-
-                    pillColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)
+                    readonly property bool isOvertime: (typeof Bridge !== "undefined" && Bridge.cdIsOvertime !== undefined) ? Boolean(Bridge.cdIsOvertime) : false
+                    podColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)
                     hoverColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.18) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.14)
                     pressColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.28) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.22)
-                    pillBorderColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.50) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.25)
+                    podBorderColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.50) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.25)
                     hoverBorderColor: isOvertime ? "#FF453A" : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.65)
 
                     onClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.switchTimerType) Bridge.switchTimerType("countdown");
-                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "timer", source: "Click_CdPill" });
+                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "timer", source: "Click_CdSlot" });
                     }
                     onRightClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.resetSpecificTimer) Bridge.resetSpecificTimer("countdown");
@@ -176,28 +137,28 @@ Item {
                         anchors.centerIn: parent
                         fontFam: compactRoot.displayFont
                         pixelSize: 14
-                        textColor: cdPill.isOvertime ? "#FF453A" : (Bridge.cdMode === "break" ? "#30D158" : "#FF9F0A")
-                        isOvertime: cdPill.isOvertime
-                        totalSeconds: (typeof Bridge !== "undefined") ? (cdPill.isOvertime ? Bridge.cdOvertimeSec : Bridge.cdRemainingSec) : 1500
-                        isPaused: (typeof Bridge !== "undefined") ? Bridge.cdIsPaused : false
+                        textColor: cdSlot.isOvertime ? "#FF453A" : ((typeof Bridge !== "undefined" && Bridge.cdMode === "break") ? "#30D158" : "#FF9F0A")
+                        isOvertime: cdSlot.isOvertime
+                        totalSeconds: (typeof Bridge !== "undefined") ? (cdSlot.isOvertime ? Number(Bridge.cdOvertimeSec) : Number(Bridge.cdRemainingSec)) : 1500
+                        isPaused: (typeof Bridge !== "undefined" && Bridge.cdIsPaused !== undefined) ? Boolean(Bridge.cdIsPaused) : false
                     }
                 }
 
                 // 秒表
-                FluidPill {
-                    id: swPill
-                    pillName: "stopwatch"
-                    targetWidth: compactRoot.slotSwWidth
+                FluidSlotPod {
+                    id: swSlot
+                    slotId: "stopwatch"
+                    targetWidth: pipeline.swWidth
                     gapSpacing: 4
-                    pillColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.10)
+                    podColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.10)
                     hoverColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
                     pressColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.28)
-                    pillBorderColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.25)
+                    podBorderColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.25)
                     hoverBorderColor: "#38BDF8"
 
                     onClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.switchTimerType) Bridge.switchTimerType("stopwatch");
-                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "timer", source: "Click_SwPill" });
+                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "timer", source: "Click_SwSlot" });
                     }
                     onRightClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.resetSpecificTimer) Bridge.resetSpecificTimer("stopwatch");
@@ -209,77 +170,77 @@ Item {
                         pixelSize: 14
                         textColor: "#38BDF8"
                         isOvertime: false
-                        totalSeconds: (typeof Bridge !== "undefined") ? Bridge.swElapsedSec : 0
-                        isPaused: (typeof Bridge !== "undefined") ? Bridge.swIsPaused : false
+                        totalSeconds: (typeof Bridge !== "undefined" && Bridge.swElapsedSec !== undefined) ? Number(Bridge.swElapsedSec) : 0
+                        isPaused: (typeof Bridge !== "undefined" && Bridge.swIsPaused !== undefined) ? Boolean(Bridge.swIsPaused) : false
                     }
                 }
 
-                // 网速
-                FluidPill {
-                    id: netSpeedPillWrapper
-                    pillName: "netspeed"
-                    targetWidth: compactRoot.slotNetSpeedWidth
+                // 实时网速
+                FluidSlotPod {
+                    id: netSlot
+                    slotId: "netspeed"
+                    targetWidth: pipeline.netWidth
                     gapSpacing: 4
                     interactive: false
-                    pillColor: "transparent"
-                    pillBorderColor: "transparent"
+                    podColor: "transparent"
+                    podBorderColor: "transparent"
 
                     CompactNetSpeedView {
                         anchors.centerIn: parent
                         fontFam: compactRoot.displayFont
-                        downVal: compactRoot.relay ? compactRoot.relay.netDownVal : "0"
-                        downUnit: compactRoot.relay ? compactRoot.relay.netDownUnit : "B/s"
-                        upVal: compactRoot.relay ? compactRoot.relay.netUpVal : "0"
-                        upUnit: compactRoot.relay ? compactRoot.relay.netUpUnit : "B/s"
-                        downCompact: compactRoot.relay ? compactRoot.relay.downCompact : "0B"
-                        upCompact: compactRoot.relay ? compactRoot.relay.upCompact : "0B"
+                        downVal: (compactRoot.relay && compactRoot.relay.netDownVal !== undefined) ? String(compactRoot.relay.netDownVal) : "0"
+                        downUnit: (compactRoot.relay && compactRoot.relay.netDownUnit !== undefined) ? String(compactRoot.relay.netDownUnit) : "B/s"
+                        upVal: (compactRoot.relay && compactRoot.relay.netUpVal !== undefined) ? String(compactRoot.relay.netUpVal) : "0"
+                        upUnit: (compactRoot.relay && compactRoot.relay.netUpUnit !== undefined) ? String(compactRoot.relay.netUpUnit) : "B/s"
                     }
                 }
 
-                // 录制指示器 (OBS / 麦克风)
-                FluidPill {
-                    id: recordPillWrapper
-                    pillName: "recording"
-                    targetWidth: compactRoot.slotRecordWidth
+                // 🚀【挂载标识 ID】：录制微囊，暴露 recPill
+                FluidSlotPod {
+                    id: recSlot
+                    slotId: "recording"
+                    targetWidth: pipeline.recWidth
                     gapSpacing: 4
                     interactive: false
-                    pillColor: "transparent"
-                    pillBorderColor: "transparent"
+                    podColor: "transparent"
+                    podBorderColor: "transparent"
 
                     CompactRecordPill {
+                        id: recPill
                         anchors.centerIn: parent
                     }
                 }
 
                 // 输入法
-                FluidPill {
-                    id: imePillWrapper
-                    pillName: "ime"
-                    targetWidth: compactRoot.slotImeWidth
+                FluidSlotPod {
+                    id: imeSlotWrapper
+                    slotId: "ime"
+                    targetWidth: pipeline.imeWidth
                     gapSpacing: 4
                     interactive: false
-                    pillColor: "transparent"
-                    pillBorderColor: "transparent"
+                    podColor: "transparent"
+                    podBorderColor: "transparent"
 
                     CompactImeView {
+                        id: imeSlot
                         anchors.centerIn: parent
                     }
                 }
 
-                // 通知
-                FluidPill {
-                    id: noticePill
-                    pillName: "notification"
-                    targetWidth: compactRoot.slotNoticeWidth
+                // 通知角标
+                FluidSlotPod {
+                    id: noticeSlot
+                    slotId: "notification"
+                    targetWidth: pipeline.noticeWidth
                     gapSpacing: 4
-                    pillColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
+                    podColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
                     hoverColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32)
                     pressColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45)
-                    pillBorderColor: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.6)
+                    podBorderColor: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.6)
                     hoverBorderColor: "#a5b4fc"
 
                     onClicked: {
-                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "notification", source: "Click_NoticePill" });
+                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "notification", source: "Click_NoticeSlot" });
                     }
                     onRightClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.notificationModel) Bridge.notificationModel.clearAll();
@@ -301,27 +262,24 @@ Item {
                 }
 
                 // 音乐律动
-                FluidPill {
-                    id: musicPill
-                    pillName: "music"
-                    targetWidth: compactRoot.slotMusicWidth
+                FluidSlotPod {
+                    id: musicSlot
+                    slotId: "music"
+                    targetWidth: pipeline.musicWidth
                     gapSpacing: 4
-                    readonly property color themeColor: {
-                        if (compactRoot.relay && compactRoot.relay.dominantColor) return compactRoot.relay.dominantColor;
-                        return "#22c55e";
-                    }
+                    readonly property color themeColor: (compactRoot.relay && compactRoot.relay.dominantColor !== undefined) ? compactRoot.relay.dominantColor : "#22c55e"
 
-                    pillColor: Qt.rgba(255, 255, 255, 0.06)
+                    podColor: Qt.rgba(255, 255, 255, 0.06)
                     hoverColor: Qt.rgba(255, 255, 255, 0.12)
                     pressColor: Qt.rgba(themeColor.r, themeColor.g, themeColor.b, 0.25)
-                    pillBorderColor: Qt.rgba(255, 255, 255, 0.14)
+                    podBorderColor: Qt.rgba(255, 255, 255, 0.14)
                     hoverBorderColor: themeColor
 
                     onClicked: {
-                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media", source: "Click_MusicPill" });
+                        if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media", source: "Click_MusicSlot" });
                     }
                     onRightClicked: {
-                        if (typeof Bridge !== "undefined") Bridge.sendMediaCmd("MEDIA_PLAY_PAUSE");
+                        if (typeof Bridge !== "undefined" && Bridge.sendMediaCmd) Bridge.sendMediaCmd("MEDIA_PLAY_PAUSE");
                     }
 
                     Row {
@@ -332,17 +290,17 @@ Item {
                             model: 5
                             Rectangle {
                                 width: 2.8; height: 14; radius: 1.4
-                                color: musicPill.themeColor
+                                color: musicSlot.themeColor
                                 anchors.verticalCenter: parent.verticalCenter
 
                                 transform: Scale {
                                     origin.y: 7
                                     yScale: {
                                         if (!compactRoot.isMusicPlaying) return 0.22;
-                                        var s1 = compactRoot.relay ? compactRoot.relay.spec1 : 0.2;
-                                        var s2 = compactRoot.relay ? compactRoot.relay.spec2 : 0.2;
-                                        var s3 = compactRoot.relay ? compactRoot.relay.spec3 : 0.2;
-                                        var s4 = compactRoot.relay ? compactRoot.relay.spec4 : 0.2;
+                                        var s1 = (compactRoot.relay && compactRoot.relay.spec1 !== undefined) ? Number(compactRoot.relay.spec1) : 0.2;
+                                        var s2 = (compactRoot.relay && compactRoot.relay.spec2 !== undefined) ? Number(compactRoot.relay.spec2) : 0.2;
+                                        var s3 = (compactRoot.relay && compactRoot.relay.spec3 !== undefined) ? Number(compactRoot.relay.spec3) : 0.2;
+                                        var s4 = (compactRoot.relay && compactRoot.relay.spec4 !== undefined) ? Number(compactRoot.relay.spec4) : 0.2;
 
                                         switch (index) {
                                             case 0: return Math.max(0.24, Math.min(0.80, s1 * 0.90));
@@ -353,10 +311,7 @@ Item {
                                             default: return 0.24;
                                         }
                                     }
-                                    Behavior on yScale {
-                                        enabled: compactRoot.isMusicPlaying
-                                        NumberAnimation { duration: 75; easing.type: Easing.OutQuad }
-                                    }
+                                    Behavior on yScale { NumberAnimation { duration: 75; easing.type: Easing.OutQuad } }
                                 }
                             }
                         }
@@ -366,7 +321,6 @@ Item {
         }
     }
 
-    // 打断态
     Loader {
         id: overlayLoader
         anchors.fill: parent
@@ -391,14 +345,14 @@ Item {
         }
     }
 
-    Component {
+    Component { 
         id: compWs
         CompactWorkspaceView {
             chosenFont: compactRoot.effectiveFont
-            wsName: compactRoot.relay ? compactRoot.relay.wsName : ""
-            wsTotal: compactRoot.relay ? compactRoot.relay.wsTotal : 4
-            wsList: compactRoot.relay ? compactRoot.relay.wsList : []
-            displayWsNumber: compactRoot.relay ? compactRoot.relay.wsCurrent : 1
+            wsName: (compactRoot.relay && compactRoot.relay.wsName !== undefined && compactRoot.relay.wsName !== null) ? String(compactRoot.relay.wsName) : ""
+            wsTotal: (compactRoot.relay && compactRoot.relay.wsTotal !== undefined && compactRoot.relay.wsTotal !== null) ? Number(compactRoot.relay.wsTotal) : 4
+            wsList: (compactRoot.relay && compactRoot.relay.wsList !== undefined && compactRoot.relay.wsList !== null) ? compactRoot.relay.wsList : []
+            displayWsNumber: (compactRoot.relay && compactRoot.relay.wsCurrent !== undefined && compactRoot.relay.wsCurrent !== null) ? Number(compactRoot.relay.wsCurrent) : 1
         }
     }
 
@@ -407,10 +361,10 @@ Item {
         CompactAlertView {
             chosenFont: compactRoot.effectiveFont
             isAlertActive: true
-            alertTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title) || ""
-            alertSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle) || ""
-            alertAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar) || ""
-            alertThemeColor: (compactRoot.currentPayload && compactRoot.currentPayload.color) || Theme.notification
+            alertTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title !== undefined) ? String(compactRoot.currentPayload.title) : ""
+            alertSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle !== undefined) ? String(compactRoot.currentPayload.subtitle) : ""
+            alertAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar !== undefined) ? String(compactRoot.currentPayload.avatar) : ""
+            alertThemeColor: (compactRoot.currentPayload && compactRoot.currentPayload.color !== undefined) ? compactRoot.currentPayload.color : Theme.notification
             implicitWidth: 300
         }
     }
@@ -420,9 +374,9 @@ Item {
         CompactCallView {
             chosenFont: compactRoot.effectiveFont
             isCalling: true
-            callTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title) || ""
-            callSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle) || ""
-            callAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar) || ""
+            callTitle: (compactRoot.currentPayload && compactRoot.currentPayload.title !== undefined) ? String(compactRoot.currentPayload.title) : ""
+            callSubtitle: (compactRoot.currentPayload && compactRoot.currentPayload.subtitle !== undefined) ? String(compactRoot.currentPayload.subtitle) : ""
+            callAvatar: (compactRoot.currentPayload && compactRoot.currentPayload.avatar !== undefined) ? String(compactRoot.currentPayload.avatar) : ""
             implicitWidth: 340
         }
     }
@@ -432,9 +386,9 @@ Item {
         CompactVoiceView {
             chosenFont: compactRoot.effectiveFont
             isListening: true
-            voiceLevel: (typeof Bridge !== "undefined" && Bridge.voiceInputLevel !== undefined) ? Bridge.voiceInputLevel : 0.2
-            streamText: (typeof Bridge !== "undefined" && Bridge.voiceInputText !== undefined) ? Bridge.voiceInputText : ""
-            onStopRequested: if (typeof Bridge !== "undefined") Bridge.stopVoiceInput()
+            voiceLevel: (typeof Bridge !== "undefined" && Bridge.voiceInputLevel !== undefined) ? Number(Bridge.voiceInputLevel) : 0.2
+            streamText: (typeof Bridge !== "undefined" && Bridge.voiceInputText !== undefined) ? String(Bridge.voiceInputText) : ""
+            onStopRequested: if (typeof Bridge !== "undefined" && Bridge.stopVoiceInput) Bridge.stopVoiceInput()
             implicitWidth: 340
         }
     }
@@ -443,7 +397,7 @@ Item {
         id: compSedentary
         CompactSedentaryView {
             chosenFont: compactRoot.effectiveFont
-            continuousSitMinutes: (compactRoot.currentPayload && compactRoot.currentPayload.continuousMinutes) ? compactRoot.currentPayload.continuousMinutes : 45
+            continuousSitMinutes: (compactRoot.currentPayload && compactRoot.currentPayload.continuousMinutes !== undefined) ? Number(compactRoot.currentPayload.continuousMinutes) : 45
             onSedentaryRested: {
                 if (compactRoot.sedentaryService) compactRoot.sedentaryService.markRested();
                 else if (compactRoot.fsm) compactRoot.fsm.dismissTransient("SEDENTARY");
@@ -459,7 +413,7 @@ Item {
     Component {
         id: compMediaPeek
         CompactMediaPeekView {
-            payload: compactRoot.currentPayload
+            payload: compactRoot.currentPayload || ({})
             effectiveFont: compactRoot.effectiveFont
             relay: compactRoot.relay
         }
