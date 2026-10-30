@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: main.py
-# 🌟 生产级桌面启动中枢 (集成原生双 ImageProvider 零拷贝版)
+# 🌟 生产级桌面启动中枢 (集成统一 UniversalTrayImageProvider 零拷贝版)
 # ==========================================
 import sys
 import os
@@ -22,10 +22,9 @@ from backend.logger import app_logger
 from backend.config import ConfigManager
 from backend.bridge import IslandBridge
 from backend.core.backend import DirectIslandBackend
+from backend.core.tray_provider import UniversalTrayImageProvider
 from backend.theme import theme
 from backend.platform import detect_platform
-from backend.modules.ime.pixmap import ImeImageProvider
-from backend.modules.recording.pixmap import RecordingImageProvider
 
 from PySide6.QtCore import QUrl, QTimer, Qt, QSize
 from PySide6.QtGui import QPixmapCache, QGuiApplication, QSurfaceFormat
@@ -42,10 +41,17 @@ def trim_memory():
         pass
 
 
-def start_backend_event_loop(bridge: IslandBridge, image_provider: ImeImageProvider = None, image_provider_rec: RecordingImageProvider = None):
+def start_backend_event_loop(bridge: IslandBridge, tray_image_provider: UniversalTrayImageProvider = None):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    backend = DirectIslandBackend(bridge, image_provider=image_provider, image_provider_rec=image_provider_rec)
+    
+    # 向后兼容 DirectIslandBackend 的老参数签名，同时注入统合的 tray_image_provider
+    backend = DirectIslandBackend(
+        bridge, 
+        image_provider=tray_image_provider, 
+        image_provider_rec=tray_image_provider
+    )
+    backend.tray_image_provider = tray_image_provider
     bridge.set_backend(backend, loop)
 
     def _thread_target():
@@ -84,7 +90,8 @@ def main():
     sigint_timer.start(1000)
     sigint_timer.timeout.connect(lambda: None)
 
-    VIEW_W, VIEW_H = 680, 480
+    # main.py 中将 VIEW_W, VIEW_H 调整为更从容的尺寸：
+    VIEW_W, VIEW_H = 780, 520
 
     view = QQuickView()
     view.setTitle("Alcove Island")
@@ -101,17 +108,20 @@ def main():
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "shell"))
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "views"))
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "components"))
+    engine.addImportPath(os.path.join(BASE_DIR, "ui", "components", "tray"))
 
-    # 🚀 挂载双 ImageProvider：输入法 (image://ime) 与 录制 (image://recording)
-    ime_image_provider = ImeImageProvider()
-    rec_image_provider = RecordingImageProvider()
-    engine.addImageProvider("ime", ime_image_provider)
-    engine.addImageProvider("recording", rec_image_provider)
+    # 🚀 挂载统合的 UniversalTrayImageProvider：
+    # 1. 注册现代通用通道 image://tray/
+    # 2. 100% 兼容存量通道 image://ime/ 与 image://recording/
+    tray_image_provider = UniversalTrayImageProvider()
+    engine.addImageProvider("tray", tray_image_provider)
+    engine.addImageProvider("ime", tray_image_provider)
+    engine.addImageProvider("recording", tray_image_provider)
 
     bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
 
-    backend, backend_loop = start_backend_event_loop(bridge, image_provider=ime_image_provider, image_provider_rec=rec_image_provider)
+    backend, backend_loop = start_backend_event_loop(bridge, tray_image_provider=tray_image_provider)
 
     def update_view_position():
         screen = app.primaryScreen()

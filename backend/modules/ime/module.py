@@ -1,28 +1,22 @@
 # ==========================================
 # 📄 File: backend/modules/ime/module.py
-# 🌟 原生 Fcitx5 功能驱动中枢 (集成 QQuickImageProvider 显存零拷贝版)
+# 🌟 原生 Fcitx5 功能驱动中枢 (基于通用 SNI 基类架构版)
 # ==========================================
 import asyncio
 from typing import Optional, List, Dict, Any
 
 from dbus_next.aio import MessageBus
-from dbus_next import Message, MessageType
+from dbus_next import Message
 
 from backend.logger import app_logger
 from backend.core.base import BaseModule
 from backend.core.state import IslandState
-
+from backend.core.sni_base import BaseSniClient
 from backend.modules.ime.controller import FcitxController
-from backend.modules.ime.menu import FcitxMenuClient, unwrap_dbus_value
-
-try:
-    from backend.modules.ime.pixmap import ImePixmapDecoder
-except ImportError:
-    ImePixmapDecoder = None
 
 
 class ImeModule(BaseModule):
-    """Alcove Island 原生 Fcitx5 输入法驱动中枢 (显存纹理直通架构)"""
+    """基于 BaseSniClient 的 Fcitx5 专职驱动，保留全部中英特化"""
 
     def __init__(self, backend, state: IslandState, bus: Optional[MessageBus] = None):
         super().__init__(backend, state)
@@ -31,31 +25,23 @@ class ImeModule(BaseModule):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._debounce_task: Optional[asyncio.Task] = None
 
-        # 挂载专职子模块与状态版本号
-        self.pixmap_decoder = ImePixmapDecoder() if ImePixmapDecoder else None
+        # 核心：使用通用 SNI 客户端替代原有的散装逻辑
+        self.sni_client = BaseSniClient(self.bus, ["fcitx"], fallback_dest="org.fcitx.Fcitx5")
         self.controller = FcitxController(self.bus)
-        self.menu_client = FcitxMenuClient(self.bus)
         self._current_im_name = "keyboard-us"
-        self._icon_rev = 0  # 🚀 图标更新版本计数器，用于精确通知 QML 刷新显存纹理
-
-    def set_active(self, active: bool) -> None:
-        super().set_active(active)
-        if active and self._running:
-            self.trigger_sync()
+        self._icon_rev = 0
 
     async def start(self) -> None:
         self._running = True
         self._loop = asyncio.get_running_loop()
 
-        # 探测 Fcitx5 SNI 状态通知器地址
-        await self.menu_client.discover_sni_address()
-
+        await self.sni_client.discover()
         if self.bus:
             await self._setup_listeners()
 
         await self.sync_state()
         await self.fetch_menu_async()
-        app_logger.info("✅ Fcitx5 输入法驱动已就绪 (已启用 QQuickImageProvider 显卡直通)")
+        app_logger.info("✅ Fcitx5 输入法驱动已就绪 (已接入通用 SNI 架构)")
 
     async def stop(self) -> None:
         self._running = False
@@ -68,25 +54,19 @@ class ImeModule(BaseModule):
         self._loop.call_soon_threadsafe(self._schedule_debounced)
 
     def _schedule_debounced(self) -> None:
-        if not self._running:
-            return
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
         self._debounce_task = self._loop.create_task(self._debounced_sync())
 
     async def _debounced_sync(self) -> None:
         try:
-            # 10ms 黄金防抖，避免同一瞬间多次底层信号重入
             await asyncio.sleep(0.010)
             await self.sync_state()
             await self.fetch_menu_async()
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            app_logger.debug(f"[IME Module] 同步异常: {e}")
 
     async def _setup_listeners(self) -> None:
-        """注册 D-Bus 事件监听，实现按需事件响应"""
         rules = [
             "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon'",
             "type='signal',interface='org.kde.StatusNotifierItem',member='NewTitle'",
@@ -94,13 +74,11 @@ class ImeModule(BaseModule):
             "type='signal',interface='com.canonical.dbusmenu',member='LayoutUpdated'",
             "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.fcitx.Fcitx5'"
         ]
-
         for rule in rules:
             try:
                 await self.bus.call(
                     Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
-                            interface="org.freedesktop.DBus", member="AddMatch",
-                            signature="s", body=[rule])
+                            interface="org.freedesktop.DBus", member="AddMatch", signature="s", body=[rule])
                 )
             except Exception:
                 pass
@@ -111,85 +89,24 @@ class ImeModule(BaseModule):
 
         self.bus.add_message_handler(on_dbus_signal)
 
-    async def fetch_menu_async(self) -> List[Dict[str, Any]]:
-        """从 DBusMenu 抓取菜单并同步至 SSOT"""
-        items = await self.menu_client.fetch_menu_tree(self._current_im_name, self.state.ime_active)
-        if items:
-            self.state.ime_menu_items = items
-            self.notify("IME_UPDATE")
-        return items
-
-    async def activate_menu_item(self, item_id: int, unique_name: str = "") -> None:
-        """统一分发菜单项点击"""
-        if "配置" in unique_name or item_id == -3 or unique_name == "config":
-            self.controller.open_config()
-            self.trigger_sync()
-            return
-
-        target_im = unique_name if unique_name in ("rime", "pinyin", "keyboard-us", "wubi") else self.menu_client.guess_im_uniquename(unique_name)
-        if target_im:
-            await self.controller.switch_im_native(target_im)
-
-        # 下发 DBusMenu Event 确保二级配置（全半角/简繁等）生效
-        if item_id >= 0:
-            await self.menu_client.send_menu_event(item_id)
-
-        self.trigger_sync()
-
-    async def toggle(self) -> None:
-        """左键点击胶囊切换中英"""
-        await self.controller.toggle()
-        self.trigger_sync()
-
-    async def switch_to_im(self, im_name: str) -> None:
-        await self.controller.switch_im_native(im_name)
-        self.trigger_sync()
-
-    async def open_config(self) -> None:
-        self.controller.open_config()
-
     async def sync_state(self) -> None:
-        """同步 Fcitx5 激活状态与托盘位图"""
         if not self.bus:
             return
 
-        # 1. 抓取底层状态与当前激活的 IM 名称
         im_state, cur_im = await self.controller.get_state_and_im()
         self._current_im_name = cur_im
 
-        # 2. 抓取 SNI 属性与 IconPixmap
-        dest = self.menu_client.sni_dest or "org.fcitx.Fcitx5"
-        path = self.menu_client.sni_path or "/StatusNotifierItem"
-
         icon_data_url = self.state.ime_icon_url
-        try:
-            r_props = await self.bus.call(
-                Message(destination=dest, path=path,
-                        interface="org.freedesktop.DBus.Properties",
-                        member="GetAll", signature="s",
-                        body=["org.kde.StatusNotifierItem"])
-            )
-            if r_props.message_type != MessageType.ERROR and r_props.body:
-                raw_dict = {k: unwrap_dbus_value(v) for k, v in r_props.body[0].items()}
-                pixmaps = raw_dict.get("IconPixmap", [])
+        pixmaps = await self.sni_client.fetch_pixmaps()
 
-                if pixmaps:
-                    # 🚀【核心优化 1】：优先交由 QQuickImageProvider 零拷贝更新内存 QPixmap
-                    if getattr(self.backend, "image_provider", None) and hasattr(self.backend.image_provider, "update_from_sni_pixmaps"):
-                        has_changed = self.backend.image_provider.update_from_sni_pixmaps(pixmaps)
-                        if has_changed or not icon_data_url.startswith("image://ime/current"):
-                            self._icon_rev += 1
-                            icon_data_url = f"image://ime/current?rev={self._icon_rev}"
-                    # 软降级方案：若未挂载 ImageProvider 则退回 Base64
-                    elif self.pixmap_decoder:
-                        new_icon = self.pixmap_decoder.decode_best_pixmap(pixmaps)
-                        if new_icon:
-                            icon_data_url = new_icon
-                else:
-                    # 图标位图为空时置空，由 QML fallbackLabel 优雅接管文字显示
-                    icon_data_url = ""
-        except Exception:
-            pass
+        # 统一委托通用 UniversalTrayImageProvider
+        provider = getattr(self.backend, "tray_image_provider", None)
+        if provider and pixmaps:
+            if provider.update_from_sni_pixmaps("ime", pixmaps) or not icon_data_url:
+                self._icon_rev += 1
+                icon_data_url = f"image://tray/ime?r={self._icon_rev}"
+        elif not pixmaps:
+            icon_data_url = ""
 
         is_active = (im_state == 2)
         label_fallback = "朗" if is_active else "A"
@@ -201,3 +118,54 @@ class ImeModule(BaseModule):
             ime_icon_url=icon_data_url
         )
         self.notify("IME_UPDATE")
+
+    async def fetch_menu_async(self) -> List[Dict[str, Any]]:
+        cur_lower = self._current_im_name.lower()
+
+        def _tag_ime_item(item: dict, props: dict) -> dict:
+            lbl = item["label"].lower()
+            unique = ""
+            if "rime" in lbl or "中州韵" in item["label"]: unique = "rime"
+            elif "pinyin" in lbl or "拼音" in item["label"]: unique = "pinyin"
+            elif "wubi" in lbl or "五笔" in item["label"]: unique = "wubi"
+            elif "keyboard" in lbl or "英语" in item["label"] or "键盘" in item["label"]: unique = "keyboard-us"
+            item["uniqueName"] = unique
+
+            if self.state.ime_active:
+                if unique and unique in cur_lower:
+                    item["isActive"] = True
+            else:
+                if unique == "keyboard-us":
+                    item["isActive"] = True
+            return item
+
+        items = await self.sni_client.fetch_menu_tree(post_process_fn=_tag_ime_item)
+        if items:
+            self.state.ime_menu_items = items
+            self.notify("IME_UPDATE")
+        return items
+
+    async def activate_menu_item(self, item_id: int, unique_name: str = "") -> None:
+        if "配置" in unique_name or item_id == -3 or unique_name == "config":
+            self.controller.open_config()
+            self.trigger_sync()
+            return
+
+        if unique_name:
+            await self.controller.switch_im_native(unique_name)
+
+        if item_id >= 0:
+            await self.sni_client.activate_menu_item(item_id)
+
+        self.trigger_sync()
+
+    async def toggle(self) -> None:
+        await self.controller.toggle()
+        self.trigger_sync()
+
+    async def switch_to_im(self, im_name: str) -> None:
+        await self.controller.switch_im_native(im_name)
+        self.trigger_sync()
+
+    async def open_config(self) -> None:
+        self.controller.open_config()

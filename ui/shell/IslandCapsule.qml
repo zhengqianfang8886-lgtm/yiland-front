@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (修正手势遮罩层级 · 释放子组件右键点击响应版)
+// 🌟 灵动岛主壳体 (通用全组件防抢占 · 根级非侵入式几何悬停 · 菜单互锁版)
 // =========================================================================
 import QtQuick
 import QtQml
@@ -22,10 +22,26 @@ Item {
 
     readonly property bool isCurrentExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
     readonly property bool isMoving: motionPod.isMoving
-    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || (sensorArea && sensorArea.isPointerHovered)
+
+    // 🚀【通用菜单互锁】：支持 IME、OBS 以及未来任意新增托盘菜单
+    readonly property bool isAnyMenuOpen: compactView ? (compactView.isAnyMenuOpen || compactView.isImeMenuOpen) : false
+
+    // 🚀【核心设计：通用根级悬停判定】：
+    // 采用根级 HoverHandler，免疫任何内部子组件（OBS、IME、时钟、网速、未来新插件）MouseArea 的事件劫持！
+    readonly property bool isHovered: capsuleRoot.isCurrentExpanded ||
+                                     capsuleRootHover.hovered ||
+                                     (sensorArea && sensorArea.isPointerHovered) ||
+                                     capsuleRoot.isAnyMenuOpen
+
     readonly property bool isRightPressing: sensorArea ? sensorArea.isRightPressing : false
 
     signal requestSettings()
+
+    // 根级无阻断悬停探针（不受任何子组件遮挡）
+    HoverHandler {
+        id: capsuleRootHover
+        enabled: fsm && (fsm.currentState !== IslandFsm.State.Hidden)
+    }
 
     IslandActionBus {
         id: actionBus
@@ -149,7 +165,8 @@ Item {
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
-        if (capsuleRoot.isCurrentExpanded || (compactView && compactView.isImeMenuOpen) || capsuleRoot.isActivelyPulling) {
+        // 只要处在展开态、手势拉拽中、或者任意菜单处于打开状态，保持全窗口通透，绝不裁切菜单
+        if (capsuleRoot.isCurrentExpanded || capsuleRoot.isAnyMenuOpen || capsuleRoot.isActivelyPulling) {
             Bridge.openFullCorridorForMotion();
             return;
         }
@@ -182,8 +199,6 @@ Item {
     readonly property real glyphFadein: smoothStep(0.12, 0.60, pullRatio)
     readonly property real dotSpread: smoothStep(0.18, 0.85, pullRatio)
 
-    // 🚀【核心设计：静态手势感应面位于底层 z: 1】
-    // 保证上面的子微囊（输入法、OBS托盘等 z: 10）拥有绝对优先的左键与右键点击响应权！
     CapsuleSensorArea {
         id: sensorArea
         actionBus: actionBus
@@ -200,7 +215,6 @@ Item {
         onRequestSettingsWindow: capsuleRoot.requestSettings()
     }
 
-    // 🚀【内容视口层 z: 10】：优先接收鼠标点击，拖拽时才由手势层接管
     Item {
         id: compactContainer
         width: capsuleRoot.baseRestingWidth
@@ -227,7 +241,6 @@ Item {
         }
     }
 
-    // 平铺网格微标
     Item {
         id: morphicGlyphContainer
         anchors.horizontalCenter: parent.horizontalCenter

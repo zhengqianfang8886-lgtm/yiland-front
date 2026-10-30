@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (对齐动作总线 · 物理手势互锁 · 规范 QtQml 版)
+// 🌟 顶级窗口视图 (280ms 迟滞防抖 · 全域防失焦感知 · 780x520大走廊版)
 // =========================================================================
 import QtQuick
 import QtQml
@@ -11,8 +11,8 @@ import "../components/expanded"
 
 Item {
     id: root
-    width: 680
-    height: 480
+    width: 780
+    height: 520
     focus: true
 
     readonly property bool isGridActive: (typeof Bridge !== "undefined" && Bridge.isGridActive !== undefined) ? Bridge.isGridActive : false
@@ -115,7 +115,10 @@ Item {
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
-    readonly property bool isUserHovering: corridorArea.containsMouse || (capsule && capsule.isHovered)
+    // 🚀【核心设计：全域综合悬停判定】：过道 + 胶囊根级实体 + 任意菜单处于展开状态
+    readonly property bool isUserHovering: corridorArea.containsMouse || 
+                                          corridorHover.hovered || 
+                                          (capsule && capsule.isHovered)
 
     onIsUserHoveringChanged: {
         fsm.isHovering = isUserHovering;
@@ -129,7 +132,7 @@ Item {
         }
     }
 
-    // 静态过道感应区：拖拽下拉时严格互锁禁用
+    // 静态过道感应区：负责顶部触碰唤醒
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
@@ -139,17 +142,25 @@ Item {
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
         enabled: !isExpanded && !root.isGridActive && !(capsule && capsule.isActivelyPulling)
-        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 14 : 52)
+        // 深潜模式下探测高度放宽至 18px，触发极其跟手自然
+        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 18 : 52)
 
         z: 5
         hoverEnabled: true
         acceptedButtons: Qt.RightButton
 
+        HoverHandler {
+            id: corridorHover
+            enabled: !root.isGridActive
+        }
+
+        // 🚀【核心设计：280ms 科学迟滞时间】：从 70ms 提升到 280ms，彻底消除瞬间误缩回！
         Timer {
             id: userLeaveDebounce
-            interval: (fsm && fsm.isTuckedPreference) ? 70 : 90
+            interval: 280
             repeat: false
             onTriggered: {
+                // 只有当鼠标真真切切离开胶囊、离开过道、且没有任何菜单打开时，才执行深潜隐藏
                 if (fsm.currentState !== IslandFsm.State.Expanded && !root.isUserHovering) {
                     fsm.handleIntent("USER_IDLE", { source: "Hysteresis_Guard_Timeout" });
                 }

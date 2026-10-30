@@ -1,16 +1,16 @@
 # ==========================================
 # 📄 File: backend/modules/recording/module.py
-# 🌟 原生录制与 OBS 驱动中枢 (恢复托盘图标事件动态刷新版)
+# 🌟 原生录制与 OBS 驱动中枢 (精准生命周期即时销毁版)
 # ==========================================
 import asyncio
 from typing import Optional, List, Dict, Any
 from dbus_next.aio import MessageBus
-from dbus_next import Message
+from dbus_next import Message, MessageType
 
 from backend.logger import app_logger
 from backend.core.base import BaseModule
 from backend.core.state import IslandState
-from backend.modules.recording.sni import ObsSniClient
+from backend.core.sni_base import BaseSniClient
 from backend.modules.recording.monitor import AudioCaptureMonitor
 
 
@@ -22,7 +22,7 @@ class RecordingModule(BaseModule):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._debounce_task: Optional[asyncio.Task] = None
 
-        self.sni_client = ObsSniClient(self.bus)
+        self.sni_client = BaseSniClient(self.bus, ["obs", "obsproject"])
         self.audio_monitor = AudioCaptureMonitor(self._on_audio_streams_callback)
 
         self._active_streams: List[Dict[str, Any]] = []
@@ -34,11 +34,11 @@ class RecordingModule(BaseModule):
         self.audio_monitor.start()
 
         if self.bus:
-            await self._setup_targeted_listeners()
+            await self._setup_listeners()
             await self.sni_client.discover()
 
         await self._sync_state_internal()
-        app_logger.info("✅ 原生录制隐私指示器与 OBS 托盘就绪 (完全支持实时状态刷新)")
+        app_logger.info("✅ 原生录制与 OBS 托盘驱动已就绪 (支持退出即时消融)")
 
     async def stop(self) -> None:
         self._running = False
@@ -62,20 +62,15 @@ class RecordingModule(BaseModule):
 
     async def _debounced_sync(self):
         try:
-            # 15ms 黄金防抖窗口，合并瞬间风暴
             await asyncio.sleep(0.015)
             await self._sync_state_internal()
         except asyncio.CancelledError:
             pass
-        except Exception as e:
-            app_logger.debug(f"[RecordingModule] 同步异常: {e}")
 
-    async def _setup_targeted_listeners(self):
-        """🚀 精准绑定 D-Bus 信号，重新接纳 NewIcon 与 NewStatus"""
+    async def _setup_listeners(self):
         rules = [
             "type='signal',interface='org.kde.StatusNotifierWatcher',member='StatusNotifierItemRegistered'",
             "type='signal',interface='org.kde.StatusNotifierWatcher',member='StatusNotifierItemUnregistered'",
-            # 恢复托盘事件动态刷新
             "type='signal',interface='org.kde.StatusNotifierItem',member='NewIcon'",
             "type='signal',interface='org.kde.StatusNotifierItem',member='NewStatus'",
             "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'"
@@ -84,35 +79,62 @@ class RecordingModule(BaseModule):
             try:
                 await self.bus.call(
                     Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
-                            interface="org.freedesktop.DBus", member="AddMatch",
-                            signature="s", body=[rule])
+                            interface="org.freedesktop.DBus", member="AddMatch", signature="s", body=[rule])
                 )
             except Exception:
                 pass
 
         def on_dbus_signal(msg: Message):
-            # 1. 注册发现
+            # 1. SNI 项注册或注销
             if msg.member in ("StatusNotifierItemRegistered", "StatusNotifierItemUnregistered"):
-                async def _on_reg():
+                async def _on_reg_change():
+                    # 如果注销的正好是我们的对象
+                    if msg.member == "StatusNotifierItemUnregistered" and msg.body:
+                        unreg_str = str(msg.body[0])
+                        if self.sni_client.sni_dest and self.sni_client.sni_dest in unreg_str:
+                            self.sni_client.reset()
+
                     await self.sni_client.discover()
                     self._schedule_debounced()
-                self._loop.create_task(_on_reg())
-            
-            # 2. 🚀 事件驱动：实时捕获 OBS 录制开始时的图标切换 (如叠加快捷小红点)
+
+                self._loop.create_task(_on_reg_change())
+
+            # 2. 图标变更
             elif msg.member in ("NewIcon", "NewStatus"):
-                # 直接丢进防抖引擎，在 _sync_state_internal 中靠字节比对过滤垃圾信号
                 self._schedule_debounced()
-                
-            # 3. 进程起落
+
+            # 3. 🚀【核心修复 2】：精确追踪 OBS 匿名代号进程退出
             elif msg.member == "NameOwnerChanged" and msg.body:
                 name = str(msg.body[0])
-                if "obs" in name.lower() or "obsproject" in name.lower():
+                new_owner = str(msg.body[2])
+
+                is_bound_target = bool(self.sni_client.sni_dest and name == self.sni_client.sni_dest)
+                is_named_obs = any(k in name.lower() for k in ("obs", "obsproject"))
+
+                if is_bound_target or is_named_obs:
+                    if not new_owner:
+                        # 进程彻底消亡，瞬间物理断开
+                        self.sni_client.reset()
                     self._schedule_debounced()
 
         self.bus.add_message_handler(on_dbus_signal)
 
     async def _sync_state_internal(self):
-        """核心状态裁决：仅在状态真正改变时原子落盘"""
+        # 🚀【核心修复 3】：主动发起探针，彻底确认目标 D-Bus 服务是否真的活着
+        if self.sni_client.sni_dest and self.bus:
+            try:
+                r = await self.bus.call(
+                    Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                            interface="org.freedesktop.DBus", member="NameHasOwner",
+                            signature="s", body=[self.sni_client.sni_dest])
+                )
+                if r.message_type != MessageType.ERROR and r.body:
+                    if not bool(r.body[0]):
+                        self.sni_client.reset()
+            except Exception:
+                self.sni_client.reset()
+
+        # 整理音频采音流
         seen = set()
         parsed_items = []
         for out in self._active_streams:
@@ -127,28 +149,22 @@ class RecordingModule(BaseModule):
 
         if self.sni_client.is_registered and not obs_in_streams:
             parsed_items.append({
-                "id": 9999,
-                "title": "系统后台驻留",
-                "subtitle": "OBS Studio",
-                "type": "tray",
-                "icon": "✇",
-                "is_obs": True
+                "id": 9999, "title": "系统后台驻留", "subtitle": "OBS Studio",
+                "type": "tray", "icon": "✇", "is_obs": True
             })
 
         is_active = len(parsed_items) > 0
         obs_icon_url = ""
 
-        # 🚀 在防抖周期内抓取最新的托盘位图
         if obs_is_present:
-            icon_provider = getattr(self.backend, "image_provider_rec", None)
+            provider = getattr(self.backend, "tray_image_provider", None)
             pixmaps = await self.sni_client.fetch_pixmaps()
-            if icon_provider and pixmaps:
-                # 只有二进制像素真正发生了改变（例如多了一个红点），才会导致 rev+1，驱动 QML 重绘
-                if icon_provider.update_from_sni_pixmaps(pixmaps) or not self.state.recording_icon_url:
+            if provider and pixmaps:
+                if provider.update_from_sni_pixmaps("obs", pixmaps) or not self.state.recording_icon_url:
                     self._icon_rev += 1
-            obs_icon_url = f"image://recording/current?r={self._icon_rev}"
+            obs_icon_url = f"image://tray/obs?r={self._icon_rev}"
 
-        # 原子更新单一事实源
+        # 🚀【核心修复 4】：OBS 退出后，原子状态全部归零
         self.state.batch_update(
             recording_active=is_active,
             recording_items=parsed_items,
@@ -156,9 +172,6 @@ class RecordingModule(BaseModule):
         )
         self.notify("RECORDING_UPDATE")
 
-    # =========================================================================
-    # 动作响应
-    # =========================================================================
     async def fetch_menu_async(self) -> List[Dict[str, Any]]:
         menu = await self.sni_client.fetch_menu_tree()
         if not menu:
