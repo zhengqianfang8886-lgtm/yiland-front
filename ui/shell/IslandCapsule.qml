@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (280px宽域感应 · 深度下探唤醒 · 极度敏感版)
+// 🌟 灵动岛主壳体 (内容定宽冷冻隔离 · 零重排风暴 · 满帧流体版)
 // =========================================================================
 import QtQuick
 import "../core"
@@ -21,13 +21,10 @@ Item {
 
     readonly property bool isCurrentExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
     readonly property bool isMoving: motionPod.isMoving
-
-    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || 
-                                      capsuleGlobalHover.hovered || 
-                                      (sensorArea && sensorArea.isPointerHovered)
+    readonly property bool isHovered: capsuleRoot.isCurrentExpanded || (sensorArea && sensorArea.isPointerHovered)
+    readonly property bool isRightPressing: sensorArea ? sensorArea.isRightPressing : false
 
     signal requestSettings()
-    readonly property bool isRightPressing: sensorArea ? sensorArea.isRightPressing : false
 
     PhysicsMotionPod {
         id: motionPod
@@ -36,21 +33,49 @@ Item {
         }
     }
 
-    readonly property real pullOffset: {
-        if (!sensorArea || capsuleRoot.isCurrentExpanded) return 0.0;
-        return (sensorArea.isPullingDown || sensorArea.visualPullY > 0.1) ? Math.max(0.0, sensorArea.visualPullY) : 0.0;
+    // =========================================================================
+    // 🌊【物理骨骼参数体系】
+    // =========================================================================
+    // 稳态基准宽度：绝不随手势动态拉动而改变，作为内容视口的永久定宽锚
+    readonly property real baseRestingWidth: motionPod.targetWidth
+
+    readonly property real pullOffset: (!sensorArea || capsuleRoot.isCurrentExpanded) ? 0.0 : sensorArea.visualPullY
+    readonly property real pullRatio: (!sensorArea || capsuleRoot.isCurrentExpanded) ? 0.0 : sensorArea.pullRatio
+    readonly property bool isActivelyPulling: sensorArea ? sensorArea.isPullingDown : false
+
+    function smoothStep(edge0, edge1, val) {
+        var t = Math.max(0.0, Math.min(1.0, (val - edge0) / Math.max(0.0001, edge1 - edge0)));
+        return t * t * (3.0 - 2.0 * t);
     }
 
-    width: Math.max(140, motionPod.currentWidth)
-    height: Math.max(currentConfigHeight, motionPod.currentHeight)
+    y: motionPod.currentY
 
-    y: motionPod.currentY + capsuleRoot.pullOffset
+    // 纵向物理拉伸
+    readonly property real liquidExtraHeight: pullOffset * 0.85
+    height: Math.max(currentConfigHeight, Math.round(motionPod.currentHeight + liquidExtraHeight))
+
+    // 横向向心收缩
+    readonly property real liquidPillMinWidth: 124.0
+    readonly property real contractionFactor: smoothStep(0.0, 1.0, pullRatio)
+    readonly property real dynamicTargetWidth: baseRestingWidth - ((baseRestingWidth - liquidPillMinWidth) * contractionFactor)
+
+    // 外壳几何宽度 (由手势实时 1:1 无阻碍驱动)
+    width: Math.max(liquidPillMinWidth, Math.round(dynamicTargetWidth))
+    Behavior on width {
+        enabled: !capsuleRoot.isActivelyPulling
+        NumberAnimation {
+            duration: Theme.animFast
+            easing.type: Easing.OutQuad
+        }
+    }
 
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
 
-    scale: (capsuleRoot.isRightPressing) ? 0.95 : 1.0
-    Behavior on scale { NumberAnimation { duration: 100 } }
+    scale: (capsuleRoot.isRightPressing) ? 0.95 : ((sensorArea && sensorArea.isTriggerPrimed) ? 1.02 : 1.0)
+    Behavior on scale {
+        NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
+    }
 
     function resolveAndExpress() {
         if (!fsm) return;
@@ -61,7 +86,7 @@ Item {
         var tR = Math.round(tH / 2);
         var route = "TWEAK";
 
-        var isActuallySubmerged = (motionPod.y < -5);
+        var isSubmerged = (motionPod.y < -5);
 
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
@@ -90,7 +115,7 @@ Item {
                 tH = 240; 
                 tR = 24;
                 tY = normalTopMargin;
-                route = isActuallySubmerged ? "EMERGE_AND_EXPAND" : "TWEAK";
+                route = isSubmerged ? "EMERGE_AND_EXPAND" : "TWEAK";
                 break;
         }
 
@@ -111,10 +136,6 @@ Item {
     Connections {
         target: capsuleRoot.fsm
         function onStateChanged(oldState, newState, ctx) {
-            if (newState === IslandFsm.State.Hidden && oldState !== IslandFsm.State.Hidden) {
-                bg.triggerTuckFlash();
-            }
-            
             capsuleRoot.resolveAndExpress();
             if (newState === IslandFsm.State.Expanded && ctx && ctx.tab) {
                 expandedView.switchTab(ctx.tab);
@@ -125,26 +146,25 @@ Item {
     Connections {
         target: compactView
         function onNaturalWidthChanged() {
-            if (capsuleRoot.fsm && !capsuleRoot.isCurrentExpanded) {
+            if (capsuleRoot.fsm && !capsuleRoot.isCurrentExpanded && !capsuleRoot.isActivelyPulling) {
                 capsuleRoot.resolveAndExpress();
             }
         }
     }
 
-    // 🌟【核心修复】：将隐藏时的物理感应宽域由 140px 大幅扩至 280px，深度增至 14px，光标一甩立即下来
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
-        if (capsuleRoot.isCurrentExpanded || (compactView && compactView.isImeMenuOpen) || (sensorArea && sensorArea.isPullingDown)) {
+        if (capsuleRoot.isCurrentExpanded || (compactView && compactView.isImeMenuOpen) || capsuleRoot.isActivelyPulling) {
             Bridge.openFullCorridorForMotion();
             return;
         }
 
         var safePadH = 8;
         if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
-            var tuckW = 280; // 宽域感应，即使鼠标略微偏航也能被灵敏接住
+            var tuckW = 280;
             var tuckX = Math.round((parent.width - tuckW) / 2 + islandOffsetX);
-            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 7);
+            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 14);
             return;
         }
 
@@ -155,85 +175,45 @@ Item {
         Bridge.applySettledMask(Math.max(0, capX - safePadH), 0, capW + safePadH * 2, actualBottomY);
     }
 
-    Connections {
-        target: compactView
-        function onIsImeMenuOpenChanged() {
-            capsuleRoot.executeActualMaskCommit();
-        }
-    }
-
-    Connections {
-        target: sensorArea
-        function onIsPullingDownChanged() {
-            if (sensorArea.isPullingDown && typeof Bridge !== "undefined") {
-                Bridge.openFullCorridorForMotion();
-            } else {
-                capsuleRoot.executeActualMaskCommit();
-            }
-        }
-    }
-
-    HoverHandler {
-        id: capsuleGlobalHover
-        blocking: false
-        enabled: (fsm && fsm.currentState !== IslandFsm.State.Hidden)
-    }
-
+    // 黑曜石背景材质 (仅由几何外壳驱动拉伸，零子布局开销)
     CapsuleBackground {
         id: bg
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
         capsuleRadius: motionPod.currentRadius
         pullY: capsuleRoot.pullOffset
+        pullRatio: capsuleRoot.pullRatio
         isTriggerPrimed: sensorArea ? sensorArea.isTriggerPrimed : false
-
-        opacity: (isTucked && (typeof Config !== "undefined" && Config.stealthTuckEnabled)) ? 0.0 : 1.0
-        Behavior on opacity {
-            NumberAnimation {
-                duration: 180
-                easing.type: Easing.OutCubic
-            }
-        }
-
-        accentColor: {
-            if (fsm && fsm.activePayload && fsm.activePayload.color) {
-                return fsm.activePayload.color;
-            }
-            if (relay && relay.status === "Playing" && !capsuleRoot.isCurrentExpanded) {
-                return relay.dominantColor;
-            }
-            return "transparent";
-        }
     }
 
+    readonly property real clockFadeout: smoothStep(0.04, 0.40, pullRatio)
+    readonly property real glyphFadein: smoothStep(0.12, 0.55, pullRatio)
+    readonly property real dotSpread: smoothStep(0.18, 0.82, pullRatio)
+
+    // =========================================================================
+    // 🚀【核心架构重构 1】：内容视口定宽冷冻隔离
+    // 容器宽度绝对绑定至 baseRestingWidth，在拖拽期间绝对不发生尺寸缩放！
+    // 彻底切断任何 Text/Row 级联重排重算，实现极其丝滑的 GPU 级淡出！
+    // =========================================================================
     Item {
         id: compactContainer
-        anchors.fill: parent
-        clip: true
+        width: capsuleRoot.baseRestingWidth
+        height: capsuleRoot.currentConfigHeight
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        clip: false
         z: 10
         visible: opacity > 0.001
-        enabled: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
+        
+        // 拖拽激活时物理断开交互，杜绝任何子药丸事件抢占
+        enabled: !capsuleRoot.isCurrentExpanded && !capsuleRoot.isActivelyPulling && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
 
-        readonly property bool shouldDisplayContent: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden))
-
-        opacity: shouldDisplayContent ? 1.0 : 0.0
-        scale: shouldDisplayContent ? 1.0 : 0.88
-
-        Behavior on opacity {
-            NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 60 : 150
-                easing.type: Easing.OutQuad
-            }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 70 : 180
-                easing.type: Easing.OutBack
-                easing.overshoot: 1.05
-            }
-        }
+        opacity: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)) ? (1.0 - capsuleRoot.clockFadeout) : 0.0
+        scale: 1.0 - capsuleRoot.clockFadeout * 0.06
+        transform: Translate { y: capsuleRoot.clockFadeout * 1.5 }
 
         CompactCapsuleView {
             id: compactView
+            anchors.fill: parent
             fsm: capsuleRoot.fsm
             relay: capsuleRoot.relay
             timeService: capsuleRoot.timeService
@@ -241,17 +221,76 @@ Item {
         }
     }
 
+    // 4 点微标无跳跃显现
+    Item {
+        id: morphicGlyphContainer
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.round((capsuleRoot.height - height) / 2)
+        width: 26; height: 26
+        z: 15
+
+        opacity: capsuleRoot.glyphFadein
+        visible: opacity > 0.001
+
+        scale: (sensorArea && sensorArea.isTriggerPrimed) ? 1.10 : (0.85 + capsuleRoot.glyphFadein * 0.20)
+        Behavior on scale { NumberAnimation { duration: 80 } }
+
+        readonly property color glyphColor: (sensorArea && sensorArea.isTriggerPrimed) ? "#c084fc" : "#ffffff"
+
+        Item {
+            anchors.centerIn: parent
+            width: 22; height: 22
+
+            readonly property real gap: 1.0 + capsuleRoot.dotSpread * 2.6
+            readonly property real dotSize: 5.4 + capsuleRoot.dotSpread * 1.4
+            readonly property real dotRadius: 1.6 + capsuleRoot.dotSpread * 0.4
+
+            Rectangle {
+                x: parent.width / 2 - width - parent.gap / 2
+                y: parent.height / 2 - height - parent.gap / 2
+                width: parent.dotSize; height: parent.dotSize; radius: parent.dotRadius
+                color: morphicGlyphContainer.glyphColor
+            }
+            Rectangle {
+                x: parent.width / 2 + parent.gap / 2
+                y: parent.height / 2 - height - parent.gap / 2
+                width: parent.dotSize; height: parent.dotSize; radius: parent.dotRadius
+                color: morphicGlyphContainer.glyphColor
+            }
+            Rectangle {
+                x: parent.width / 2 - width - parent.gap / 2
+                y: parent.height / 2 + parent.gap / 2
+                width: parent.dotSize; height: parent.dotSize; radius: parent.dotRadius
+                color: morphicGlyphContainer.glyphColor
+            }
+            Rectangle {
+                x: parent.width / 2 + parent.gap / 2
+                y: parent.height / 2 + parent.gap / 2
+                width: parent.dotSize; height: parent.dotSize; radius: parent.dotRadius
+                color: morphicGlyphContainer.glyphColor
+            }
+        }
+    }
+
+    // =========================================================================
+    // 🚀【核心架构重构 2】：传感器空间静止绑定
+    // 传感器的宽度同样绝对锁定 baseRestingWidth，绝不随水滴收缩而变窄位移！
+    // 坐标系在触控全程保持绝对欧几里得恒定，彻底根除自激漂移泥潭感！
+    // =========================================================================
     CapsuleSensorArea {
         id: sensorArea
-        anchors.fill: parent
-        z: 1
+        width: capsuleRoot.baseRestingWidth
+        height: Math.max(capsuleRoot.currentConfigHeight, capsuleRoot.height)
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        z: 20
         visible: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
         enabled: visible
         isExpanded: capsuleRoot.isCurrentExpanded
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
 
         onRequestExpand: (tab) => {
-            if (fsm) fsm.handleIntent("EXPAND", { tab: tab, source: "SensorArea_RequestExpand" });
+            if (fsm) fsm.handleIntent("EXPAND", { tab: tab, source: "SensorArea_Expand" });
         }
         onRequestTuckToggle: {
             if (fsm) fsm.handleIntent("TOGGLE_TUCK", { source: "SensorArea_Tuck" });
@@ -278,18 +317,8 @@ Item {
         opacity: capsuleRoot.isCurrentExpanded ? 1.0 : 0.0
         scale: capsuleRoot.isCurrentExpanded ? 1.0 : 0.88
 
-        Behavior on opacity {
-            NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 220 : 50 
-                easing.type: Easing.InOutQuad
-            }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: capsuleRoot.isCurrentExpanded ? 340 : 60
-                easing.type: Easing.OutQuint
-            }
-        }
+        Behavior on opacity { NumberAnimation { duration: Theme.animNormal } }
+        Behavior on scale { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutQuint } }
 
         ExpandedCardView {
             id: expandedView

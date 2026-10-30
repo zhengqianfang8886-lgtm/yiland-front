@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 纯正声明式交互中枢 (极度敏感下拉 · 7px极速落锁 · 100ms高速感知版)
+// 🌟 纯正流体动力学传感器 (静态欧几里得空间 · C1连续流体力学 · 零漂移版)
 // =========================================================================
 import QtQuick
 
@@ -14,36 +14,100 @@ Item {
     property bool isNoticeActive: false
     property string activeTransient: ""
     property bool isTucked: false
-    property bool isPeeking: false
-    property bool isPassive5S: false
 
     property bool isMovingIsland: false
     property bool isRightPressing: false
 
-    // =========================================================================
-    // 🚀【极度敏感下拉动力学参数】
-    // =========================================================================
+    // 连续拉伸物理量
     property bool isPullingDown: false
-    property real rawPullDistance: 0.0
     property real visualPullY: 0.0
     property bool isTriggerPrimed: false
 
-    // 🌟 极致敏感落锁阈值：从 14.0 降至 7.0 (真实拖拽约 7~8px 即瞬间激活动作)
-    readonly property real triggerThreshold: 7.0
+    // 触发平铺网格的黄金阈值 (像素)
+    readonly property real triggerThreshold: 15.5
+    
+    // 连续张力比例 (0.0 起跑 ~ 1.0 锁定 ~ 1.5 超幅)
+    readonly property real pullRatio: Math.min(1.5, visualPullY / triggerThreshold)
     readonly property bool isPointerHovered: globalCapsuleHover.hovered || hitArea.containsMouse
 
-    // =========================================================================
-    // 🛡️【桌面切回冷却锁 (压缩至 200ms 快速解锁)】
-    // =========================================================================
+    // 手势裁决锁与冷却盾
+    property bool gestureEverExceededSlop: false
+    property bool isInteractionCooldown: false
     property bool isReturnCooldown: false
+
+    property real pressStartX: 0
+    property real pressStartY: 0
+    property real lastDragX: 0
+    property real dragVelocityX: 0
+
+    readonly property real dragSlop: 3.5
+
+    signal requestExpand(string tabName)
+    signal requestTuckToggle()
+    signal wheelScrolled(int deltaY)
+    signal moveOffsetRequested(real deltaX)
+    signal dragFinished(real velocityX)
+    signal pointerEnteredCapsule()
+    signal pointerExitedCapsule()
+    signal requestSettingsWindow()
+
+    // 🚀【核心力学方程】：在 dy = 6px 处一阶导数严格连续为 1.0，前段零延迟直连，后段渐近双曲张力
+    function computeFluidPull(dy) {
+        if (dy <= 0) return 0.0;
+        if (dy <= 6.0) return dy; // 0~6px: 100% 绝对 1:1 跟手，极速即时响应，零死区
+        
+        var excess = dy - 6.0;
+        var maxStretch = 18.0;
+        return 6.0 + (excess * maxStretch) / (maxStretch + excess * 0.85);
+    }
+
+    function armInteractionCooldown(durationMs) {
+        hoverDwellTimer.stop();
+        sensorRoot.isInteractionCooldown = true;
+        cooldownTimer.interval = durationMs || 420;
+        cooldownTimer.restart();
+    }
+
+    function executeSnapBack() {
+        if (visualPullY <= 0.001) {
+            visualPullY = 0.0;
+            isPullingDown = false;
+            isTriggerPrimed = false;
+            return;
+        }
+        snapBackAnimation.restart();
+    }
+
+    ParallelAnimation {
+        id: snapBackAnimation
+
+        NumberAnimation {
+            target: sensorRoot
+            property: "visualPullY"
+            to: 0.0
+            duration: Theme.animNormal
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.15
+        }
+
+        onFinished: {
+            sensorRoot.visualPullY = 0.0;
+            sensorRoot.isPullingDown = false;
+            sensorRoot.isTriggerPrimed = false;
+        }
+    }
+
+    Timer {
+        id: cooldownTimer
+        repeat: false
+        onTriggered: sensorRoot.isInteractionCooldown = false
+    }
 
     Timer {
         id: returnCooldownTimer
-        interval: 200 // 🌟 从 800ms 压缩至 200ms，切回后光速恢复响应
+        interval: 220
         repeat: false
-        onTriggered: {
-            sensorRoot.isReturnCooldown = false;
-        }
+        onTriggered: sensorRoot.isReturnCooldown = false
     }
 
     Connections {
@@ -53,76 +117,22 @@ Item {
                 sensorRoot.isReturnCooldown = true;
                 hoverDwellTimer.stop();
                 returnCooldownTimer.restart();
+                sensorRoot.executeSnapBack();
             }
         }
     }
 
-    signal requestExpand(string tabName)
-    signal requestCollapse()
-    signal startCollapse()
-    signal wheelScrolled(int deltaY)
-
-    signal moveOffsetRequested(real deltaX)
-    signal dragFinished(real velocityX)
-    signal goHomeRequested()
-
-    signal requestTuckToggle()
-    signal pointerExitedCapsule()
-    signal pointerEnteredCapsule()
-    signal requestSettingsWindow()
-
-    property real pressStartX: 0
-    property real pressStartY: 0
-    property real lastDragX: 0
-    property real dragVelocityX: 0
-
-    state: "IDLE"
-
-    states: [
-        State { name: "IDLE"; PropertyChanges { target: sensorRoot; isMovingIsland: false } },
-        State { name: "HOVERING" },
-        State { name: "PRESSED" },
-        State { name: "MOVING"; PropertyChanges { target: sensorRoot; isMovingIsland: true } }
-    ]
-
-    // 🌟 几乎 1:1 的直接跟手动力学：前 8px 零衰减，下拉手感极其轻快干脆
-    function computeDampedPull(dy) {
-        if (dy <= 0) return 0.0;
-        if (dy < 8) return dy * 0.95; 
-        return 7.6 + Math.pow(dy - 8, 0.65) * 1.2;
-    }
-
-    SequentialAnimation {
-        id: snapBackAnimation
-
-        NumberAnimation {
-            target: sensorRoot
-            property: "visualPullY"
-            to: 0.0
-            duration: 120
-            easing.type: Easing.OutBack
-            easing.overshoot: 1.15
-        }
-
-        ScriptAction {
-            script: {
-                sensorRoot.visualPullY = 0.0;
-                sensorRoot.isPullingDown = false;
-                sensorRoot.isTriggerPrimed = false;
-            }
-        }
-    }
-
-    // 🌟 悬停自动展开高速感应：默认提速至 110ms
     Timer {
         id: hoverDwellTimer
-        interval: (typeof Config !== "undefined" && Config.hoverDwellTime) ? Math.min(Config.hoverDwellTime, 120) : 110
+        interval: (typeof Config !== "undefined" && Config.hoverDwellTime) ? Math.max(160, Config.hoverDwellTime) : 240
         repeat: false
         onTriggered: {
-            if (sensorRoot.isReturnCooldown) return;
+            if (sensorRoot.isInteractionCooldown || sensorRoot.isReturnCooldown) return;
+            if (hitArea.pressed || sensorRoot.isPullingDown || sensorRoot.visualPullY > 0.1) return;
+            if (sensorRoot.isExpanded || sensorRoot.isTucked) return;
+            if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
 
-            if (sensorRoot.isPointerHovered && !sensorRoot.isExpanded && !sensorRoot.isTucked && !sensorRoot.isPullingDown) {
-                if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
+            if (sensorRoot.isPointerHovered) {
                 if (sensorRoot.isCalling) sensorRoot.requestExpand("media");
                 else if (sensorRoot.activeTransient === "ALERT") sensorRoot.requestExpand("notification");
                 else if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
@@ -133,35 +143,25 @@ Item {
 
     HoverHandler {
         id: globalCapsuleHover
-        blocking: false
         enabled: !sensorRoot.isTucked && !sensorRoot.isExpanded
         onHoveredChanged: {
             if (hovered) {
                 sensorRoot.pointerEnteredCapsule();
-                if (sensorRoot.state === "IDLE" && !sensorRoot.isExpanded && !sensorRoot.isCollapsing) {
-                    sensorRoot.state = "HOVERING";
+                if (!sensorRoot.isInteractionCooldown && !sensorRoot.isReturnCooldown && !hitArea.pressed) {
+                    if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
+                    hoverDwellTimer.restart();
                 }
             } else {
-                if (sensorRoot.state === "HOVERING") sensorRoot.state = "IDLE";
+                sensorRoot.pointerExitedCapsule();
+                hoverDwellTimer.stop();
             }
-        }
-    }
-
-    onStateChanged: {
-        if (state === "HOVERING") {
-            if (sensorRoot.isReturnCooldown) return;
-            if (sensorRoot.isTucked || sensorRoot.isPeeking || sensorRoot.isPassive5S) return;
-            if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
-            hoverDwellTimer.restart();
-        } else {
-            hoverDwellTimer.stop();
         }
     }
 
     MouseArea {
         id: hitArea
         anchors.fill: parent
-        enabled: !sensorRoot.isExpanded && !sensorRoot.isNoticeActive && !sensorRoot.isTucked &&
+        enabled: !sensorRoot.isExpanded && !sensorRoot.isTucked &&
                  (sensorRoot.activeTransient !== "VOICE_INPUT") &&
                  (sensorRoot.activeTransient !== "CALL") &&
                  (sensorRoot.activeTransient !== "SEDENTARY")
@@ -172,6 +172,8 @@ Item {
         onPressed: (mouse) => {
             snapBackAnimation.stop();
             hoverDwellTimer.stop();
+            cooldownTimer.stop();
+            sensorRoot.isInteractionCooldown = false;
 
             if (mouse.button === Qt.RightButton) {
                 sensorRoot.isRightPressing = true;
@@ -179,29 +181,27 @@ Item {
                 return;
             }
 
+            // 在静态坐标系内打点记下绝对原点
             sensorRoot.pressStartX = mouse.x;
             sensorRoot.pressStartY = mouse.y;
             sensorRoot.lastDragX = mouse.x;
             sensorRoot.dragVelocityX = 0;
             sensorRoot.isPullingDown = false;
-            sensorRoot.rawPullDistance = 0;
             sensorRoot.visualPullY = 0;
             sensorRoot.isTriggerPrimed = false;
+            sensorRoot.gestureEverExceededSlop = false;
 
-            var isModifierHeld = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier);
-            if (isModifierHeld || mouse.button === Qt.MiddleButton) {
-                sensorRoot.state = "MOVING";
+            var isMod = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier);
+            if (isMod || mouse.button === Qt.MiddleButton) {
+                sensorRoot.isMovingIsland = true;
                 return;
             }
-            sensorRoot.state = "PRESSED";
         }
 
         onPositionChanged: (mouse) => {
-            if (!hitArea.pressed || !(mouse.buttons & Qt.LeftButton)) {
-                return;
-            }
+            if (!hitArea.pressed || !(mouse.buttons & Qt.LeftButton)) return;
 
-            if (sensorRoot.state === "MOVING") {
+            if (sensorRoot.isMovingIsland) {
                 var stepX = mouse.x - sensorRoot.lastDragX;
                 sensorRoot.dragVelocityX = stepX;
                 sensorRoot.lastDragX = mouse.x;
@@ -209,22 +209,30 @@ Item {
                 return;
             }
 
-            var adx = Math.abs(mouse.x - sensorRoot.pressStartX);
+            // 由于宿主容器定宽，此处 dy, dx 是绝对线性的，毫无坐标自激漂移！
             var dy = mouse.y - sensorRoot.pressStartY;
+            var dx = Math.abs(mouse.x - sensorRoot.pressStartX);
 
-            // 🌟 极速起步识别：位移只需超过 2px 且放宽角度约束，轻轻一拉立刻进入下拉手势
-            if (dy > 2 && dy > adx * 0.75) {
-                sensorRoot.isPullingDown = true;
-                sensorRoot.rawPullDistance = dy;
-                
-                var calculatedY = sensorRoot.computeDampedPull(dy);
-                sensorRoot.visualPullY = calculatedY;
-                sensorRoot.isTriggerPrimed = (calculatedY >= sensorRoot.triggerThreshold);
-                return;
-            } else if (dy <= 0 && sensorRoot.isPullingDown) {
-                sensorRoot.visualPullY = 0;
-                sensorRoot.isPullingDown = false;
-                sensorRoot.isTriggerPrimed = false;
+            if (!sensorRoot.gestureEverExceededSlop) {
+                if (dy > sensorRoot.dragSlop && dy > dx * 0.5) {
+                    sensorRoot.gestureEverExceededSlop = true;
+                    sensorRoot.isPullingDown = true;
+                } else if (dx > sensorRoot.dragSlop) {
+                    sensorRoot.gestureEverExceededSlop = true;
+                }
+            }
+
+            if (sensorRoot.gestureEverExceededSlop && !sensorRoot.isMovingIsland) {
+                if (dy > 0) {
+                    sensorRoot.isPullingDown = true;
+                    var calculatedY = sensorRoot.computeFluidPull(dy);
+                    sensorRoot.visualPullY = calculatedY;
+                    sensorRoot.isTriggerPrimed = (calculatedY >= sensorRoot.triggerThreshold);
+                } else {
+                    // 向上推回取消手势
+                    sensorRoot.visualPullY = 0.0;
+                    sensorRoot.isTriggerPrimed = false;
+                }
             }
         }
 
@@ -235,7 +243,14 @@ Item {
                 return;
             }
 
-            if (sensorRoot.isPullingDown) {
+            if (sensorRoot.isMovingIsland) {
+                sensorRoot.isMovingIsland = false;
+                sensorRoot.dragFinished(sensorRoot.dragVelocityX);
+                return;
+            }
+
+            // 经历过下拉，严格结算为手势（触发或取消），永不降级为点击
+            if (sensorRoot.gestureEverExceededSlop) {
                 if (sensorRoot.isTriggerPrimed) {
                     sensorRoot.isReturnCooldown = true;
                     hoverDwellTimer.stop();
@@ -244,44 +259,42 @@ Item {
                     if (typeof Bridge !== "undefined" && Bridge.toggleDesktopGrid) {
                         Bridge.toggleDesktopGrid();
                     }
-                    sensorRoot.visualPullY = 0.0;
-                    sensorRoot.isPullingDown = false;
-                    sensorRoot.isTriggerPrimed = false;
-                } else {
-                    snapBackAnimation.restart();
                 }
 
-                sensorRoot.rawPullDistance = 0;
-                sensorRoot.state = "IDLE";
+                sensorRoot.executeSnapBack();
+                sensorRoot.armInteractionCooldown(420);
                 return;
             }
 
-            if (sensorRoot.state === "MOVING") {
-                sensorRoot.state = "IDLE";
-                sensorRoot.dragFinished(sensorRoot.dragVelocityX);
-                return;
-            }
+            // 纯原地轻击判定
+            var totalDx = Math.abs(mouse.x - sensorRoot.pressStartX);
+            var totalDy = Math.abs(mouse.y - sensorRoot.pressStartY);
 
-            sensorRoot.state = "IDLE";
+            if (totalDx < sensorRoot.dragSlop && totalDy < sensorRoot.dragSlop) {
+                if (sensorRoot.isInteractionCooldown || sensorRoot.isReturnCooldown) return;
+                if (sensorRoot.isPullingDown || sensorRoot.visualPullY > 1.0) return;
+
+                if (sensorRoot.isCalling) {
+                    sensorRoot.requestExpand("media");
+                    return;
+                }
+                if (sensorRoot.activeTransient === "ALERT") {
+                    sensorRoot.requestExpand("notification");
+                    return;
+                }
+                sensorRoot.requestExpand("calendar");
+            }
         }
 
         onCanceled: {
-            if (sensorRoot.isPullingDown) {
-                snapBackAnimation.restart();
-            } else {
-                sensorRoot.visualPullY = 0.0;
-            }
             sensorRoot.isRightPressing = false;
-            sensorRoot.isPullingDown = false;
-            sensorRoot.rawPullDistance = 0;
-            sensorRoot.isTriggerPrimed = false;
-            sensorRoot.state = "IDLE";
+            sensorRoot.isMovingIsland = false;
+            sensorRoot.executeSnapBack();
+            sensorRoot.armInteractionCooldown(300);
         }
 
-        onWheel: (wheel) => {
-            wheel.accepted = true;
-            if (sensorRoot.isMovingIsland || sensorRoot.isPullingDown) return;
-            sensorRoot.wheelScrolled(wheel.angleDelta.y);
+        onClicked: (mouse) => {
+            mouse.accepted = true;
         }
 
         onDoubleClicked: (mouse) => {
@@ -293,22 +306,9 @@ Item {
             }
         }
 
-        onClicked: (mouse) => {
-            if (mouse.button === Qt.RightButton) return;
-            if (sensorRoot.isReturnCooldown) return;
-            if (sensorRoot.isPullingDown || sensorRoot.visualPullY > 1.5) return;
-            if (sensorRoot.isPeeking || sensorRoot.isPassive5S || sensorRoot.isExpanded) return;
-            if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
-
-            if (sensorRoot.isCalling) {
-                sensorRoot.requestExpand("media");
-                return;
-            }
-            if (sensorRoot.activeTransient === "ALERT") {
-                sensorRoot.requestExpand("notification");
-                return;
-            }
-            sensorRoot.requestExpand("calendar");
+        onWheel: (wheel) => {
+            wheel.accepted = true;
+            if (!sensorRoot.isPullingDown) sensorRoot.wheelScrolled(wheel.angleDelta.y);
         }
     }
 }

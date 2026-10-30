@@ -1,7 +1,7 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/components/capsule/CapsuleBackground.qml
-// 🌟 纯正黑曜石材质 (卡扣落锁微脉冲·克制1px微光·支持完全隐形深潜)
-// ==========================================
+// 🌟 纯正黑曜石材质 (彻底拔除顶部白线伪影 · 极简无暇 · 系统动力学边框版)
+// =========================================================================
 import QtQuick
 
 Item {
@@ -15,6 +15,7 @@ Item {
     property bool isTucked: false
 
     property real pullY: 0.0
+    property real pullRatio: 0.0
     property bool isTriggerPrimed: false
 
     readonly property bool hasAccent: accentColor.a > 0.001
@@ -27,17 +28,17 @@ Item {
     SequentialAnimation {
         id: modePulseAnim
         ParallelAnimation {
-            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.85; duration: 120; easing.type: Easing.OutQuad }
+            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.85; duration: Theme.animFast; easing.type: Easing.OutQuad }
         }
         ParallelAnimation {
-            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.0; duration: 320; easing.type: Easing.InOutQuad }
+            NumberAnimation { target: bgRoot; property: "modePulseOpacity"; to: 0.0; duration: Theme.animNormal; easing.type: Easing.InOutQuad }
         }
     }
 
     SequentialAnimation {
         id: tuckFlashAnim
         NumberAnimation { target: bgRoot; property: "tuckFlashOpacity"; to: 1.0; duration: 40; easing.type: Easing.OutQuad }
-        NumberAnimation { target: bgRoot; property: "tuckFlashOpacity"; to: 0.0; duration: 400; easing.type: Easing.InQuad }
+        NumberAnimation { target: bgRoot; property: "tuckFlashOpacity"; to: 0.0; duration: Theme.animSlow; easing.type: Easing.InQuad }
     }
 
     function triggerModeHaptic(isAnchored) {
@@ -51,7 +52,7 @@ Item {
         }
     }
 
-    // 1. 实体纯黑曜石底壳
+    // 1. 实体纯黑曜石底壳 (与屏幕顶沿完美咬合，零杂线)
     Rectangle {
         id: mainBody
         anchors.fill: parent
@@ -61,13 +62,23 @@ Item {
         smooth: true
 
         border.color: {
-            if (bgRoot.isTriggerPrimed) return Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.65);
+            if (bgRoot.isTriggerPrimed) return "#c084fc"; // 落锁：清澈紫罗兰
+            if (bgRoot.pullRatio > 0.05) {
+                // 随着下拉拉力平滑柔和泛起微光
+                return Qt.rgba(
+                    (255 + (192 - 255) * bgRoot.pullRatio) / 255,
+                    (255 + (132 - 255) * bgRoot.pullRatio) / 255,
+                    (255 + (252 - 255) * bgRoot.pullRatio) / 255,
+                    0.14 + 0.35 * Math.min(1.0, bgRoot.pullRatio)
+                );
+            }
             if (bgRoot.hasAccent) return Qt.rgba(bgRoot.accentColor.r, bgRoot.accentColor.g, bgRoot.accentColor.b, 0.45);
             return Qt.rgba(255, 255, 255, 0.14);
         }
-        border.width: 1
+        border.width: bgRoot.isTriggerPrimed ? 1.5 : 1
 
-        Behavior on border.color { ColorAnimation { duration: 100 } }
+        Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
+        Behavior on border.width { NumberAnimation { duration: Theme.animInstant } }
     }
 
     // 2. 内部微倒角微光
@@ -76,11 +87,11 @@ Item {
         anchors.margins: 1
         radius: Math.max(0, bgRoot.capsuleRadius - 1)
         color: "transparent"
-        border.color: bgRoot.isTriggerPrimed ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.20) : Qt.rgba(255, 255, 255, 0.05)
+        border.color: bgRoot.isTriggerPrimed ? Qt.rgba(192 / 255, 132 / 255, 252 / 255, 0.35) : Qt.rgba(255, 255, 255, 0.05)
         border.width: 1
         antialiasing: true
 
-        Behavior on border.color { ColorAnimation { duration: 100 } }
+        Behavior on border.color { ColorAnimation { duration: Theme.animFast } }
     }
 
     // 3. 常态触感脉冲环
@@ -95,7 +106,7 @@ Item {
         antialiasing: true
     }
 
-    // 4. 入眠锁定闪光环 (完全隐形模式下保持静默)
+    // 4. 入眠锁定闪光环
     Rectangle {
         anchors.fill: parent
         radius: bgRoot.capsuleRadius
@@ -107,7 +118,7 @@ Item {
         antialiasing: true
     }
 
-    // 5. 深潜微缝呼吸带 (隐形模式下彻底隐藏)
+    // 5. 深潜微缝呼吸带 (隐形模式下关闭)
     Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 0
@@ -117,7 +128,7 @@ Item {
         color: "#818cf8"
         visible: bgRoot.isTucked && !bgRoot.isStealth
         width: visible ? Math.min(42, parent.width * 0.35) : 0
-        Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: Theme.animSlow; easing.type: Easing.OutCubic } }
 
         SequentialAnimation on opacity {
             running: bgRoot.visible && bgRoot.isTucked && !bgRoot.isStealth

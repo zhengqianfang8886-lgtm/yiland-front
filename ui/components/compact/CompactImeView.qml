@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/compact/CompactImeView.qml
-// 🌟 系统原生级输入法组件 (Portal 模式 · 彻底免疫父级 clip 剪裁)
+// 🌟 系统原生级输入法组件 (Portal 菜单 · 原生零拷贝 ImageProvider 协议版)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -47,25 +47,31 @@ Item {
         radius: 5
         antialiasing: true
 
-        color: (imeRoot.fallbackLabel === "朗" || imeRoot.fallbackLabel === "A") ? 
-               (imeMouse.containsMouse ? "#2a2a34" : "#1a1a24") : 
-               (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent")
+        // 样式按当前是位图图标还是文本标签优雅自适应
+        color: sysImg.visible ? 
+               (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent") :
+               ((imeRoot.fallbackLabel === "朗" || imeRoot.fallbackLabel === "A") ? 
+                   (imeMouse.containsMouse ? "#2a2a34" : "#1a1a24") : 
+                   (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent"))
 
-        border.color: (imeRoot.fallbackLabel === "朗" || imeRoot.fallbackLabel === "A") ? 
-                      Qt.rgba(255, 255, 255, 0.28) : 
-                      (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.2) : "transparent")
+        border.color: sysImg.visible ?
+                      (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.2) : "transparent") :
+                      ((imeRoot.fallbackLabel === "朗" || imeRoot.fallbackLabel === "A") ? 
+                          Qt.rgba(255, 255, 255, 0.28) : 
+                          (imeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.2) : "transparent"))
         border.width: 1
 
         scale: imeMouse.pressed ? 0.90 : 1.0
         Behavior on scale { NumberAnimation { duration: 70 } }
         Behavior on color { ColorAnimation { duration: 100 } }
 
+        // 🚀【核心零拷贝渲染】：直通 image://ime/current 协议，免去 Base64 解码与 CPU 损耗
         Image {
             id: sysImg
             anchors.centerIn: parent
             width: 17
             height: 17
-            source: imeRoot.iconUrl
+            source: imeRoot.iconUrl ? imeRoot.iconUrl : ""
             fillMode: Image.PreserveAspectFit
             asynchronous: false
             cache: false
@@ -116,7 +122,6 @@ Item {
                         if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                             Bridge.openFullCorridorForMotion();
                         }
-                        // 动态计算绝对坐标，以防溢出
                         var rootObj = imeRoot.getRootItem();
                         if (rootObj) {
                             var pt = imeBox.mapToItem(rootObj, 0, imeBox.height + 8);
