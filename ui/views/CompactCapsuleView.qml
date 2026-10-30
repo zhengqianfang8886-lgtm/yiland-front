@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位自动化排版引擎 (解决微囊展开抖动 · 离散稳态宽度加固版)
+// 🌟 槽位全生命周期共振排版引擎 (零间距断层 · 相位锁相对齐版)
 // ==========================================
 import QtQuick
 import "../components/capsule"
@@ -26,13 +26,15 @@ Item {
     readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
     readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Bridge.isImeActive : false
-    readonly property bool isImeMenuOpen: imePill ? imePill.isMenuOpen : false
+    readonly property bool isRecordingActive: (typeof Bridge !== "undefined" && Bridge.isRecordingActive !== undefined) ? Bridge.isRecordingActive : false
 
-    // 双轨计时状态
     readonly property bool hasCountdown: (typeof Bridge !== "undefined") && Bridge.cdActive
     readonly property bool hasStopwatch: (typeof Bridge !== "undefined") && Bridge.swActive
 
-    // 宽度精简收敛
+    // 槽位物理宽度 (纯内容宽度)
+    readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
+        ? Math.max(38, wsLabel.implicitWidth + 16) : 0
+
     readonly property int slotCdWidth: {
         if (!hasCountdown) return 0;
         var isOt = Bridge.cdIsOvertime;
@@ -48,15 +50,13 @@ Item {
         return 76;
     }
 
-    readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
-        ? Math.max(38, wsLabel.implicitWidth + 16) : 0
-
+    readonly property int slotNetSpeedWidth: (typeof Config !== "undefined" && Config.showNetSpeed !== false) ? 56 : 0
+    readonly property int slotRecordWidth: compactRoot.isRecordingActive ? 28 : 0
+    readonly property int slotImeWidth: compactRoot.isImeActive ? 26 : 0
     readonly property int slotNoticeWidth: compactRoot.unreadNoticeCount > 0 ? (compactRoot.unreadNoticeCount >= 10 ? 40 : 34) : 0
     readonly property int slotMusicWidth: compactRoot.isMusicPlaying ? 40 : 0
-    readonly property int slotNetSpeedWidth: (typeof Config !== "undefined" && Config.showNetSpeed !== false) ? 56 : 0
-    readonly property int slotImeWidth: compactRoot.isImeActive ? 26 : 0
 
-    // 🚀【核心重构：使用各槽位稳态目标宽度计算 naturalWidth，彻底终结动画抖动】
+    // 自然宽度：包含各槽位的 4px 动态呼吸间距
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
@@ -74,25 +74,23 @@ Item {
             }
         }
 
-        var total = 20 + clockView.implicitWidth;
+        var total = 24 + clockView.implicitWidth;
         if (compactRoot.slotLeftWidth > 0) total += (compactRoot.slotLeftWidth + 5);
 
         var rightTotal = 0;
         if (compactRoot.slotCdWidth > 0) rightTotal += (compactRoot.slotCdWidth + 4);
         if (compactRoot.slotSwWidth > 0) rightTotal += (compactRoot.slotSwWidth + 4);
         if (compactRoot.slotNetSpeedWidth > 0) rightTotal += (compactRoot.slotNetSpeedWidth + 4);
+        if (compactRoot.slotRecordWidth > 0) rightTotal += (compactRoot.slotRecordWidth + 4);
         if (compactRoot.slotImeWidth > 0) rightTotal += (compactRoot.slotImeWidth + 4);
         if (compactRoot.slotNoticeWidth > 0) rightTotal += (compactRoot.slotNoticeWidth + 4);
         if (compactRoot.slotMusicWidth > 0) rightTotal += (compactRoot.slotMusicWidth + 4);
 
-        if (rightTotal > 0) total += rightTotal + 5;
+        if (rightTotal > 0) total += rightTotal;
 
         return Math.ceil(total / 4.0) * 4;
     }
 
-    // =========================================================================
-    // 常态视口 (打断来临 60ms 极速隐退)
-    // =========================================================================
     Item {
         id: normalViewContainer
         anchors.fill: parent
@@ -111,61 +109,30 @@ Item {
             anchors.centerIn: parent
             spacing: 5
 
-            // 左侧桌面名称
-            Item {
-                id: leftSlot
-                height: 24
-                width: compactRoot.slotLeftWidth
-                visible: width > 0 || wsBgRect.opacity > 0.01
-                anchors.verticalCenter: parent.verticalCenter
-                clip: true
+            // 左侧：工作区
+            FluidPill {
+                id: leftSlotPill
+                pillName: "workspace"
+                targetWidth: compactRoot.slotLeftWidth
+                gapSpacing: 5
+                pillHeight: 22
+                pillColor: Qt.rgba(255, 255, 255, 0.12)
+                pillBorderColor: Qt.rgba(255, 255, 255, 0.22)
+                interactive: false
 
-                readonly property bool isDying: compactRoot.slotLeftWidth <= 0 || compactRoot.hasActiveTransient
-
-                Behavior on width {
-                    NumberAnimation {
-                        duration: 180
-                        easing.type: Easing.OutCubic
-                    }
-                }
-
-                Rectangle {
-                    id: wsBgRect
-                    anchors.fill: parent
-                    radius: 12
-                    color: Qt.rgba(255, 255, 255, 0.12)
-                    border.color: Qt.rgba(255, 255, 255, 0.22)
-                    border.width: 1
-
-                    opacity: leftSlot.isDying ? 0.0 : 1.0
-                    Behavior on opacity { NumberAnimation { duration: 140 } }
-
-                    Item {
-                        id: wsTextSlot
-                        anchors.fill: parent
-                        readonly property bool shouldVaporize: leftSlot.isDying || (leftSlot.width < 28)
-
-                        opacity: shouldVaporize ? 0.0 : 1.0
-                        scale: shouldVaporize ? 0.70 : 1.0
-
-                        Behavior on opacity { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
-                        Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
-
-                        Text {
-                            id: wsLabel
-                            anchors.centerIn: parent
-                            text: (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName : (compactRoot.relay ? compactRoot.relay.wsCurrent : "1")
-                            color: "#ffffff"
-                            font.pixelSize: 13
-                            font.weight: Font.Black
-                            font.family: compactRoot.displayFont
-                            renderType: Text.QtRendering
-                        }
-                    }
+                Text {
+                    id: wsLabel
+                    anchors.centerIn: parent
+                    text: (compactRoot.relay && compactRoot.relay.wsName) ? compactRoot.relay.wsName : (compactRoot.relay ? compactRoot.relay.wsCurrent : "1")
+                    color: "#ffffff"
+                    font.pixelSize: 12
+                    font.weight: Font.Black
+                    font.family: compactRoot.displayFont
+                    renderType: Text.QtRendering
                 }
             }
 
-            // 时钟主区
+            // 中间：时钟主座
             CompactClockView {
                 id: clockView
                 anchors.verticalCenter: parent.verticalCenter
@@ -177,15 +144,18 @@ Item {
                 displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
             }
 
-            // 右侧流式插槽组
+            // 🚀【核心改动】：spacing 严格设为 0！所有间距内化到每个微囊的 gapSpacing 中！
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
+                spacing: 0
 
+                // 倒计时
                 FluidPill {
                     id: cdPill
+                    pillName: "countdown"
                     targetWidth: compactRoot.slotCdWidth
+                    gapSpacing: 4
                     readonly property bool isOvertime: (typeof Bridge !== "undefined") && Bridge.cdIsOvertime
 
                     pillColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)
@@ -205,7 +175,7 @@ Item {
                     CompactTimerView {
                         anchors.centerIn: parent
                         fontFam: compactRoot.displayFont
-                        pixelSize: 15
+                        pixelSize: 14
                         textColor: cdPill.isOvertime ? "#FF453A" : (Bridge.cdMode === "break" ? "#30D158" : "#FF9F0A")
                         isOvertime: cdPill.isOvertime
                         totalSeconds: (typeof Bridge !== "undefined") ? (cdPill.isOvertime ? Bridge.cdOvertimeSec : Bridge.cdRemainingSec) : 1500
@@ -213,9 +183,12 @@ Item {
                     }
                 }
 
+                // 秒表
                 FluidPill {
                     id: swPill
+                    pillName: "stopwatch"
                     targetWidth: compactRoot.slotSwWidth
+                    gapSpacing: 4
                     pillColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.10)
                     hoverColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
                     pressColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.28)
@@ -233,7 +206,7 @@ Item {
                     CompactTimerView {
                         anchors.centerIn: parent
                         fontFam: compactRoot.displayFont
-                        pixelSize: 15
+                        pixelSize: 14
                         textColor: "#38BDF8"
                         isOvertime: false
                         totalSeconds: (typeof Bridge !== "undefined") ? Bridge.swElapsedSec : 0
@@ -241,28 +214,64 @@ Item {
                     }
                 }
 
-                CompactNetSpeedView {
-                    id: netSpeedPill
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: (typeof Config !== "undefined" && Config.showNetSpeed !== false)
-                    fontFam: compactRoot.displayFont
-                    downVal: compactRoot.relay ? compactRoot.relay.netDownVal : "0"
-                    downUnit: compactRoot.relay ? compactRoot.relay.netDownUnit : "B/s"
-                    upVal: compactRoot.relay ? compactRoot.relay.netUpVal : "0"
-                    upUnit: compactRoot.relay ? compactRoot.relay.netUpUnit : "B/s"
-                    downCompact: compactRoot.relay ? compactRoot.relay.downCompact : "0B"
-                    upCompact: compactRoot.relay ? compactRoot.relay.upCompact : "0B"
+                // 网速
+                FluidPill {
+                    id: netSpeedPillWrapper
+                    pillName: "netspeed"
+                    targetWidth: compactRoot.slotNetSpeedWidth
+                    gapSpacing: 4
+                    interactive: false
+                    pillColor: "transparent"
+                    pillBorderColor: "transparent"
+
+                    CompactNetSpeedView {
+                        anchors.centerIn: parent
+                        fontFam: compactRoot.displayFont
+                        downVal: compactRoot.relay ? compactRoot.relay.netDownVal : "0"
+                        downUnit: compactRoot.relay ? compactRoot.relay.netDownUnit : "B/s"
+                        upVal: compactRoot.relay ? compactRoot.relay.netUpVal : "0"
+                        upUnit: compactRoot.relay ? compactRoot.relay.netUpUnit : "B/s"
+                        downCompact: compactRoot.relay ? compactRoot.relay.downCompact : "0B"
+                        upCompact: compactRoot.relay ? compactRoot.relay.upCompact : "0B"
+                    }
                 }
 
-                CompactImeView {
-                    id: imePill
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: compactRoot.isImeActive
+                // 录制指示器 (OBS / 麦克风)
+                FluidPill {
+                    id: recordPillWrapper
+                    pillName: "recording"
+                    targetWidth: compactRoot.slotRecordWidth
+                    gapSpacing: 4
+                    interactive: false
+                    pillColor: "transparent"
+                    pillBorderColor: "transparent"
+
+                    CompactRecordPill {
+                        anchors.centerIn: parent
+                    }
                 }
 
+                // 输入法
+                FluidPill {
+                    id: imePillWrapper
+                    pillName: "ime"
+                    targetWidth: compactRoot.slotImeWidth
+                    gapSpacing: 4
+                    interactive: false
+                    pillColor: "transparent"
+                    pillBorderColor: "transparent"
+
+                    CompactImeView {
+                        anchors.centerIn: parent
+                    }
+                }
+
+                // 通知
                 FluidPill {
                     id: noticePill
+                    pillName: "notification"
                     targetWidth: compactRoot.slotNoticeWidth
+                    gapSpacing: 4
                     pillColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
                     hoverColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32)
                     pressColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45)
@@ -291,9 +300,12 @@ Item {
                     }
                 }
 
+                // 音乐律动
                 FluidPill {
                     id: musicPill
+                    pillName: "music"
                     targetWidth: compactRoot.slotMusicWidth
+                    gapSpacing: 4
                     readonly property color themeColor: {
                         if (compactRoot.relay && compactRoot.relay.dominantColor) return compactRoot.relay.dominantColor;
                         return "#22c55e";
@@ -354,9 +366,7 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 2. 打断态暂态悬浮栈
-    // =========================================================================
+    // 打断态
     Loader {
         id: overlayLoader
         anchors.fill: parent

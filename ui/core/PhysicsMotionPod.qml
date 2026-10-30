@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/PhysicsMotionPod.qml
-// 🌟 纯正流体动力学引擎 (苹果级 OutQuint 五次方丝滑水滴版)
+// 🌟 纯正流体动力学引擎 (苹果级 OutQuint 五次方丝滑水滴版 · 相位锁相对齐版)
 // =========================================================================
 import QtQuick
 
@@ -25,8 +25,8 @@ Item {
 
     readonly property bool isJelly: (typeof Theme !== "undefined") ? Theme.isJellyMode : false
     
-    // 🚀 核心流体参数：340ms 黄金时长 + OutQuint 极长尾缓出
-    readonly property int motionDuration: isJelly ? 380 : 340
+    // 🚀【核心对齐】：与 FluidPill 严格保持 300ms 物理锁相，彻底消除内外不同步
+    readonly property int motionDuration: isJelly ? 340 : 300
     readonly property var fluidCurve: Easing.OutQuint
     readonly property real springOvershoot: (typeof Theme !== "undefined") ? Theme.springOvershootFirm : 1.10
 
@@ -63,7 +63,6 @@ Item {
         }
     }
 
-    // 🚀【标准单调统一运动管线：纯正流体塌缩/舒展】
     ParallelAnimation {
         id: unifiedMotionAnim
 

@@ -1,8 +1,9 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 纯正流体动力学传感器 (静态欧几里得空间 · C1连续流体力学 · 零漂移版)
+// 🌟 纯正流体动力学手势中枢 (恢复下拉呼出桌面网格 · 彻底杜绝误触卡片版)
 // =========================================================================
 import QtQuick
+import QtQml
 
 Item {
     id: sensorRoot
@@ -18,19 +19,16 @@ Item {
     property bool isMovingIsland: false
     property bool isRightPressing: false
 
-    // 连续拉伸物理量
     property bool isPullingDown: false
     property real visualPullY: 0.0
     property bool isTriggerPrimed: false
 
-    // 触发平铺网格的黄金阈值 (像素)
-    readonly property real triggerThreshold: 15.5
+    // 触发桌面平铺网格的标定黄金行程 (像素)
+    readonly property real triggerThreshold: 16.0
     
-    // 连续张力比例 (0.0 起跑 ~ 1.0 锁定 ~ 1.5 超幅)
     readonly property real pullRatio: Math.min(1.5, visualPullY / triggerThreshold)
     readonly property bool isPointerHovered: globalCapsuleHover.hovered || hitArea.containsMouse
 
-    // 手势裁决锁与冷却盾
     property bool gestureEverExceededSlop: false
     property bool isInteractionCooldown: false
     property bool isReturnCooldown: false
@@ -51,14 +49,14 @@ Item {
     signal pointerExitedCapsule()
     signal requestSettingsWindow()
 
-    // 🚀【核心力学方程】：在 dy = 6px 处一阶导数严格连续为 1.0，前段零延迟直连，后段渐近双曲张力
+    // 渐近双曲力学样条：前 8px 绝对 1:1 跟手，随后渐进带起阻尼感
     function computeFluidPull(dy) {
         if (dy <= 0) return 0.0;
-        if (dy <= 6.0) return dy; // 0~6px: 100% 绝对 1:1 跟手，极速即时响应，零死区
+        if (dy <= 8.0) return dy;
         
-        var excess = dy - 6.0;
-        var maxStretch = 18.0;
-        return 6.0 + (excess * maxStretch) / (maxStretch + excess * 0.85);
+        var excess = dy - 8.0;
+        var maxStretch = 20.0;
+        return 8.0 + (excess * maxStretch) / (maxStretch + excess * 0.75);
     }
 
     function armInteractionCooldown(durationMs) {
@@ -181,7 +179,6 @@ Item {
                 return;
             }
 
-            // 在静态坐标系内打点记下绝对原点
             sensorRoot.pressStartX = mouse.x;
             sensorRoot.pressStartY = mouse.y;
             sensorRoot.lastDragX = mouse.x;
@@ -209,7 +206,6 @@ Item {
                 return;
             }
 
-            // 由于宿主容器定宽，此处 dy, dx 是绝对线性的，毫无坐标自激漂移！
             var dy = mouse.y - sensorRoot.pressStartY;
             var dx = Math.abs(mouse.x - sensorRoot.pressStartX);
 
@@ -229,7 +225,6 @@ Item {
                     sensorRoot.visualPullY = calculatedY;
                     sensorRoot.isTriggerPrimed = (calculatedY >= sensorRoot.triggerThreshold);
                 } else {
-                    // 向上推回取消手势
                     sensorRoot.visualPullY = 0.0;
                     sensorRoot.isTriggerPrimed = false;
                 }
@@ -249,9 +244,10 @@ Item {
                 return;
             }
 
-            // 经历过下拉，严格结算为手势（触发或取消），永不降级为点击
+            // 🚀【核心功能恢复】：只要经历过下拉拖拽，严格根据是否越过行程判定
             if (sensorRoot.gestureEverExceededSlop) {
                 if (sensorRoot.isTriggerPrimed) {
+                    // 🎉 满行程释放：100% 触发系统的平铺网格（Desktop Grid / Overview）！
                     sensorRoot.isReturnCooldown = true;
                     hoverDwellTimer.stop();
                     returnCooldownTimer.restart();
@@ -261,12 +257,13 @@ Item {
                     }
                 }
 
+                // 无论是成功触发还是半途放弃，回弹时都严格阻断误开卡片
                 sensorRoot.executeSnapBack();
-                sensorRoot.armInteractionCooldown(420);
+                sensorRoot.armInteractionCooldown(380);
                 return;
             }
 
-            // 纯原地轻击判定
+            // 纯轻触原地点击 (Tap) 展开日历/通知
             var totalDx = Math.abs(mouse.x - sensorRoot.pressStartX);
             var totalDy = Math.abs(mouse.y - sensorRoot.pressStartY);
 
@@ -308,7 +305,9 @@ Item {
 
         onWheel: (wheel) => {
             wheel.accepted = true;
-            if (!sensorRoot.isPullingDown) sensorRoot.wheelScrolled(wheel.angleDelta.y);
+            if (!sensorRoot.isPullingDown) {
+                sensorRoot.wheelScrolled(wheel.angleDelta.y);
+            }
         }
     }
 }

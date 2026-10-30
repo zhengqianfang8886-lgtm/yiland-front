@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: main.py
-# 🌟 生产级桌面启动中枢 (集成原生 QQuickImageProvider 显存零拷贝版)
+# 🌟 生产级桌面启动中枢 (集成原生双 ImageProvider 零拷贝版)
 # ==========================================
 import sys
 import os
@@ -25,6 +25,7 @@ from backend.core.backend import DirectIslandBackend
 from backend.theme import theme
 from backend.platform import detect_platform
 from backend.modules.ime.pixmap import ImeImageProvider
+from backend.modules.recording.pixmap import RecordingImageProvider
 
 from PySide6.QtCore import QUrl, QTimer, Qt, QSize
 from PySide6.QtGui import QPixmapCache, QGuiApplication, QSurfaceFormat
@@ -41,10 +42,10 @@ def trim_memory():
         pass
 
 
-def start_backend_event_loop(bridge: IslandBridge, image_provider: ImeImageProvider = None):
+def start_backend_event_loop(bridge: IslandBridge, image_provider: ImeImageProvider = None, image_provider_rec: RecordingImageProvider = None):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    backend = DirectIslandBackend(bridge, image_provider=image_provider)
+    backend = DirectIslandBackend(bridge, image_provider=image_provider, image_provider_rec=image_provider_rec)
     bridge.set_backend(backend, loop)
 
     def _thread_target():
@@ -72,8 +73,6 @@ def main():
     app = QGuiApplication(sys.argv)
     app.setApplicationName("alcove-island")
     app.setDesktopFileName("alcove-island")
-    
-    # 阻止所有非可见窗口关闭时触发退出
     app.setQuitOnLastWindowClosed(False)
 
     config = ConfigManager()
@@ -103,15 +102,16 @@ def main():
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "views"))
     engine.addImportPath(os.path.join(BASE_DIR, "ui", "components"))
 
-    # 🚀【核心注册】：装载原生 QQuickImageProvider 零拷贝纹理服务 (image://ime/...)
+    # 🚀 挂载双 ImageProvider：输入法 (image://ime) 与 录制 (image://recording)
     ime_image_provider = ImeImageProvider()
+    rec_image_provider = RecordingImageProvider()
     engine.addImageProvider("ime", ime_image_provider)
+    engine.addImageProvider("recording", rec_image_provider)
 
     bridge = IslandBridge(view, config)
     app.aboutToQuit.connect(bridge.cleanup)
 
-    # 将 image_provider 实例传入后台总线
-    backend, backend_loop = start_backend_event_loop(bridge, image_provider=ime_image_provider)
+    backend, backend_loop = start_backend_event_loop(bridge, image_provider=ime_image_provider, image_provider_rec=rec_image_provider)
 
     def update_view_position():
         screen = app.primaryScreen()
@@ -122,7 +122,6 @@ def main():
         target_y = base_rect.y() + config.topMargin
         platform.apply_window_position(view, screen, target_x, target_y, VIEW_W, VIEW_H)
 
-    # 监听到桌面概览网格开启时，物理隐藏 Surface 杜绝虚影图标
     def handle_grid_state(is_active):
         if is_active:
             view.hide()

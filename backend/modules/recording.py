@@ -5,7 +5,7 @@
 import time
 import asyncio
 import threading
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 
 import pulsectl
 from dbus_next.aio import MessageBus
@@ -50,12 +50,18 @@ class RecordingModule(BaseModule):
             active_recorders: List[Dict[str, str]] = []
 
             for output in source_outputs:
-                props = output.proplist or {}
-                app_name = str(props.get("application.name", "")).strip()
-                binary = str(props.get("application.process.binary", "")).lower().strip()
-                media_name = str(props.get("media.name", "")).lower().strip()
+                props = getattr(output, "proplist", {}) or {}
 
-                # 过滤系统自身的静音回放或监视流
+                def _decode_prop(val):
+                    if isinstance(val, bytes):
+                        return val.decode("utf-8", errors="ignore")
+                    return str(val) if val is not None else ""
+
+                app_name = _decode_prop(props.get("application.name", "")).strip()
+                binary = _decode_prop(props.get("application.process.binary", "")).lower().strip()
+                media_name = _decode_prop(props.get("media.name", "")).lower().strip()
+
+                # 过滤系统自身的回放或监视流
                 if "alcove" in binary or "cava" in binary:
                     continue
 
@@ -92,7 +98,7 @@ class RecordingModule(BaseModule):
             is_active = len(active_recorders) > 0
             current_app = active_recorders[0]["name"] if is_active else ""
             current_bin = active_recorders[0]["binary"] if is_active else ""
-            current_icon = active_recorders[0]["icon"] if is_active else ""
+            current_icon = active_recorders[0]["icon"] if is_active else "obs"
             current_type = active_recorders[0]["type"] if is_active else "mic"
 
             # 仅当状态突变时原子提交单一事实源并广播
@@ -120,7 +126,6 @@ class RecordingModule(BaseModule):
                     self._sync_recording_streams(pulse)
 
                     def callback(ev):
-                        # 仅关注输入流的挂载、卸载与服务端变化
                         if ev.facility in ('source_output', 'server'):
                             raise pulsectl.PulseLoopStop()
 
@@ -132,14 +137,14 @@ class RecordingModule(BaseModule):
                             pulse.event_listen(timeout=2.0)
                         except pulsectl.PulseLoopStop:
                             self._sync_recording_streams(pulse)
-            except Exception as e:
+            except Exception:
                 if self._running:
                     time.sleep(2)
 
     async def focus_recording_app(self) -> bool:
         """一键呼出并聚焦正在录制的应用窗口 (如 OBS Studio)"""
-        target_bin = self.state.recording_app_binary or "obs"
-        target_name = self.state.recording_app_name or "OBS"
+        target_bin = getattr(self.state, "recording_app_binary", "") or "obs"
+        target_name = getattr(self.state, "recording_app_name", "") or "OBS"
         
         if hasattr(self.backend.bridge, "wm") and hasattr(self.backend.bridge.wm, "platform"):
             return self.backend.bridge.wm.platform.focus_application_window(

@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/state.py
-# 🌟 全量系统状态单一事实源 (支持倒计时与秒表双轨并发独立存在版)
+# 🌟 全量系统状态单一事实源 (集成录制感知与双轨计时独立存在版)
 # ==========================================
 import threading
 from typing import Dict, Any, Optional, List, Tuple
@@ -48,7 +48,7 @@ class IslandState:
         self.dominant_color: str = "#22c55e"
         self.spectrum: Tuple[float, float, float, float] = (0.2, 0.2, 0.2, 0.2)
 
-        # 3. 音量、亮度与麦克风
+        # 3. 音量与亮度
         self.volume: int = 50
         self.is_muted: bool = False
         self.brightness: int = 100
@@ -77,10 +77,7 @@ class IslandState:
         self.net_up_compact: str = "0B"
         self.local_ip: str = "127.0.0.1"
 
-        # =====================================================================
-        # 🚀 7. 专注计时器核心状态 (双轨彻底解耦，支持两轨并发运行)
-        # =====================================================================
-        # 统一兼容状态（当前查看的那一轨）
+        # 7. 专注计时器核心状态 (双轨独立)
         self.timer_type: str = "countdown"
         self.timer_is_running: bool = False
         self.timer_is_paused: bool = False
@@ -93,7 +90,6 @@ class IslandState:
         self.timer_mode: str = "focus"
         self.timer_laps: List[Dict[str, Any]] = []
 
-        # 独立【倒计时轨道】真实状态
         self.cd_is_running: bool = False
         self.cd_is_paused: bool = False
         self.cd_is_completed: bool = False
@@ -103,7 +99,6 @@ class IslandState:
         self.cd_total_sec: int = 1500
         self.cd_mode: str = "focus"
 
-        # 独立【正向秒表轨道】真实状态
         self.sw_is_running: bool = False
         self.sw_is_paused: bool = False
         self.sw_elapsed_sec: int = 0
@@ -137,6 +132,13 @@ class IslandState:
         self.ime_label: str = "英"
         self.ime_icon_url: str = ""
         self.ime_menu_items: List[Dict[str, Any]] = []
+
+        # 11. 🚀 隐私与硬件录制指示器 (OBS / 麦克风采集)
+        self.recording_active: bool = False
+        self.recording_title: str = "麦克风"
+        self.recording_subtitle: str = "OBS Studio"
+        self.recording_icon_url: str = ""
+        self.recording_menu_items: List[Dict[str, Any]] = []
 
     def __enter__(self):
         self._lock.acquire()

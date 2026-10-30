@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/core/backend.py
-# 🌟 单一异步控制调度总线 (集成深层内存守卫版)
+# 🌟 单一异步控制调度总线 (集成录制驱动挂载版)
 # ==========================================
 import os
 import gc
@@ -23,14 +23,16 @@ from backend.modules.system import SystemModule
 from backend.modules.timer import TimerModule
 from backend.modules.voice import VoiceInputModule
 from backend.modules.ime import ImeModule
+from backend.modules.recording import RecordingModule
 
 
 class DirectIslandBackend:
     """系统级异步单一事实源控制核心"""
 
-    def __init__(self, bridge, image_provider=None):
+    def __init__(self, bridge, image_provider=None, image_provider_rec=None):
         self.bridge = bridge
         self.image_provider = image_provider
+        self.image_provider_rec = image_provider_rec
         self.state = IslandState()
         self.session_bus: Optional[MessageBus] = None
         self.modules: List[BaseModule] = []
@@ -45,6 +47,7 @@ class DirectIslandBackend:
         self.timer: Optional[TimerModule] = None
         self.voice: Optional[VoiceInputModule] = None
         self.ime: Optional[ImeModule] = None
+        self.recording: Optional[RecordingModule] = None
 
     def broadcast(self, event_type: str = "UPDATE"):
         if self.bridge:
@@ -80,6 +83,7 @@ class DirectIslandBackend:
         self.timer = TimerModule(self, self.state)
         self.voice = VoiceInputModule(self, self.state)
         self.ime = ImeModule(self, self.state, self.session_bus)
+        self.recording = RecordingModule(self, self.state, self.session_bus)
 
         self.modules = [
             self.workspace,
@@ -91,6 +95,7 @@ class DirectIslandBackend:
             self.timer,
             self.voice,
             self.ime,
+            self.recording,
         ]
 
         init_tasks = [mod.start() for mod in self.modules]
@@ -99,31 +104,18 @@ class DirectIslandBackend:
             if isinstance(res, Exception):
                 app_logger.error(f"模块 [{mod.__class__.__name__}] 启动异常: {res}")
 
-        # 🚀 启动系统内存自净守卫
         self.loop.create_task(self._memory_watchdog_loop())
 
         self.broadcast("FULL_SYNC")
-        app_logger.info("✨ 所有原生硬件驱动、计时引擎与语音识别管道接入完毕。")
+        app_logger.info("✨ 所有原生硬件驱动、计时引擎、输入法与录制嗅探管道接入完毕。")
 
     async def _memory_watchdog_loop(self):
-        """深层内存守卫：每小时深度 GC 清理，保障 7x24 续航"""
-        try:
-            import psutil
-            process = psutil.Process(os.getpid())
-        except ImportError:
-            process = None
-
         while True:
-            await asyncio.sleep(3600)  # 每 1 小时触发一次
+            await asyncio.sleep(3600)
             try:
-                collected = gc.collect()
-                msg = f"🛡️ [系统守卫] 后台深度 GC 清理完成. 释放幽灵对象: {collected}"
-                if process:
-                    mem_mb = process.memory_info().rss / (1024 * 1024)
-                    msg += f", 当前常驻内存(RSS): {mem_mb:.1f} MB"
-                app_logger.info(msg)
-            except Exception as e:
-                app_logger.debug(f"[系统守卫] 内存回收异常: {e}")
+                gc.collect()
+            except Exception:
+                pass
 
     async def shutdown(self):
         app_logger.info("🛑 正在卸载后端服务...")
