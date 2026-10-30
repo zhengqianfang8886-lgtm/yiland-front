@@ -1,7 +1,7 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (极速跟手 · 零粘滞退场 · 纯净日历与超时联动版)
-// ==========================================
+// 🌟 顶级窗口视图 (高灵敏过道捕获 · 零死角下探唤醒版)
+// =========================================================================
 import QtQuick
 import QtQuick.Controls
 import "../core"
@@ -12,10 +12,15 @@ Item {
     id: root
     width: 680
     height: 480
-
     focus: true
 
     readonly property bool isGridActive: (typeof Bridge !== "undefined" && Bridge.isGridActive !== undefined) ? Bridge.isGridActive : false
+
+    onIsGridActiveChanged: {
+        if (isGridActive) {
+            fsm.handleIntent("COLLAPSE", { source: "Grid_Active_Force_Collapse" });
+        }
+    }
 
     opacity: isGridActive ? 0.0 : 1.0
     visible: opacity > 0.001
@@ -118,37 +123,30 @@ Item {
             fsm.handleIntent("USER_ACTIVE", { source: "Hover_Enter" });
         } else {
             if (fsm.currentState !== IslandFsm.State.Expanded) {
-                // 移出后立即启动短延迟防抖
                 userLeaveDebounce.restart();
             }
         }
     }
 
-    // =========================================================================
-    // 顶部外围走廊感应区 (边缘收紧 · 杜绝无形区域阻碍鼠标退出)
-    // =========================================================================
+    // 🌟【核心调优】：将隐藏时的过道感应宽扩充至 300px，高度增至 14px，光标一碰秒级激活
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-
-        // 🚀【优化 1】：从原先多出的 24px 缩减至紧凑贴合的 6px，鼠标滑出胶囊立即判定离开
-        width: capsule ? Math.max(180, capsule.width + 6) : 220
-
+        width: capsule ? Math.max(300, capsule.width + 12) : 320
         property bool isRightPressing: false
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
         enabled: !isExpanded && !root.isGridActive
-        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 10 : (capsule ? Math.round(capsule.y + capsule.height + 4) : 44))
+        height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 14 : (capsule ? Math.round(capsule.y + capsule.height + 4) : 46))
 
         z: 5
         hoverEnabled: true
         acceptedButtons: Qt.RightButton
 
-        // 🚀【优化 2】：将原先 500ms 的死等，削减到极度跟手的 100ms！
         Timer {
             id: userLeaveDebounce
-            interval: (fsm && fsm.isTuckedPreference) ? 90 : 120
+            interval: (fsm && fsm.isTuckedPreference) ? 70 : 90 // 提升离场灵敏度
             repeat: false
             onTriggered: {
                 if (fsm.currentState !== IslandFsm.State.Expanded && !root.isUserHovering) {

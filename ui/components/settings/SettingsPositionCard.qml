@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/settings/SettingsPositionCard.qml
-// 🌟 悬浮位置与胶囊高度调控卡片
+// 🌟 悬浮位置与胶囊高度调控卡片 (集成深潜隐形开关)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -25,7 +25,7 @@ Rectangle {
             Text { text: "悬浮几何与物理高度档位"; color: "#38bdf8"; font.pixelSize: 12; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
         }
 
-        // 🚀【核心：胶囊高度档位选择】
+        // 胶囊高度档位选择
         Column {
             width: parent.width
             spacing: 6
@@ -132,6 +132,31 @@ Rectangle {
                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                 checked: (typeof Config !== "undefined" && Config.hoverExpandEnabled !== undefined) ? Config.hoverExpandEnabled : true
                 onToggled: if (typeof Config !== "undefined") Config.hoverExpandEnabled = checked
+            }
+        }
+
+        Rectangle { width: parent.width; height: 1; color: Qt.rgba(1, 1, 1, 0.08) }
+
+        // 🚀【新增：深潜完全隐形开关】
+        Item {
+            width: parent.width; height: 36
+            Column {
+                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: 2
+                Row {
+                    spacing: 6
+                    Text { text: "👻"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "深潜完全隐形 (Stealth Mode)"; color: "white"; font.pixelSize: 11; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                }
+                Text {
+                    text: "隐藏时彻底消除边缘微缝与呼吸光，鼠标推至顶端仍可顺畅唤醒"
+                    color: Qt.rgba(1, 1, 1, 0.45); font.pixelSize: 9
+                }
+            }
+
+            Switch {
+                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                checked: (typeof Config !== "undefined" && Config.stealthTuckEnabled !== undefined) ? Config.stealthTuckEnabled : false
+                onToggled: if (typeof Config !== "undefined") Config.stealthTuckEnabled = checked
             }
         }
     }

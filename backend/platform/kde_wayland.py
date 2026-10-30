@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/platform/kde_wayland.py
-# 🌟 KDE Plasma Wayland 专属驱动 (KWin 系统 Dock 面板定性 · 平铺网格彻底免疫版)
+# 🌟 KDE 5 & 6 Plasma Wayland 专属驱动 (集成 KWin 原生激活与聚焦版)
 # ==========================================
 import os
 import time
@@ -29,15 +29,13 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
 
     @property
     def platform_name(self) -> str:
-        return "KDE Plasma Wayland (Anti-Fullscreen Hijack)"
+        return "KDE Plasma Wayland (Zero-Focus Overlay Dock)"
 
-    # 找到 get_window_flags 方法，将其修改为：
     def get_window_flags(self) -> Qt.WindowType:
         return (
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            # Qt.WindowType.BypassWindowManagerHint |
-            Qt.WindowType.WindowDoesNotAcceptFocus |   # 🚀 告诉底层：不论怎么点，绝不抢夺用户焦点
+            Qt.WindowType.WindowDoesNotAcceptFocus |
             Qt.WindowType.SplashScreen
         )
 
@@ -58,7 +56,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("Description", "Alcove Island HUD Shield"),
             ("wmclass", "alcove-island"),
             ("wmclassmatch", "1"),
-            # 🚀【核心定性】：声明窗口类型为 Dock 面板 (type=2)，平铺网格在内核层面直接跳过面板
             ("types", "2"),
             ("typesrule", "2"),
             ("layer", "overlay"),
@@ -81,10 +78,10 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("skipoverviewrule", "2"),
             ("noborder", "true"),
             ("noborderrule", "2"),
-            ("acceptfocus", "true"),
-            ("acceptfocusrule", "0"),
+            ("acceptfocus", "false"),
+            ("acceptfocusrule", "2"),
             ("fsplevel", "0"),
-            ("fsplevelrule", "0"),
+            ("fsplevelrule", "2"),
         ]
 
         try:
@@ -96,7 +93,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             if qdbus_bin:
                 subprocess.run([qdbus_bin, "org.kde.KWin", "/KWin", "org.kde.KWin.reconfigure"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.3)
-            app_logger.info("✅ KWin 磁盘规则已刷新 (系统 Dock 面板定性激活 · 彻底屏蔽网格缩略图)")
+            app_logger.info("✅ KWin 磁盘规则已刷新 (KDE 5 零焦点防扰规则生效)")
         except Exception as e:
             app_logger.debug(f"[KDE Wayland] 清洗 KWin 规则异常: {e}")
 
@@ -151,7 +148,7 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                     break
 
             def _cleanup_script():
-                time.sleep(3.0)
+                time.sleep(2.0)
                 if qdbus_bin:
                     subprocess.run(
                         [qdbus_bin, "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting.unloadScript", unique_name],
@@ -203,53 +200,21 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                 }
 
                 if (isTarget) {
-                    // 🚀【核心赋值】：让 KWin 判定其为不可缩放的系统 Dock/Panel
-                    try {
-                        if (typeof c.dock !== "undefined") c.dock = true;
-                    } catch(e) {}
-
+                    try { if (typeof c.dock !== "undefined") c.dock = true; } catch(e) {}
                     c.onAllDesktops = true;
                     c.keepAbove = true;
                     c.skipTaskbar = true;
                     c.skipPager = true;
                     c.skipSwitcher = true;
+                    if (typeof c.skipOverview !== "undefined") c.skipOverview = true;
 
-                    if (typeof c.skipOverview !== "undefined") {
-                        c.skipOverview = true;
-                    }
-
-                    function lockDown() {
-                        try {
-                            if (typeof c.fullScreen !== "undefined") c.fullScreen = false;
-                            if (typeof c.quickTileMode !== "undefined" && c.quickTileMode !== 0) {
-                                c.quickTileMode = 0;
-                            }
-                        } catch(e) {}
-                        try {
-                            if (typeof c.frameGeometry !== "undefined") {
-                                c.frameGeometry = { x: targetX, y: targetY, width: targetW, height: targetH };
-                            }
-                        } catch(e) {}
-                        try {
-                            if (typeof c.geometry !== "undefined") {
-                                c.geometry = { x: targetX, y: targetY, width: targetW, height: targetH };
-                            }
-                        } catch(e) {}
-                        c.keepAbove = true;
-                    }
-
-                    lockDown();
-
-                    if (typeof c.quickTileModeChanged !== "undefined") {
-                        c.quickTileModeChanged.connect(lockDown);
-                    }
-                    if (typeof c.frameGeometryChanged !== "undefined") {
-                        c.frameGeometryChanged.connect(function() {
-                            if (c.x !== targetX || c.y !== targetY) {
-                                lockDown();
-                            }
-                        });
-                    }
+                    try {
+                        if (typeof c.frameGeometry !== "undefined") {
+                            c.frameGeometry = { x: targetX, y: targetY, width: targetW, height: targetH };
+                        } else if (typeof c.geometry !== "undefined") {
+                            c.geometry = { x: targetX, y: targetY, width: targetW, height: targetH };
+                        }
+                    } catch(e) {}
                     return true;
                 }
                 return false;
@@ -260,22 +225,6 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             for (var i = 0; i < list.length; i++) {
                 configureClient(list[i]);
             }
-
-            function onExternalFullScreen(client) {
-                for (var j = 0; j < list.length; j++) {
-                    configureClient(list[j]);
-                }
-            }
-
-            if (typeof workspace.clientFullScreenSet !== "undefined") {
-                workspace.clientFullScreenSet.connect(onExternalFullScreen);
-            }
-            if (typeof workspace.windowAdded !== "undefined") {
-                workspace.windowAdded.connect(configureClient);
-            }
-            if (typeof workspace.clientAdded !== "undefined") {
-                workspace.clientAdded.connect(configureClient);
-            }
         })();
         """
         kwin_js = (template
@@ -285,68 +234,13 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
                    .replace("__TARGET_W__", str(width))
                    .replace("__TARGET_H__", str(height)))
 
-        threading.Thread(target=self._execute_kwin_script, args=(kwin_js, "alcove_position"), daemon=True).start()
+        threading.Thread(target=self._execute_kwin_script, args=(kwin_js, "alcove_pos"), daemon=True).start()
 
     def acquire_interaction_focus(self, view: QQuickView):
-        my_pid = os.getpid()
-        template = """
-        (function() {
-            var targetPid = __TARGET_PID__;
-            var list = (typeof workspace.windowList === "function") ? workspace.windowList() : 
-                       ((typeof workspace.clientList === "function") ? workspace.clientList() : []);
-            for (var i = 0; i < list.length; i++) {
-                var w = list[i];
-                if (w && w.pid === targetPid) {
-                    if (typeof workspace.activeWindow !== "undefined") workspace.activeWindow = w;
-                    else if (typeof workspace.activeClient !== "undefined") workspace.activeClient = w;
-                    break;
-                }
-            }
-        })();
-        """
-        activate_js = template.replace("__TARGET_PID__", str(my_pid))
-        threading.Thread(target=self._execute_kwin_script, args=(activate_js, "alcove_acquire_focus"), daemon=True).start()
-        view.requestActivate()
+        pass
 
     def restore_previous_focus(self, view: QQuickView):
-        my_pid = os.getpid()
-        template = """
-        (function() {
-            var targetPid = __TARGET_PID__;
-            var curDesk = (typeof workspace.currentVirtualDesktop !== "undefined") ? workspace.currentVirtualDesktop : 
-                          ((typeof workspace.currentDesktop !== "undefined") ? workspace.currentDesktop : null);
-
-            var list = (typeof workspace.stackingOrder === "function") ? workspace.stackingOrder() :
-                       ((typeof workspace.windowList === "function") ? workspace.windowList() : []);
-
-            for (var j = list.length - 1; j >= 0; j--) {
-                var w = list[j];
-                if (!w || (w.pid && w.pid === targetPid) || w.minimized || w.skipTaskbar) continue;
-
-                var onCurrent = false;
-                if (w.onAllDesktops) {
-                    onCurrent = true;
-                } else if (typeof w.isOnDesktop === "function" && curDesk !== null) {
-                    onCurrent = w.isOnDesktop(curDesk);
-                } else if (typeof w.desktops !== "undefined" && curDesk !== null && Array.isArray(w.desktops)) {
-                    onCurrent = (w.desktops.indexOf(curDesk) !== -1);
-                } else if (typeof w.desktop !== "undefined" && curDesk !== null) {
-                    onCurrent = (w.desktop === curDesk);
-                }
-
-                if (onCurrent) {
-                    if (typeof workspace.activeWindow !== "undefined") {
-                        workspace.activeWindow = w;
-                    } else if (typeof workspace.activeClient !== "undefined") {
-                        workspace.activeClient = w;
-                    }
-                    break;
-                }
-            }
-        })();
-        """
-        restore_js = template.replace("__TARGET_PID__", str(my_pid))
-        threading.Thread(target=self._execute_kwin_script, args=(restore_js, "alcove_restore_focus"), daemon=True).start()
+        pass
 
     def apply_input_mask(self, view: QQuickView, x: int, y: int, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
@@ -366,8 +260,44 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
     def stop_clipboard_monitor(self) -> None:
         pass
 
+    # 🚀【核心补全】：通过原生 KWin 脚本精准唤醒并聚焦指定外部应用窗口
     def focus_application_window(self, class_pattern: str, title_pattern: str) -> bool:
-        return False
+        cls_p = (class_pattern or "").lower()
+        title_p = (title_pattern or "").lower()
+
+        focus_js = f"""
+        (function() {{
+            var clsTarget = "{cls_p}";
+            var titleTarget = "{title_p}";
+
+            var list = (typeof workspace.windowList === "function") ? workspace.windowList() : 
+                       ((typeof workspace.clientList === "function") ? workspace.clientList() : []);
+
+            for (var i = 0; i < list.length; i++) {{
+                var c = list[i];
+                if (!c) continue;
+                var cls = (c.resourceClass || c.desktopFileName || "").toString().toLowerCase();
+                var cap = (c.caption || "").toString().toLowerCase();
+
+                var matched = false;
+                if (clsTarget && cls.indexOf(clsTarget) !== -1) matched = true;
+                if (!matched && titleTarget && cap.indexOf(titleTarget) !== -1) matched = true;
+
+                if (matched) {{
+                    c.minimized = false;
+                    if (typeof workspace.activeWindow !== "undefined") {{
+                        workspace.activeWindow = c;
+                    }} else if (typeof workspace.activeClient !== "undefined") {{
+                        workspace.activeClient = c;
+                    }}
+                    return true;
+                }}
+            }}
+            return false;
+        }})();
+        """
+        threading.Thread(target=self._execute_kwin_script, args=(focus_js, "alcove_focus"), daemon=True).start()
+        return True
 
     def simulate_shortcut(self, key_combination: str) -> bool:
         return False

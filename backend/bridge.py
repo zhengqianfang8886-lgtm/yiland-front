@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt / QML 统一交互中枢 (已彻底剔除 OSD 弹窗信号)
+# 🌟 Qt / QML 统一交互中枢 (补齐 Teams 通话/窗口控制通道)
 # ==========================================
 import atexit
 import asyncio
@@ -36,7 +36,7 @@ class IslandBridge(QObject):
     audioSpectrumUpdated = Signal(float, float, float, float)
     dominantColorUpdated = Signal(str)
 
-    # 硬件与按键状态 (已移除 osdTriggered 信号)
+    # 硬件与按键状态
     hardwareMuteStateChanged = Signal(bool, bool)
     volumeChanged = Signal(int)
     brightnessChanged = Signal(int)
@@ -153,7 +153,6 @@ class IslandBridge(QObject):
 
     @Slot(int, str)
     def activateImeMenuItem(self, item_id: int, unique_name: str = ""):
-        print(f"\033[33;1m[Bridge] 收到前端 activateImeMenuItem(id={item_id}, unique_name='{unique_name}')\033[0m")
         if self._backend and self._backend.ime:
             self.run_async(self._backend.ime.activate_menu_item(item_id, unique_name))
 
@@ -179,10 +178,7 @@ class IslandBridge(QObject):
     @Property(bool, notify=batteryUpdated)
     def isSystemCharging(self): return self._backend.state.battery_charging if self._backend else False
 
-    # =========================================================================
-    # 定时器双轨独立属性 (支持前端同时展示)
-    # =========================================================================
-    # --- 兼容视图属性 ---
+    # --- 计时器属性 ---
     @Property(str, notify=timerUpdated)
     def timerType(self): return self._backend.state.timer_type if self._backend else "countdown"
 
@@ -216,7 +212,7 @@ class IslandBridge(QObject):
     @Property(list, notify=timerUpdated)
     def timerLaps(self): return self._backend.state.timer_laps if self._backend else []
 
-    # --- 🚀 独立【倒计时轨】专有属性 ---
+    # 独立双轨
     @Property(bool, notify=timerUpdated)
     def cdActive(self):
         s = self._backend.state if self._backend else None
@@ -240,7 +236,6 @@ class IslandBridge(QObject):
     @Property(str, notify=timerUpdated)
     def cdMode(self): return self._backend.state.cd_mode if self._backend else "focus"
 
-    # --- 🚀 独立【正向秒表轨】专有属性 ---
     @Property(bool, notify=timerUpdated)
     def swActive(self):
         s = self._backend.state if self._backend else None
@@ -255,10 +250,8 @@ class IslandBridge(QObject):
     @Property(int, notify=timerUpdated)
     def swElapsedSec(self): return self._backend.state.sw_elapsed_sec if self._backend else 0
 
-    # --- 槽函数 ---
     @Slot(str)
     def resetSpecificTimer(self, track_type: str):
-        """精准重置某一轨 (countdown 或 stopwatch)"""
         if self._backend and self._backend.timer:
             self.run_async(self._backend.timer.reset_specific(track_type))
 
@@ -290,19 +283,18 @@ class IslandBridge(QObject):
     # =========================================================================
     @Slot()
     def toggleIme(self):
-        print("\033[33;1m[Bridge] 收到前端 toggleIme() 槽函数调用\033[0m")
         if self._backend and self._backend.ime:
             self.run_async(self._backend.ime.toggle())
 
     @Slot(str)
     def switchImeTo(self, im_name: str):
-        print(f"\033[33;1m[Bridge] 收到前端 switchImeTo('{im_name}')\033[0m")
         if self._backend and self._backend.ime:
             self.run_async(self._backend.ime.switch_to_im(im_name))
 
     @Slot()
     def openImeConfig(self):
-        if self._backend and self._backend.ime: self.run_async(self._backend.ime.open_config())
+        if self._backend and self._backend.ime:
+            self.run_async(self._backend.ime.open_config())
 
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
@@ -325,19 +317,23 @@ class IslandBridge(QObject):
     @Slot(int)
     @Slot(str)
     def switchWorkspace(self, target):
-        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace(target))
+        if self._backend and self._backend.workspace:
+            self.run_async(self._backend.workspace.switch_workspace(target))
 
     @Slot()
     def switchWorkspacePrev(self):
-        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace("prev"))
+        if self._backend and self._backend.workspace:
+            self.run_async(self._backend.workspace.switch_workspace("prev"))
 
     @Slot()
     def switchWorkspaceNext(self):
-        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.switch_workspace("next"))
+        if self._backend and self._backend.workspace:
+            self.run_async(self._backend.workspace.switch_workspace("next"))
 
     @Slot()
     def toggleDesktopGrid(self):
-        if self._backend and self._backend.workspace: self.run_async(self._backend.workspace.toggle_desktop_grid())
+        if self._backend and self._backend.workspace:
+            self.run_async(self._backend.workspace.toggle_desktop_grid())
 
     @Slot(str)
     def sendMediaCmd(self, action: str):
@@ -348,39 +344,64 @@ class IslandBridge(QObject):
 
     @Slot(str, str)
     def focusMediaWindow(self, title="", artist=""):
-        if self._backend and self._backend.mpris: self.run_async(self._backend.mpris.raise_player())
+        if self._backend and self._backend.mpris:
+            self.run_async(self._backend.mpris.raise_player())
+
+    # --- 🚀 修复补齐的 Teams 通话与窗口管理 Slot ---
+    @Slot()
+    def answerTeamsCall(self):
+        if self._backend and self._backend.notifications:
+            self.run_async(self._backend.notifications.answer_call())
+
+    @Slot()
+    def rejectTeamsCall(self):
+        if self._backend and self._backend.notifications:
+            self.run_async(self._backend.notifications.reject_call())
+
+    @Slot()
+    def focusTeamsWindow(self):
+        if self._backend and self._backend.notifications:
+            self.run_async(self._backend.notifications.focus_teams())
 
     @Slot(str)
     def switchTimerType(self, t_type: str):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.switch_type(t_type))
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.switch_type(t_type))
 
     @Slot()
     def toggleTimerPause(self):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.toggle_pause())
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.toggle_pause())
 
     @Slot(int, str)
     def startTimerPreset(self, sec: int, mode: str):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.start_preset(sec, mode))
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.start_preset(sec, mode))
 
     @Slot(int)
     def adjustTimerTime(self, delta_sec: int):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.adjust_time(delta_sec))
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.adjust_time(delta_sec))
 
     @Slot()
     def recordTimerLap(self):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.record_lap())
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.record_lap())
 
     @Slot()
     def resetTimer(self):
-        if self._backend and self._backend.timer: self.run_async(self._backend.timer.reset())
+        if self._backend and self._backend.timer:
+            self.run_async(self._backend.timer.reset())
 
     @Slot()
     def toggleVoiceInput(self):
-        if self._backend and self._backend.voice: self.run_async(self._backend.voice.toggle_recording())
+        if self._backend and self._backend.voice:
+            self.run_async(self._backend.voice.toggle_recording())
 
     @Slot()
     def stopVoiceInput(self):
-        if self._backend and self._backend.voice: self.run_async(self._backend.voice.stop_recording())
+        if self._backend and self._backend.voice:
+            self.run_async(self._backend.voice.stop_recording())
 
     @Slot()
     def dismissOverlay(self):
@@ -390,13 +411,16 @@ class IslandBridge(QObject):
 
     @Slot(bool)
     def setUiActive(self, active: bool):
-        if self._backend: self._backend.set_ui_active(active)
+        if self._backend:
+            self._backend.set_ui_active(active)
 
     @Slot(str, bool, result=dict)
-    def getWorldTime(self, tz_name, is_24h=True): return get_world_time(tz_name, is_24h)
+    def getWorldTime(self, tz_name, is_24h=True):
+        return get_world_time(tz_name, is_24h)
 
     @Slot(str, result=str)
-    def getTzOffsetStr(self, tz_name): return get_tz_offset_str(tz_name)
+    def getTzOffsetStr(self, tz_name):
+        return get_tz_offset_str(tz_name)
 
     @Slot(result="QVariantMap")
     def getSystemHealth(self):
@@ -411,19 +435,24 @@ class IslandBridge(QObject):
         }
 
     @Slot()
-    def openSystemMonitor(self): self.wm.open_system_monitor()
+    def openSystemMonitor(self):
+        self.wm.open_system_monitor()
 
     @Slot()
-    def forceRaise(self): self.view.raise_()
+    def forceRaise(self):
+        self.view.raise_()
 
     @Slot()
-    def openFullCorridorForMotion(self): self.wm.clear_mask()
+    def openFullCorridorForMotion(self):
+        self.wm.clear_mask()
 
     @Slot(int, int, int, int)
-    def applySettledMask(self, x: int, y: int, w: int, h: int): self.wm.set_precise_bounding_mask(x, y, w, h)
+    def applySettledMask(self, x: int, y: int, w: int, h: int):
+        self.wm.set_precise_bounding_mask(x, y, w, h)
 
     @Slot()
-    def setPassthrough(self): self.wm.set_passthrough()
+    def setPassthrough(self):
+        self.wm.set_passthrough()
 
     @Slot()
     def requestWindowFocus(self):

@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位自动化排版引擎 (修复 QML 单行解析 Bug 版)
+// 🌟 槽位自动化排版引擎 (解决微囊展开抖动 · 离散稳态宽度加固版)
 // ==========================================
 import QtQuick
 import "../components/capsule"
@@ -25,8 +25,8 @@ Item {
 
     readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying)
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount > 0) ? compactRoot.relay.unreadCount : 0
-    readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined)
-    readonly property bool isImeMenuOpen: typeof imePill !== "undefined" ? imePill.isMenuOpen : false
+    readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Bridge.isImeActive : false
+    readonly property bool isImeMenuOpen: imePill ? imePill.isMenuOpen : false
 
     // 双轨计时状态
     readonly property bool hasCountdown: (typeof Bridge !== "undefined") && Bridge.cdActive
@@ -51,7 +51,12 @@ Item {
     readonly property int slotLeftWidth: (typeof Config !== "undefined" && Config.showWorkspaceName !== false) 
         ? Math.max(38, wsLabel.implicitWidth + 16) : 0
 
-    // 🚀【自动化槽位引擎】：直接利用 QML Row 的原生排版能力
+    readonly property int slotNoticeWidth: compactRoot.unreadNoticeCount > 0 ? (compactRoot.unreadNoticeCount >= 10 ? 40 : 34) : 0
+    readonly property int slotMusicWidth: compactRoot.isMusicPlaying ? 40 : 0
+    readonly property int slotNetSpeedWidth: (typeof Config !== "undefined" && Config.showNetSpeed !== false) ? 56 : 0
+    readonly property int slotImeWidth: compactRoot.isImeActive ? 26 : 0
+
+    // 🚀【核心重构：使用各槽位稳态目标宽度计算 naturalWidth，彻底终结动画抖动】
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
@@ -70,8 +75,17 @@ Item {
         }
 
         var total = 20 + clockView.implicitWidth;
-        if (leftSlot.width > 0) total += (leftSlot.width + 5); 
-        if (rightSlotGroup.width > 0) total += (rightSlotGroup.width + 5);
+        if (compactRoot.slotLeftWidth > 0) total += (compactRoot.slotLeftWidth + 5);
+
+        var rightTotal = 0;
+        if (compactRoot.slotCdWidth > 0) rightTotal += (compactRoot.slotCdWidth + 4);
+        if (compactRoot.slotSwWidth > 0) rightTotal += (compactRoot.slotSwWidth + 4);
+        if (compactRoot.slotNetSpeedWidth > 0) rightTotal += (compactRoot.slotNetSpeedWidth + 4);
+        if (compactRoot.slotImeWidth > 0) rightTotal += (compactRoot.slotImeWidth + 4);
+        if (compactRoot.slotNoticeWidth > 0) rightTotal += (compactRoot.slotNoticeWidth + 4);
+        if (compactRoot.slotMusicWidth > 0) rightTotal += (compactRoot.slotMusicWidth + 4);
+
+        if (rightTotal > 0) total += rightTotal + 5;
 
         return Math.ceil(total / 4.0) * 4;
     }
@@ -82,7 +96,6 @@ Item {
     Item {
         id: normalViewContainer
         anchors.fill: parent
-        clip: true
         visible: opacity > 0.001
 
         opacity: !compactRoot.hasActiveTransient ? 1.0 : 0.0
@@ -164,9 +177,7 @@ Item {
                 displayPeriod: compactRoot.timeService ? compactRoot.timeService.displayPeriod : ""
             }
 
-            // =================================================================
-            // 🚀 右侧自动化槽位 (Slot Engine)：微囊增删全自动流式响应
-            // =================================================================
+            // 右侧流式插槽组
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
@@ -246,12 +257,12 @@ Item {
                 CompactImeView {
                     id: imePill
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: isImeActive
+                    visible: compactRoot.isImeActive
                 }
 
                 FluidPill {
                     id: noticePill
-                    targetWidth: compactRoot.unreadNoticeCount > 0 ? (compactRoot.unreadNoticeCount >= 10 ? 40 : 34) : 0
+                    targetWidth: compactRoot.slotNoticeWidth
                     pillColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
                     hoverColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32)
                     pressColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45)
@@ -282,7 +293,7 @@ Item {
 
                 FluidPill {
                     id: musicPill
-                    targetWidth: compactRoot.isMusicPlaying ? 40 : 0
+                    targetWidth: compactRoot.slotMusicWidth
                     readonly property color themeColor: {
                         if (compactRoot.relay && compactRoot.relay.dominantColor) return compactRoot.relay.dominantColor;
                         return "#22c55e";
@@ -370,7 +381,6 @@ Item {
         }
     }
 
-    // 🚀【组件安全包裹区：每个 Component 严格独立分行，杜绝解析崩溃】
     Component {
         id: compWs
         CompactWorkspaceView {

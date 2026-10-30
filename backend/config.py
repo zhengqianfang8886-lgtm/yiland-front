@@ -17,7 +17,6 @@ DEFAULT_SAVED_CLOCKS = [
     {"name": "东京", "en": "Tokyo", "country": "日本", "iso": "JP", "tz": "Asia/Tokyo"}
 ]
 
-# 🚀 已剔除 "hardware"
 DEFAULT_TAB_ORDER = [
     "workspace", "media", "calendar",
     "timer", "clock", "notification"
@@ -47,6 +46,7 @@ CONFIG_SCHEMA = {
     "animStyle": {"default": "precision", "val": lambda v: str(v) if v in ("precision", "jelly") else "precision"},
     "hoverDwellTime": {"default": 240, "val": lambda v: max(50, min(2000, int(v)))},
     "hoverExpandEnabled": {"default": True, "val": lambda v: bool(v)},
+    "stealthTuckEnabled": {"default": False, "val": lambda v: bool(v)},  # 🚀 完全隐形深潜配置项
     "autoHideDurationSeconds": {"default": 5, "val": lambda v: max(1, min(60, int(v)))},
     "tabOrder": {"default": DEFAULT_TAB_ORDER, "val": lambda v: list(v)},
     "showWorkspaceTab": {"default": True, "val": lambda v: bool(v)},
@@ -84,6 +84,7 @@ class ConfigManager(QObject):
     animStyleChanged = Signal(str)
     hoverDwellTimeChanged = Signal(int)
     hoverExpandEnabledChanged = Signal(bool)
+    stealthTuckEnabledChanged = Signal(bool)  # 🚀 信号
     autoHideDurationSecondsChanged = Signal(int)
     tabOrderChanged = Signal(list)
     showWorkspaceTabChanged = Signal(bool)
@@ -137,7 +138,6 @@ class ConfigManager(QObject):
                     val = meta["val"](raw_val) if "val" in meta else raw_val
                     setattr(self, f"_{key}", val)
 
-            # 过滤剔除历史配置残留中的无效选项
             self._tabOrder = [t for t in self._tabOrder if t in DEFAULT_TAB_ORDER]
             for item in DEFAULT_TAB_ORDER:
                 if item not in self._tabOrder:
@@ -297,6 +297,12 @@ class ConfigManager(QObject):
     def hoverExpandEnabled(self): return self._hoverExpandEnabled
     @hoverExpandEnabled.setter
     def hoverExpandEnabled(self, val): self._set_value("hoverExpandEnabled", val, self.hoverExpandEnabledChanged)
+
+    # 🚀【新增】：深潜完全隐形开关属性
+    @Property(bool, notify=stealthTuckEnabledChanged)
+    def stealthTuckEnabled(self): return self._stealthTuckEnabled
+    @stealthTuckEnabled.setter
+    def stealthTuckEnabled(self, val): self._set_value("stealthTuckEnabled", val, self.stealthTuckEnabledChanged)
 
     @Property(int, notify=autoHideDurationSecondsChanged)
     def autoHideDurationSeconds(self): return self._autoHideDurationSeconds

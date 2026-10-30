@@ -1,7 +1,7 @@
-// =========================================================================
+// ==========================================
 // 📄 File: ui/components/capsule/CapsuleBackground.qml
-// 🌟 胶囊背景材质层 (集成沉浸深潜光效与入眠反馈版)
-// =========================================================================
+// 🌟 纯正黑曜石材质 (卡扣落锁微脉冲·克制1px微光·支持完全隐形深潜)
+// ==========================================
 import QtQuick
 
 Item {
@@ -14,7 +14,11 @@ Item {
     property bool isHovered: false
     property bool isTucked: false
 
+    property real pullY: 0.0
+    property bool isTriggerPrimed: false
+
     readonly property bool hasAccent: accentColor.a > 0.001
+    readonly property bool isStealth: (typeof Config !== "undefined" && Config.stealthTuckEnabled)
 
     property real modePulseOpacity: 0.0
     property color modePulseColor: "#ffffff"
@@ -30,7 +34,6 @@ Item {
         }
     }
 
-    // 🚀【入眠闪光反馈】：右键触发锁定时，边框瞬间闪烁紫罗兰色
     SequentialAnimation {
         id: tuckFlashAnim
         NumberAnimation { target: bgRoot; property: "tuckFlashOpacity"; to: 1.0; duration: 40; easing.type: Easing.OutQuad }
@@ -43,35 +46,44 @@ Item {
     }
 
     function triggerTuckFlash() {
-        tuckFlashAnim.restart()
+        if (!bgRoot.isStealth) {
+            tuckFlashAnim.restart()
+        }
     }
 
-    // 1. 实体黑底
+    // 1. 实体纯黑曜石底壳
     Rectangle {
+        id: mainBody
         anchors.fill: parent
         radius: bgRoot.capsuleRadius
         color: "#08090d"
         antialiasing: true
         smooth: true
 
-        border.color: bgRoot.hasAccent ? 
-                      Qt.rgba(bgRoot.accentColor.r, bgRoot.accentColor.g, bgRoot.accentColor.b, 0.35) : 
-                      Qt.rgba(255, 255, 255, 0.12)
+        border.color: {
+            if (bgRoot.isTriggerPrimed) return Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.65);
+            if (bgRoot.hasAccent) return Qt.rgba(bgRoot.accentColor.r, bgRoot.accentColor.g, bgRoot.accentColor.b, 0.45);
+            return Qt.rgba(255, 255, 255, 0.14);
+        }
         border.width: 1
+
+        Behavior on border.color { ColorAnimation { duration: 100 } }
     }
 
-    // 2. 内部高光内衬
+    // 2. 内部微倒角微光
     Rectangle {
         anchors.fill: parent
         anchors.margins: 1
         radius: Math.max(0, bgRoot.capsuleRadius - 1)
         color: "transparent"
-        border.color: Qt.rgba(255, 255, 255, 0.05)
+        border.color: bgRoot.isTriggerPrimed ? Qt.rgba(168 / 255, 85 / 255, 247 / 255, 0.20) : Qt.rgba(255, 255, 255, 0.05)
         border.width: 1
         antialiasing: true
+
+        Behavior on border.color { ColorAnimation { duration: 100 } }
     }
 
-    // 3. 常态触感光环
+    // 3. 常态触感脉冲环
     Rectangle {
         anchors.fill: parent
         radius: bgRoot.capsuleRadius
@@ -83,34 +95,32 @@ Item {
         antialiasing: true
     }
 
-    // 4. 入眠锁定闪光环 (紫罗兰色禅模式)
+    // 4. 入眠锁定闪光环 (完全隐形模式下保持静默)
     Rectangle {
         anchors.fill: parent
         radius: bgRoot.capsuleRadius
         color: "transparent"
-        border.color: "#a855f7" 
+        border.color: "#a855f7"
         border.width: 1.5
-        opacity: bgRoot.tuckFlashOpacity
+        opacity: (!bgRoot.isStealth) ? bgRoot.tuckFlashOpacity : 0.0
         visible: opacity > 0.01
         antialiasing: true
     }
 
-    // 5. 🚀【深潜呼吸灯】：仅在隐藏态下于底部 6px 细缝处浮现的呼吸光带
+    // 5. 深潜微缝呼吸带 (隐形模式下彻底隐藏)
     Rectangle {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 0
         anchors.horizontalCenter: parent.horizontalCenter
         height: 2
         radius: 1
-        color: "#818cf8" // 靛蓝色静谧光带
-        
-        // 宽度动态展开
-        width: bgRoot.isTucked ? Math.min(42, parent.width * 0.35) : 0
+        color: "#818cf8"
+        visible: bgRoot.isTucked && !bgRoot.isStealth
+        width: visible ? Math.min(42, parent.width * 0.35) : 0
         Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
 
-        // 呼吸动画
         SequentialAnimation on opacity {
-            running: bgRoot.isTucked
+            running: bgRoot.visible && bgRoot.isTucked && !bgRoot.isStealth
             loops: Animation.Infinite
             NumberAnimation { to: 0.85; duration: 1600; easing.type: Easing.InOutSine }
             NumberAnimation { to: 0.15; duration: 1600; easing.type: Easing.InOutSine }

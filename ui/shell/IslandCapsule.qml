@@ -1,7 +1,7 @@
-// ==========================================
+// =========================================================================
 // 📄 File: ui/shell/IslandCapsule.qml
-// 🌟 灵动岛主壳体 (整岛非对称流体气化退场 · 绝不挤字版)
-// ==========================================
+// 🌟 灵动岛主壳体 (280px宽域感应 · 深度下探唤醒 · 极度敏感版)
+// =========================================================================
 import QtQuick
 import "../core"
 import "../views"
@@ -36,11 +36,21 @@ Item {
         }
     }
 
+    readonly property real pullOffset: {
+        if (!sensorArea || capsuleRoot.isCurrentExpanded) return 0.0;
+        return (sensorArea.isPullingDown || sensorArea.visualPullY > 0.1) ? Math.max(0.0, sensorArea.visualPullY) : 0.0;
+    }
+
     width: Math.max(140, motionPod.currentWidth)
     height: Math.max(currentConfigHeight, motionPod.currentHeight)
-    y: motionPod.currentY
+
+    y: motionPod.currentY + capsuleRoot.pullOffset
+
     anchors.horizontalCenter: parent.horizontalCenter
     anchors.horizontalCenterOffset: islandOffsetX
+
+    scale: (capsuleRoot.isRightPressing) ? 0.95 : 1.0
+    Behavior on scale { NumberAnimation { duration: 100 } }
 
     function resolveAndExpress() {
         if (!fsm) return;
@@ -55,10 +65,11 @@ Item {
 
         switch (fsm.currentState) {
             case IslandFsm.State.Hidden:
+                var isStealth = (typeof Config !== "undefined" && Config.stealthTuckEnabled);
                 tW = 140; 
                 tH = currentConfigHeight; 
                 tR = Math.round(tH / 2);
-                tY = -(tH - 2.5); // 只露 2.5px 微缝
+                tY = isStealth ? -(tH + 2) : -(tH - 2.5);
                 route = "TWEAK";
                 break;
 
@@ -79,12 +90,7 @@ Item {
                 tH = 240; 
                 tR = 24;
                 tY = normalTopMargin;
-
-                if (isActuallySubmerged) {
-                    route = "EMERGE_AND_EXPAND";
-                } else {
-                    route = "TWEAK";
-                }
+                route = isActuallySubmerged ? "EMERGE_AND_EXPAND" : "TWEAK";
                 break;
         }
 
@@ -125,19 +131,20 @@ Item {
         }
     }
 
+    // 🌟【核心修复】：将隐藏时的物理感应宽域由 140px 大幅扩至 280px，深度增至 14px，光标一甩立即下来
     function executeActualMaskCommit() {
         if (typeof Bridge === "undefined") return;
 
-        if (capsuleRoot.isCurrentExpanded || (compactView && compactView.isImeMenuOpen)) {
+        if (capsuleRoot.isCurrentExpanded || (compactView && compactView.isImeMenuOpen) || (sensorArea && sensorArea.isPullingDown)) {
             Bridge.openFullCorridorForMotion();
             return;
         }
 
-        var safePadH = 6;
+        var safePadH = 8;
         if (fsm && fsm.currentState === IslandFsm.State.Hidden) {
-            var tuckW = 140;
+            var tuckW = 280; // 宽域感应，即使鼠标略微偏航也能被灵敏接住
             var tuckX = Math.round((parent.width - tuckW) / 2 + islandOffsetX);
-            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 8);
+            Bridge.applySettledMask(Math.max(0, tuckX - safePadH), 0, tuckW + safePadH * 2, 7);
             return;
         }
 
@@ -155,6 +162,17 @@ Item {
         }
     }
 
+    Connections {
+        target: sensorArea
+        function onIsPullingDownChanged() {
+            if (sensorArea.isPullingDown && typeof Bridge !== "undefined") {
+                Bridge.openFullCorridorForMotion();
+            } else {
+                capsuleRoot.executeActualMaskCommit();
+            }
+        }
+    }
+
     HoverHandler {
         id: capsuleGlobalHover
         blocking: false
@@ -165,6 +183,17 @@ Item {
         id: bg
         isTucked: fsm ? (fsm.currentState === IslandFsm.State.Hidden) : false
         capsuleRadius: motionPod.currentRadius
+        pullY: capsuleRoot.pullOffset
+        isTriggerPrimed: sensorArea ? sensorArea.isTriggerPrimed : false
+
+        opacity: (isTucked && (typeof Config !== "undefined" && Config.stealthTuckEnabled)) ? 0.0 : 1.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: 180
+                easing.type: Easing.OutCubic
+            }
+        }
+
         accentColor: {
             if (fsm && fsm.activePayload && fsm.activePayload.color) {
                 return fsm.activePayload.color;
@@ -176,9 +205,6 @@ Item {
         }
     }
 
-    // =========================================================================
-    // 🚀【整岛流体编排核心】：内容先气化，岛壳后收拢；岛壳到位，内容绽放
-    // =========================================================================
     Item {
         id: compactContainer
         anchors.fill: parent
@@ -187,7 +213,6 @@ Item {
         visible: opacity > 0.001
         enabled: !capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden)
 
-        // 当大岛正在剧烈变长/变短时，内容先微缩蒸发，绝不在变形中被挤扁
         readonly property bool shouldDisplayContent: (!capsuleRoot.isCurrentExpanded && (fsm && fsm.currentState !== IslandFsm.State.Hidden))
 
         opacity: shouldDisplayContent ? 1.0 : 0.0
@@ -241,7 +266,6 @@ Item {
         }
     }
 
-    // 大卡片展开容器
     Item {
         id: expandedContainer
         anchors.fill: parent
@@ -256,14 +280,12 @@ Item {
 
         Behavior on opacity {
             NumberAnimation {
-                // 🚀 展开时放缓到 220ms，收起时 50ms 闪退
                 duration: capsuleRoot.isCurrentExpanded ? 220 : 50 
                 easing.type: Easing.InOutQuad
             }
         }
         Behavior on scale {
             NumberAnimation {
-                // 🚀 缩放紧跟外壳的 OutQuint 流体曲线
                 duration: capsuleRoot.isCurrentExpanded ? 340 : 60
                 easing.type: Easing.OutQuint
             }

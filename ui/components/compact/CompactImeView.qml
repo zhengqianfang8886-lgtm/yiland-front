@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/components/compact/CompactImeView.qml
-// 🌟 系统原生级输入法组件 (彻底消除半透明黑底 · 纯净通透版)
+// 🌟 系统原生级输入法组件 (Portal 模式 · 彻底免疫父级 clip 剪裁)
 // ==========================================
 import QtQuick
 import QtQuick.Controls
@@ -23,6 +23,15 @@ Item {
         menuPopup.close();
     }
 
+    // 向上寻找顶级根节点，挂载 Popup 彻底防剪裁
+    function getRootItem() {
+        var p = imeRoot;
+        while (p && p.parent) {
+            p = p.parent;
+        }
+        return p;
+    }
+
     Connections {
         target: (typeof Bridge !== "undefined") ? Bridge : null
         function onWindowDeactivated() {
@@ -30,7 +39,6 @@ Item {
         }
     }
 
-    // 胶囊本体按钮
     Rectangle {
         id: imeBox
         anchors.centerIn: parent
@@ -108,6 +116,14 @@ Item {
                         if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
                             Bridge.openFullCorridorForMotion();
                         }
+                        // 动态计算绝对坐标，以防溢出
+                        var rootObj = imeRoot.getRootItem();
+                        if (rootObj) {
+                            var pt = imeBox.mapToItem(rootObj, 0, imeBox.height + 8);
+                            menuPopup.parent = rootObj;
+                            menuPopup.x = Math.max(8, Math.min(rootObj.width - menuPopup.width - 8, pt.x - (menuPopup.width / 2)));
+                            menuPopup.y = pt.y;
+                        }
                         menuPopup.open();
                     }
                 }
@@ -116,20 +132,18 @@ Item {
     }
 
     // =========================================================================
-    // 1. 一级主菜单 (彻底关闭黑底遮罩 dim: false)
+    // 1. 一级主菜单 (Portal 模式渲染)
     // =========================================================================
     Popup {
         id: menuPopup
-        y: imeBox.height + 8
-        x: Math.round((imeBox.width - width) / 2)
         width: 204
         padding: 6
         modal: true
-        dim: false            // 🚀 核心修复：彻底关闭背景变暗变黑！
+        dim: false
         focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        z: 9999
 
-        // 覆盖默认模态背景为纯透明，不产生任何黑影
         Overlay.modal: Item {}
 
         onClosed: {
@@ -222,7 +236,12 @@ Item {
                             onEntered: {
                                 var hasKids = modelData.children && modelData.children.length > 0;
                                 if (modelData.hasSubmenu && hasKids) {
-                                    subPopup.openSubmenu(modelData.id, modelData.children, rowItem.y);
+                                    var rootObj = imeRoot.getRootItem();
+                                    if (rootObj) {
+                                        var pt = rowItem.mapToItem(rootObj, 0, 0);
+                                        subPopup.parent = rootObj;
+                                        subPopup.openSubmenu(modelData.id, modelData.children, pt.x, pt.y);
+                                    }
                                 } else {
                                     subPopup.close();
                                 }
@@ -231,7 +250,12 @@ Item {
                             onClicked: {
                                 var hasKids = modelData.children && modelData.children.length > 0;
                                 if (modelData.hasSubmenu && hasKids) {
-                                    subPopup.openSubmenu(modelData.id, modelData.children, rowItem.y);
+                                    var rootObj = imeRoot.getRootItem();
+                                    if (rootObj) {
+                                        var pt = rowItem.mapToItem(rootObj, 0, 0);
+                                        subPopup.parent = rootObj;
+                                        subPopup.openSubmenu(modelData.id, modelData.children, pt.x, pt.y);
+                                    }
                                 } else {
                                     imeRoot.closeAllMenus();
                                     if (typeof Bridge !== "undefined" && Bridge.activateImeMenuItem) {
@@ -247,27 +271,33 @@ Item {
     }
 
     // =========================================================================
-    // 2. 二级子菜单
+    // 2. 二级子菜单 (Portal 模式渲染)
     // =========================================================================
     Popup {
         id: subPopup
-        x: (menuPopup.x + menuPopup.width + width + 4 <= 680) ? (menuPopup.x + menuPopup.width + 4) : (menuPopup.x - width - 4)
-        y: menuPopup.y + anchorY
         width: 188
         padding: 6
         modal: false
-        dim: false            // 🚀 关闭遮罩变暗
+        dim: false
         focus: false
         closePolicy: Popup.CloseOnEscape
+        z: 10000
 
         property int parentItemId: -1
         property var items: []
-        property real anchorY: 0
 
-        function openSubmenu(itemId, subItems, targetY) {
+        function openSubmenu(itemId, subItems, targetX, targetY) {
             parentItemId = itemId;
             items = subItems;
-            anchorY = targetY;
+            var rootObj = imeRoot.getRootItem();
+            var screenW = rootObj ? rootObj.width : 680;
+
+            if (targetX + menuPopup.width + width + 4 <= screenW) {
+                x = targetX + menuPopup.width + 4;
+            } else {
+                x = targetX - width - 4;
+            }
+            y = targetY;
             open();
         }
 
