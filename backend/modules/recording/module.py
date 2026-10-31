@@ -1,11 +1,11 @@
 # ==========================================
 # 📄 File: backend/modules/recording/module.py
-# 🌟 原生录制与 OBS 驱动中枢 (精准生命周期即时销毁版)
+# 🌟 原生录制与 OBS 驱动中枢 (多轨仲裁·结构化生命周期追踪版)
 # ==========================================
 import asyncio
 from typing import Optional, List, Dict, Any
 from dbus_next.aio import MessageBus
-from dbus_next import Message, MessageType
+from dbus_next import Message
 
 from backend.logger import app_logger
 from backend.core.base import BaseModule
@@ -27,6 +27,7 @@ class RecordingModule(BaseModule):
 
         self._active_streams: List[Dict[str, Any]] = []
         self._icon_rev: int = 0
+        self._last_arbitration_sig: str = ""
 
     async def start(self) -> None:
         self._running = True
@@ -37,8 +38,8 @@ class RecordingModule(BaseModule):
             await self._setup_listeners()
             await self.sni_client.discover()
 
-        await self._sync_state_internal()
-        app_logger.info("✅ 原生录制与 OBS 托盘驱动已就绪 (支持退出即时消融)")
+        await self._sync_state_internal("Init")
+        app_logger.info("✅ 原生录制与 OBS 驱动就绪 (已装载三位一体自愈判定体系)")
 
     async def stop(self) -> None:
         self._running = False
@@ -48,22 +49,22 @@ class RecordingModule(BaseModule):
 
     def _on_audio_streams_callback(self, streams: List[Dict[str, Any]]):
         self._active_streams = streams
-        self._schedule_debounced()
+        self._schedule_debounced("AudioStreamsChanged")
 
-    def _schedule_debounced(self):
+    def _schedule_debounced(self, trigger_source: str = "Unknown"):
         if not self._running or not self._loop or not self._loop.is_running():
             return
-        self._loop.call_soon_threadsafe(self._do_schedule)
+        self._loop.call_soon_threadsafe(self._do_schedule, trigger_source)
 
-    def _do_schedule(self):
+    def _do_schedule(self, trigger_source: str):
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
-        self._debounce_task = self._loop.create_task(self._debounced_sync())
+        self._debounce_task = self._loop.create_task(self._debounced_sync(trigger_source))
 
-    async def _debounced_sync(self):
+    async def _debounced_sync(self, trigger_source: str):
         try:
             await asyncio.sleep(0.015)
-            await self._sync_state_internal()
+            await self._sync_state_internal(trigger_source)
         except asyncio.CancelledError:
             pass
 
@@ -85,60 +86,52 @@ class RecordingModule(BaseModule):
                 pass
 
         def on_dbus_signal(msg: Message):
-            # 1. SNI 项注册或注销
+            # 1. 托盘注销或注册
             if msg.member in ("StatusNotifierItemRegistered", "StatusNotifierItemUnregistered"):
                 async def _on_reg_change():
-                    # 如果注销的正好是我们的对象
                     if msg.member == "StatusNotifierItemUnregistered" and msg.body:
                         unreg_str = str(msg.body[0])
-                        if self.sni_client.sni_dest and self.sni_client.sni_dest in unreg_str:
-                            self.sni_client.reset()
+                        # 如果注销项匹配当前绑定的通用名或唯一名
+                        if (self.sni_client.sni_dest and self.sni_client.sni_dest in unreg_str) or \
+                           (self.sni_client.sni_unique_owner and self.sni_client.sni_unique_owner in unreg_str):
+                            self.sni_client.reset(f"收到 StatusNotifierItemUnregistered 信号 ({unreg_str})")
 
                     await self.sni_client.discover()
-                    self._schedule_debounced()
+                    self._schedule_debounced("DBus_SNI_Watcher_Change")
 
                 self._loop.create_task(_on_reg_change())
 
-            # 2. 图标变更
+            # 2. 状态/图标更新
             elif msg.member in ("NewIcon", "NewStatus"):
-                self._schedule_debounced()
+                self._schedule_debounced("DBus_SNI_Icon_Or_Status")
 
-            # 3. 🚀【核心修复 2】：精确追踪 OBS 匿名代号进程退出
+            # 3. 🚀【架构关键 6】：D-Bus 进程死亡双向鉴权
             elif msg.member == "NameOwnerChanged" and msg.body:
                 name = str(msg.body[0])
+                old_owner = str(msg.body[1])
                 new_owner = str(msg.body[2])
 
-                is_bound_target = bool(self.sni_client.sni_dest and name == self.sni_client.sni_dest)
+                # 只要是绑定的通用名、唯一所有者名，或者名字带有 OBS 的进程消亡
+                is_bound_dest = (self.sni_client.sni_dest and name == self.sni_client.sni_dest)
+                is_bound_owner = (self.sni_client.sni_unique_owner and name == self.sni_client.sni_unique_owner)
                 is_named_obs = any(k in name.lower() for k in ("obs", "obsproject"))
 
-                if is_bound_target or is_named_obs:
+                if is_bound_dest or is_bound_owner or is_named_obs:
                     if not new_owner:
-                        # 进程彻底消亡，瞬间物理断开
-                        self.sni_client.reset()
-                    self._schedule_debounced()
+                        self.sni_client.reset(f"收到 NameOwnerChanged: {name} 失去持有人 (退出/崩溃)")
+                    self._schedule_debounced("DBus_NameOwnerChanged")
 
         self.bus.add_message_handler(on_dbus_signal)
 
-    async def _sync_state_internal(self):
-        # 🚀【核心修复 3】：主动发起探针，彻底确认目标 D-Bus 服务是否真的活着
-        if self.sni_client.sni_dest and self.bus:
-            try:
-                r = await self.bus.call(
-                    Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
-                            interface="org.freedesktop.DBus", member="NameHasOwner",
-                            signature="s", body=[self.sni_client.sni_dest])
-                )
-                if r.message_type != MessageType.ERROR and r.body:
-                    if not bool(r.body[0]):
-                        self.sni_client.reset()
-            except Exception:
-                self.sni_client.reset()
+    async def _sync_state_internal(self, trigger_source: str = "Debounced"):
+        # 1. 物理主动核验 SNI 存活状态 (双重鉴权)
+        await self.sni_client.verify_liveness()
 
-        # 整理音频采音流
+        # 2. 梳理音频流
         seen = set()
         parsed_items = []
         for out in self._active_streams:
-            key = f"{out['is_obs']}_{out['type']}"
+            key = f"{out.get('is_obs')}_{out.get('type')}"
             if key in seen:
                 continue
             seen.add(key)
@@ -147,10 +140,15 @@ class RecordingModule(BaseModule):
         obs_in_streams = any(it.get("is_obs", False) for it in parsed_items)
         obs_is_present = obs_in_streams or self.sni_client.is_registered
 
+        # 3. 如果只是后台静默托盘（没有采集音频），追加占位项
         if self.sni_client.is_registered and not obs_in_streams:
             parsed_items.append({
-                "id": 9999, "title": "系统后台驻留", "subtitle": "OBS Studio",
-                "type": "tray", "icon": "✇", "is_obs": True
+                "id": 9999,
+                "title": "系统后台驻留",
+                "subtitle": "OBS Studio",
+                "type": "tray",
+                "icon": "✇",
+                "is_obs": True
             })
 
         is_active = len(parsed_items) > 0
@@ -164,7 +162,19 @@ class RecordingModule(BaseModule):
                     self._icon_rev += 1
             obs_icon_url = f"image://tray/obs?r={self._icon_rev}"
 
-        # 🚀【核心修复 4】：OBS 退出后，原子状态全部归零
+        # 4. 🚀【架构关键 7：结构化状态对账追踪日志】
+        # 仅在状态真正发生变化时打印，确保日志清晰，零刷屏
+        sig = f"active:{is_active}|stream_obs:{obs_in_streams}|sni_reg:{self.sni_client.is_registered}|items:{len(parsed_items)}"
+        if sig != self._last_arbitration_sig:
+            self._last_arbitration_sig = sig
+            app_logger.info(
+                f"📊 [REC-STATE-ARBITRATION] 触发源: [{trigger_source}] -> "
+                f"最终呈现: {'[活跃]' if is_active else '[消失]'} | "
+                f"音频流判活: {obs_in_streams} (流总数: {len(self._active_streams)}) | "
+                f"SNI托盘判活: {self.sni_client.is_registered} (Dest: {self.sni_client.sni_dest}, PID: {self.sni_client.sni_pid})"
+            )
+
+        # 5. 原子落盘
         self.state.batch_update(
             recording_active=is_active,
             recording_items=parsed_items,
@@ -191,4 +201,4 @@ class RecordingModule(BaseModule):
             await self.focus_window()
             return
         await self.sni_client.activate_menu_item(item_id)
-        self._schedule_debounced()
+        self._schedule_debounced("MenuAction")

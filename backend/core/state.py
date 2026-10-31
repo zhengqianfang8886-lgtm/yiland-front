@@ -59,12 +59,10 @@ class IslandState:
         self.is_caps_lock: bool = False
         self.is_num_lock: bool = False
 
-        # 5. 电源与硬件
+        # 5. 电源与硬件 (🚀 已剥离内存监控，接入 CPU)
         self.battery_pct: int = 100
         self.battery_charging: bool = False
-        self.memory_percent: int = 0
-        self.memory_used_gb: str = "0.0G"
-        self.memory_total_gb: str = "0.0G"
+        self.cpu_percent: int = 0
 
         # 6. 网络状态
         self.net_down_speed: str = "0.0 B/s"
@@ -133,12 +131,8 @@ class IslandState:
         self.ime_icon_url: str = ""
         self.ime_menu_items: List[Dict[str, Any]] = []
 
-        # 🚀【双轨录制状态声明】
-        # 轨道 1: 红色采音/录屏隐私指示器
         self.recording_active: bool = False
         self.recording_items: List[Dict[str, Any]] = []
-
-        # 轨道 2: OBS 独立托盘与真实右键菜单
         self.obs_running: bool = False
         self.obs_icon_url: str = ""
         self.obs_menu_items: List[Dict[str, Any]] = []

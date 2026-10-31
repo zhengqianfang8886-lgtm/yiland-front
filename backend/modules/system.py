@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/system.py
-# 🌟 原生系统硬件监视驱动 (消除冗余实现 · 原子提交加固版)
+# 🌟 原生系统硬件监视驱动 (btop 同款 CPU 算法版)
 # ==========================================
 import os
 import glob
@@ -26,8 +26,11 @@ class SystemModule(BaseModule):
         self._bat_capacity_path: Optional[str] = None
         self._bat_status_path: Optional[str] = None
 
-        self._proc_meminfo = None
         self._net_sampler: Optional[NetlinkSpeedSampler] = None
+
+        # 🚀 CPU 采样差值缓存
+        self._last_cpu_total = 0
+        self._last_cpu_idle = 0
 
     def set_active(self, active: bool) -> None:
         super().set_active(active)
@@ -44,14 +47,9 @@ class SystemModule(BaseModule):
         self.state.local_ip = self._get_local_ip()
         self._net_sampler = NetlinkSpeedSampler(window_span_sec=1.0, socket_timeout=0.08)
 
-        try:
-            self._proc_meminfo = open("/proc/meminfo", "r", encoding="ascii", errors="ignore")
-        except OSError:
-            pass
-
         self._wake_event.set()
         self._task = asyncio.create_task(self._monitor_loop())
-        app_logger.info("✅ 系统硬件与结构化 Netlink 网速监视引擎已就绪")
+        app_logger.info("✅ 系统硬件与 btop 级 CPU 监视引擎已就绪")
 
     async def stop(self) -> None:
         self._running = False
@@ -66,12 +64,6 @@ class SystemModule(BaseModule):
         if self._net_sampler:
             self._net_sampler.close()
             self._net_sampler = None
-
-        if self._proc_meminfo:
-            try:
-                self._proc_meminfo.close()
-            except OSError:
-                pass
 
     def _refresh_hw_paths(self):
         self._caps_paths = glob.glob("/sys/class/leds/*capslock*/brightness")
@@ -97,7 +89,6 @@ class SystemModule(BaseModule):
                 if not self._running:
                     break
 
-                # 1. 键盘锁 (每 500ms 采样一次)
                 caps_on = any(self._read_led(p) for p in self._caps_paths)
                 num_on = any(self._read_led(p) for p in self._num_paths)
                 if self.state.is_caps_lock != caps_on or self.state.is_num_lock != num_on:
@@ -106,31 +97,24 @@ class SystemModule(BaseModule):
 
                 tick += 1
 
-                # 2. 内核 Netlink STATS64 平滑采样 (严格每 1.0 秒更新)
                 if tick % 2 == 0 and self._net_sampler:
                     rx_rate, tx_rate = self._net_sampler.tick()
                     d_meta = format_speed_structured(rx_rate)
                     u_meta = format_speed_structured(tx_rate)
 
-                    # 判断是否有必要推流
                     if (self.state.net_down_compact != d_meta["compact"] or 
                         self.state.net_up_compact != u_meta["compact"]):
-                        
                         self.state.batch_update(
-                            net_down_speed=d_meta["full"],
-                            net_down_val=d_meta["val"],
-                            net_down_unit=d_meta["unit"],
-                            net_down_compact=d_meta["compact"],
-                            net_up_speed=u_meta["full"],
-                            net_up_val=u_meta["val"],
-                            net_up_unit=u_meta["unit"],
-                            net_up_compact=u_meta["compact"]
+                            net_down_speed=d_meta["full"], net_down_val=d_meta["val"], net_down_unit=d_meta["unit"], net_down_compact=d_meta["compact"],
+                            net_up_speed=u_meta["full"], net_up_val=u_meta["val"], net_up_unit=u_meta["unit"], net_up_compact=u_meta["compact"]
                         )
                         self.notify("NET_SPEED_UPDATE")
 
-                # 3. 内存与电池 (每 3 秒更新)
+                # 🚀 每 1.0 秒执行 CPU 高精度采样
+                if tick % 2 == 0:
+                    self._poll_cpu()
+
                 if tick % 6 == 0:
-                    self._poll_memory()
                     self._poll_battery()
 
                 await asyncio.sleep(0.5)
@@ -148,42 +132,49 @@ class SystemModule(BaseModule):
         except OSError:
             return False
 
-    def _poll_memory(self):
-        if not self._proc_meminfo:
-            return
+    def _poll_cpu(self):
+        """🚀 btop 同款算法：直接从 /proc/stat 算差值，0 额外开销"""
         try:
-            self._proc_meminfo.seek(0)
-            total_kb, avail_kb = 0, 0
-            for line in self._proc_meminfo:
-                if line.startswith("MemTotal:"):
-                    total_kb = int(line.split()[1])
-                elif line.startswith("MemAvailable:"):
-                    avail_kb = int(line.split()[1])
-                    break
-            if total_kb > 0:
-                used_kb = total_kb - avail_kb
-                mem_pct = int((used_kb / total_kb) * 100)
-                if abs(self.state.memory_percent - mem_pct) >= 1:
-                    self.state.batch_update(
-                        memory_percent=mem_pct,
-                        memory_used_gb=f"{used_kb / 1048576:.1f}G",
-                        memory_total_gb=f"{total_kb / 1048576:.1f}G"
-                    )
-                    self.notify("MEMORY_UPDATE")
+            with open("/proc/stat", "r", encoding="ascii") as f:
+                line = f.readline()
+                if not line.startswith("cpu "):
+                    return
+                parts = line.split()[1:]
+                if len(parts) < 4:
+                    return
+
+                user, nice, sys, idle = map(int, parts[:4])
+                iowait = int(parts[4]) if len(parts) > 4 else 0
+                irq = int(parts[5]) if len(parts) > 5 else 0
+                softirq = int(parts[6]) if len(parts) > 6 else 0
+                steal = int(parts[7]) if len(parts) > 7 else 0
+
+                idle_time = idle + iowait
+                non_idle_time = user + nice + sys + irq + softirq + steal
+                total_time = idle_time + non_idle_time
+
+                if self._last_cpu_total > 0:
+                    total_delta = total_time - self._last_cpu_total
+                    idle_delta = idle_time - self._last_cpu_idle
+                    if total_delta > 0:
+                        cpu_pct = int(((total_delta - idle_delta) / total_delta) * 100.0)
+                        cpu_pct = max(0, min(100, cpu_pct))
+                        if self.state.cpu_percent != cpu_pct:
+                            self.state.cpu_percent = cpu_pct
+                            self.notify("CPU_UPDATE")
+
+                self._last_cpu_total = total_time
+                self._last_cpu_idle = idle_time
         except Exception:
             pass
 
     def _poll_battery(self):
-        if not self._bat_capacity_path:
-            return
+        if not self._bat_capacity_path: return
         try:
-            with open(self._bat_capacity_path, "r", encoding="ascii") as f:
-                cur_bat = int(f.read().strip())
+            with open(self._bat_capacity_path, "r", encoding="ascii") as f: cur_bat = int(f.read().strip())
             charging = False
             if self._bat_status_path:
-                with open(self._bat_status_path, "r", encoding="ascii") as f:
-                    charging = f.read(1).lower() in ("c", "f")
-
+                with open(self._bat_status_path, "r", encoding="ascii") as f: charging = f.read(1).lower() in ("c", "f")
             if self.state.battery_pct != cur_bat or self.state.battery_charging != charging:
                 self.state.batch_update(battery_pct=cur_bat, battery_charging=charging)
                 self.notify("BATTERY_UPDATE")

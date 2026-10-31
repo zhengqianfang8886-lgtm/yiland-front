@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/bridge.py
-# 🌟 Qt/QML 统一交互中枢门面 (极简无参信号·极致属性解耦版)
+# 🌟 Qt/QML 统一交互中枢门面
 # ==========================================
 from PySide6.QtCore import QObject, Signal, Slot, Property, Qt
 from backend.bridge_core import BridgeCore, WindowEventFilter
@@ -9,8 +9,6 @@ from backend.utils import get_world_time, get_tz_offset_str
 
 
 class IslandBridge(BridgeCore):
-    """QML 与 Python 后端统一总线门面"""
-
     # 媒体与声学
     mediaUpdated = Signal(str, str, str, str, float, float)
     progressUpdated = Signal(float, float, float)
@@ -34,29 +32,24 @@ class IslandBridge(BridgeCore):
     gridActiveChanged = Signal(bool)
 
     # 负载、网速、计时与暂态
-    memoryUpdated = Signal(int, str, str)
+    cpuUpdated = Signal(int)  # 🚀 CPU 专属信号
     netSpeedUpdated = Signal(str, str, str, str, str, str)
     batteryUpdated = Signal(int, bool)
     timerUpdated = Signal()
     overlayChanged = Signal()
 
-    # 语音输入
     voiceInputLevelChanged = Signal(float)
     voiceInputStateChanged = Signal(bool, str)
 
-    # 输入法
     imeUpdated = Signal(bool, str, str, str)
     imeMenuUpdated = Signal("QVariantList")
 
-    # 🚀【核心修复】：将录制更新信号简化为纯空信号，通过 QML 的 Property Binding 自动拉取，绝不抛错
     recordingUpdated = Signal()
 
     def __init__(self, view, config=None):
         super().__init__(view, config)
-
         self._notif_model.unreadCountChanged.connect(self.unreadCountChanged.emit)
         self._dispatcher = BridgeEventDispatcher(self)
-
         self._sig_inproc_event.connect(self._handle_inproc_event, Qt.ConnectionType.QueuedConnection)
         self._sig_spectrum_event.connect(self.audioSpectrumUpdated.emit, Qt.ConnectionType.QueuedConnection)
 
@@ -64,23 +57,16 @@ class IslandBridge(BridgeCore):
     def _handle_inproc_event(self, event_type: str, s):
         self._dispatcher.dispatch(event_type, s)
 
-    # =========================================================================
-    # 状态属性 (Data Binding Properties)
-    # =========================================================================
-    # --- 录制指示器 (多流支持) ---
+    # --- Properties ---
     @Property(bool, notify=recordingUpdated)
     def isRecordingActive(self): return self._state_val("recording_active", False)
-    
     @Property(str, notify=recordingUpdated)
     def recordingIcon(self): return self._state_val("recording_icon_url", "")
-    
     @Property(list, notify=recordingUpdated)
     def recordingItems(self): return self._state_val("recording_items", [])
-    
     @Property(list, notify=recordingUpdated)
     def recordingMenuList(self): return self._state_val("recording_menu_items", [])
 
-    # --- 输入法 ---
     @Property(bool, notify=imeUpdated)
     def isImeActive(self): return self._state_val("ime_active", False)
     @Property(str, notify=imeUpdated)
@@ -92,7 +78,6 @@ class IslandBridge(BridgeCore):
     @Property(list, notify=imeMenuUpdated)
     def imeMenuList(self): return self._state_val("ime_menu_items", [])
 
-    # --- 硬件与状态 ---
     @Property(bool, notify=gridActiveChanged)
     def isGridActive(self): return self._state_val("is_desktop_grid_active", False)
     @Property(int, notify=volumeChanged)
@@ -107,8 +92,12 @@ class IslandBridge(BridgeCore):
     def systemBattery(self): return self._state_val("battery_pct", 100)
     @Property(bool, notify=batteryUpdated)
     def isSystemCharging(self): return self._state_val("battery_charging", False)
+    
+    # 🚀 CPU 属性
+    @Property(int, notify=cpuUpdated)
+    def cpuPercent(self): return self._state_val("cpu_percent", 0)
 
-    # --- 计时器 ---
+    # 计时器相关
     @Property(str, notify=timerUpdated)
     def timerType(self): return self._state_val("timer_type", "countdown")
     @Property(bool, notify=timerUpdated)
@@ -156,7 +145,6 @@ class IslandBridge(BridgeCore):
     @Property(int, notify=timerUpdated)
     def swElapsedSec(self): return self._state_val("sw_elapsed_sec", 0)
 
-    # --- 打断、语音与模型 ---
     @Property("QVariantMap", notify=overlayChanged)
     def activeOverlay(self): return self._backend.state.get_overlay_dict() if self._backend else {}
     @Property(bool, notify=voiceInputStateChanged)
@@ -173,46 +161,32 @@ class IslandBridge(BridgeCore):
     @Property(str, notify=unreadCountChanged)
     def latestNotificationAvatar(self): return self._notif_model.latestAvatar
 
-    # =========================================================================
-    # 业务槽函数 (Action Slots)
-    # =========================================================================
-    # 桌面滚轮切换
+    # --- Actions ---
     @Slot()
     def switchWorkspacePrev(self):
         if self._backend and hasattr(self._backend, "workspace") and self._backend.workspace:
             self.run_async(self._backend.workspace.switch_workspace("prev"))
-
     @Slot()
     def switchWorkspaceNext(self):
         if self._backend and hasattr(self._backend, "workspace") and self._backend.workspace:
             self.run_async(self._backend.workspace.switch_workspace("next"))
-
     @Slot(int)
     @Slot(str)
     def switchWorkspace(self, target):
         if self._backend and hasattr(self._backend, "workspace") and self._backend.workspace:
             self.run_async(self._backend.workspace.switch_workspace(target))
-
     @Slot()
     def toggleDesktopGrid(self):
         if self._backend and hasattr(self._backend, "workspace") and self._backend.workspace:
             self.run_async(self._backend.workspace.toggle_desktop_grid())
 
-    # 录制控制 (完全对齐 IME 动作设计与按需懒加载)
     @Slot()
-    def toggleRecording(self): 
-        self._call_backend("recording", "focus_window")
-    
+    def toggleRecording(self): self._call_backend("recording", "focus_window")
     @Slot()
-    def refreshRecordingMenu(self):
-        """🚀【按需懒加载核心】：右键点击时瞬间拉取，平常绝不发送 D-Bus 请求"""
-        self._call_backend("recording", "fetch_menu_async")
-
+    def refreshRecordingMenu(self): self._call_backend("recording", "fetch_menu_async")
     @Slot(int)
-    def activateRecordingMenuItem(self, item_id: int): 
-        self._call_backend("recording", "activate_menu_item", item_id)
+    def activateRecordingMenuItem(self, item_id: int): self._call_backend("recording", "activate_menu_item", item_id)
         
-    # 输入法
     @Slot()
     def toggleIme(self): self._call_backend("ime", "toggle")
     @Slot(str)
@@ -224,33 +198,27 @@ class IslandBridge(BridgeCore):
     @Slot(int, str)
     def activateImeMenuItem(self, item_id: int, unique_name: str = ""): self._call_backend("ime", "activate_menu_item", item_id, unique_name)
 
-    # 硬件
     @Slot(int, int)
     def adjustHardware(self, mode: int, delta: int):
         target = "audio" if mode == 0 else "brightness"
         self._call_backend(target, "set_delta", delta)
-
     @Slot(int, int)
     def setHardware(self, mode: int, val: int):
         target = "audio" if mode == 0 else "brightness"
         action = "set_volume" if mode == 0 else "set_brightness"
         self._call_backend(target, action, val)
-
     @Slot(int)
     def toggleHardwareMute(self, mode: int):
         action = "toggle_mute" if mode == 0 else "toggle_mic_mute"
         self._call_backend("audio", action)
 
-    # 媒体播控
     @Slot(str)
     def sendMediaCmd(self, action: str):
         mapping = {"MEDIA_PLAY_PAUSE": "PlayPause", "MEDIA_NEXT": "Next", "MEDIA_PREV": "Previous"}
         self._call_backend("mpris", "control", mapping.get(action, action))
-
     @Slot(str, str)
     def focusMediaWindow(self, title="", artist=""): self._call_backend("mpris", "raise_player")
 
-    # 通话与通知
     @Slot()
     def answerTeamsCall(self): self._call_backend("notifications", "answer_call")
     @Slot()
@@ -258,7 +226,6 @@ class IslandBridge(BridgeCore):
     @Slot()
     def focusTeamsWindow(self): self._call_backend("notifications", "focus_teams")
 
-    # 计时器
     @Slot(str)
     def switchTimerType(self, t): self._call_backend("timer", "switch_type", t)
     @Slot()
@@ -274,7 +241,6 @@ class IslandBridge(BridgeCore):
     @Slot(str)
     def resetSpecificTimer(self, track: str): self._call_backend("timer", "reset_specific", track)
 
-    # 语音输入与覆盖层
     @Slot()
     def toggleVoiceInput(self): self._call_backend("voice", "toggle_recording")
     @Slot()
@@ -290,7 +256,6 @@ class IslandBridge(BridgeCore):
         if self._backend:
             self._backend.set_ui_active(active)
 
-    # 窗口物理掩码与聚焦操作 (直接转发 self.wm)
     @Slot()
     def forceRaise(self): self.view.raise_()
     @Slot()
@@ -328,7 +293,6 @@ class IslandBridge(BridgeCore):
         if hasattr(self.wm.platform, "restore_previous_focus"):
             self.wm.platform.restore_previous_focus(self.view)
 
-    # 全局纯计算工具
     @Slot(str, bool, result=dict)
     def getWorldTime(self, tz, is_24h=True): return get_world_time(tz, is_24h)
     @Slot(str, result=str)

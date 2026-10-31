@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位自动化排版视图 (物理掩码提权打通版)
+// 🌟 槽位自动化排版视图 (彻底修复 FluidSlotPod 新 API 属性报错版)
 // ==========================================
 import QtQuick
 import "../core"
@@ -36,9 +36,13 @@ Item {
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount !== undefined) ? Number(compactRoot.relay.unreadCount) : 0
     readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Boolean(Bridge.isImeActive) : false
 
-    // 🚀【核心机制】：向外暴露菜单展开状态！
-    // 将 IME 与 录制模块(OBS) 的状态合并暴露给外层 IslandCapsule 维持物理穿透掩码
-    readonly property bool isImeMenuOpen: (imeSlot && imeSlot.isMenuOpen) || (recPill && recPill.isMenuOpen)
+    // 🚀 统一暴露出所有内置了 D-Bus 级联菜单的组件状态
+    readonly property bool isAnyMenuOpen: (imeSlot && imeSlot.isMenuOpen) || 
+                                          (recSlot && recSlot.isMenuOpen) || 
+                                          (cpuSlot && cpuSlot.isMenuOpen)
+    
+    // 兼容外层引用的别名
+    readonly property bool isImeMenuOpen: isAnyMenuOpen
 
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
@@ -78,9 +82,10 @@ Item {
                 slotName: "工作区标识"
                 targetWidth: pipeline.wsWidth
                 gapSpacing: 5
-                podHeight: 22
-                podColor: Qt.rgba(255, 255, 255, 0.12)
-                podBorderColor: Qt.rgba(255, 255, 255, 0.22)
+                
+                // 🚀 使用新的 API
+                themeColor: "#ffffff"
+                showBackground: true
                 interactive: false
 
                 Text {
@@ -119,11 +124,10 @@ Item {
                     targetWidth: pipeline.cdWidth
                     gapSpacing: 4
                     readonly property bool isOvertime: (typeof Bridge !== "undefined" && Bridge.cdIsOvertime !== undefined) ? Boolean(Bridge.cdIsOvertime) : false
-                    podColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.10) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.08)
-                    hoverColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.18) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.14)
-                    pressColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.28) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.22)
-                    podBorderColor: isOvertime ? Qt.rgba(255 / 255, 69 / 255, 58 / 255, 0.50) : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.25)
-                    hoverBorderColor: isOvertime ? "#FF453A" : Qt.rgba(255 / 255, 159 / 255, 10 / 255, 0.65)
+                    
+                    // 🚀 使用新的 API
+                    themeColor: isOvertime ? "#FF453A" : ((typeof Bridge !== "undefined" && Bridge.cdMode === "break") ? "#30D158" : "#FF9F0A")
+                    showBackground: true
 
                     onClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.switchTimerType) Bridge.switchTimerType("countdown");
@@ -150,11 +154,10 @@ Item {
                     slotId: "stopwatch"
                     targetWidth: pipeline.swWidth
                     gapSpacing: 4
-                    podColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.10)
-                    hoverColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.18)
-                    pressColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.28)
-                    podBorderColor: Qt.rgba(56 / 255, 189 / 255, 248 / 255, 0.25)
-                    hoverBorderColor: "#38BDF8"
+                    
+                    // 🚀 使用新的 API
+                    themeColor: "#38BDF8"
+                    showBackground: true
 
                     onClicked: {
                         if (typeof Bridge !== "undefined" && Bridge.switchTimerType) Bridge.switchTimerType("stopwatch");
@@ -182,8 +185,7 @@ Item {
                     targetWidth: pipeline.netWidth
                     gapSpacing: 4
                     interactive: false
-                    podColor: "transparent"
-                    podBorderColor: "transparent"
+                    showBackground: false // 🚀 无背景色
 
                     CompactNetSpeedView {
                         anchors.centerIn: parent
@@ -195,35 +197,70 @@ Item {
                     }
                 }
 
-                // 🚀【挂载标识 ID】：录制微囊，暴露 recPill
+                // 🚀 CPU 高负载告警微囊
+                FluidSlotPod {
+                    id: cpuSlot
+                    slotId: "cpu"
+                    targetWidth: pipeline.cpuWidth
+                    gapSpacing: 4
+                    
+                    themeColor: innerCpu.riskColor
+                    showBackground: true
+                    
+                    onClicked: { 
+                        if (typeof Bridge !== "undefined") {
+                            Bridge.openFullCorridorForMotion(); 
+                            Bridge.openSystemMonitor(); 
+                        }
+                    }
+
+                    CompactCpuView {
+                        id: innerCpu
+                        fontFam: compactRoot.displayFont
+                        cpuPercent: (typeof Bridge !== "undefined" && Bridge.cpuPercent !== undefined) ? Number(Bridge.cpuPercent) : 0
+                    }
+                }
+
+                // 🚀 录制与 OBS 槽位
                 FluidSlotPod {
                     id: recSlot
                     slotId: "recording"
                     targetWidth: pipeline.recWidth
                     gapSpacing: 4
-                    interactive: false
-                    podColor: "transparent"
-                    podBorderColor: "transparent"
+                    
+                    themeColor: "#FF453A"
+                    showBackground: true
+                    
+                    menuItems: (typeof Bridge !== "undefined" && Bridge.recordingMenuList) ? Bridge.recordingMenuList : []
+                    
+                    onClicked: { if (typeof Bridge !== "undefined") Bridge.toggleRecording(); }
+                    onRightClicked: { if (typeof Bridge !== "undefined") Bridge.refreshRecordingMenu(); }
+                    onMenuItemTriggered: (itemId) => { if (typeof Bridge !== "undefined") Bridge.activateRecordingMenuItem(itemId); }
+                    
+                    onPointerEntered: recPill.showInfo(recSlot)
+                    onPointerExited: recPill.hideInfo()
 
-                    CompactRecordPill {
-                        id: recPill
-                        anchors.centerIn: parent
-                    }
+                    CompactRecordPill { id: recPill }
                 }
 
-                // 输入法
+                // 🚀 输入法槽位
                 FluidSlotPod {
-                    id: imeSlotWrapper
+                    id: imeSlot
                     slotId: "ime"
                     targetWidth: pipeline.imeWidth
                     gapSpacing: 4
-                    interactive: false
-                    podColor: "transparent"
-                    podBorderColor: "transparent"
+                    
+                    themeColor: "#ffffff"
+                    showBackground: true
+                    
+                    menuItems: (typeof Bridge !== "undefined" && Bridge.imeMenuList) ? Bridge.imeMenuList : []
+                    
+                    onClicked: { if (typeof Bridge !== "undefined") Bridge.toggleIme(); }
+                    onRightClicked: { if (typeof Bridge !== "undefined") Bridge.refreshImeMenu(); }
+                    onMenuItemTriggered: (itemId, label, uniqueName) => { if (typeof Bridge !== "undefined") Bridge.activateImeMenuItem(itemId, uniqueName || label); }
 
                     CompactImeView {
-                        id: imeSlot
-                        anchors.centerIn: parent
+                        fontFam: compactRoot.displayFont
                     }
                 }
 
@@ -233,11 +270,9 @@ Item {
                     slotId: "notification"
                     targetWidth: pipeline.noticeWidth
                     gapSpacing: 4
-                    podColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.22)
-                    hoverColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.32)
-                    pressColor: Qt.rgba(99 / 255, 102 / 255, 241 / 255, 0.45)
-                    podBorderColor: Qt.rgba(129 / 255, 140 / 255, 248 / 255, 0.6)
-                    hoverBorderColor: "#a5b4fc"
+                    
+                    themeColor: "#818CF8"
+                    showBackground: true
 
                     onClicked: {
                         if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "notification", source: "Click_NoticeSlot" });
@@ -267,13 +302,10 @@ Item {
                     slotId: "music"
                     targetWidth: pipeline.musicWidth
                     gapSpacing: 4
-                    readonly property color themeColor: (compactRoot.relay && compactRoot.relay.dominantColor !== undefined) ? compactRoot.relay.dominantColor : "#22c55e"
-
-                    podColor: Qt.rgba(255, 255, 255, 0.06)
-                    hoverColor: Qt.rgba(255, 255, 255, 0.12)
-                    pressColor: Qt.rgba(themeColor.r, themeColor.g, themeColor.b, 0.25)
-                    podBorderColor: Qt.rgba(255, 255, 255, 0.14)
-                    hoverBorderColor: themeColor
+                    
+                    readonly property color internalThemeColor: (compactRoot.relay && compactRoot.relay.dominantColor !== undefined) ? compactRoot.relay.dominantColor : "#22c55e"
+                    themeColor: internalThemeColor
+                    showBackground: true
 
                     onClicked: {
                         if (compactRoot.fsm) compactRoot.fsm.handleIntent("EXPAND", { tab: "media", source: "Click_MusicSlot" });
@@ -290,7 +322,7 @@ Item {
                             model: 5
                             Rectangle {
                                 width: 2.8; height: 14; radius: 1.4
-                                color: musicSlot.themeColor
+                                color: musicSlot.internalThemeColor
                                 anchors.verticalCenter: parent.verticalCenter
 
                                 transform: Scale {

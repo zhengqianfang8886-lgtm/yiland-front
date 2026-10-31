@@ -1,17 +1,13 @@
 # ==========================================
 # 📄 File: backend/bridge_events.py
-# 🌟 声明式事件路由派发器 (表驱动映射·自动泛型分发版)
+# 🌟 声明式事件路由派发器
 # ==========================================
 import time
 
-
 class BridgeEventDispatcher:
-    """数据驱动的后端状态到 Qt 信号派发中心"""
-
     def __init__(self, bridge):
         self.b = bridge
 
-        # 🚀 声明式简单信号映射表: EventName -> Lambda
         self._declarative_events = {
             "VOLUME_UPDATE": lambda s: (
                 self.b.volumeChanged.emit(s.volume),
@@ -22,7 +18,10 @@ class BridgeEventDispatcher:
                 self.b.capsLockChanged.emit(s.is_caps_lock),
                 self.b.numLockChanged.emit(s.is_num_lock)
             ),
-            "MEMORY_UPDATE": lambda s: self.b.memoryUpdated.emit(s.memory_percent, s.memory_used_gb, s.memory_total_gb),
+            
+            # 🚀 CPU 更新
+            "CPU_UPDATE": lambda s: self.b.cpuUpdated.emit(s.cpu_percent),
+            
             "NET_SPEED_UPDATE": lambda s: self.b.netSpeedUpdated.emit(
                 s.net_down_val, s.net_down_unit, s.net_up_val, s.net_up_unit, s.net_down_compact, s.net_up_compact
             ),
@@ -35,14 +34,10 @@ class BridgeEventDispatcher:
                                        str(getattr(s, "ime_name", "")), str(getattr(s, "ime_icon_url", ""))),
                 self.b.imeMenuUpdated.emit(getattr(s, "ime_menu_items", []))
             ),
-            
-            # 🚀【核心修复】：触发录制模块变动时，仅发送纯空信号。QML 引擎会自动重读所有带 notify=recordingUpdated 的 Properties！
             "RECORDING_UPDATE": lambda s: self.b.recordingUpdated.emit(),
-            
             "TEAMS_CALL_ENDED": lambda s: self.b.callEndedTriggered.emit(),
         }
 
-        # 具备复合逻辑的处理句柄
         self._complex_handlers = {
             "GRID_STATE_CHANGED": self._on_grid,
             "OVERLAY_CHANGED": self._on_overlay,
@@ -56,25 +51,21 @@ class BridgeEventDispatcher:
         }
 
     def dispatch(self, event_type: str, s):
-        # 1. 🚀 全自动捕获任意新模块通过 self.publish() 派发的动态更新，零配置直通！
         if event_type == "GENERIC_MODULE_UPDATE":
             mod_name = s.get("module", "")
             mod_data = s.get("data", {})
             self.b.moduleUpdated.emit(mod_name, mod_data)
             return
 
-        # 2. 声明式直接派发
         direct_action = self._declarative_events.get(event_type)
         if direct_action:
             direct_action(s)
             return
 
-        # 3. 复杂业务逻辑派发
         handler = self._complex_handlers.get(event_type)
         if handler:
             handler(s)
 
-    # --- 复合业务逻辑句柄 ---
     def _on_grid(self, s):
         self.b.gridActiveChanged.emit(s.is_desktop_grid_active)
         if s.is_desktop_grid_active:
@@ -129,7 +120,6 @@ class BridgeEventDispatcher:
             self.b.alertTriggered.emit(s.last_notify_icon or "💬", t_title, t_sub, 3500, avatar)
 
     def _on_full_sync(self, s):
-        """全量状态初次同步"""
         self._on_grid(s)
         self._on_media_update(s)
         self._on_workspace(s)

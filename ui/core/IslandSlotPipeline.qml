@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandSlotPipeline.qml
-// 🌟 声明式槽位注册与仲裁管线引擎 (红点与OBS合体版)
+// 🌟 声明式槽位注册与仲裁管线引擎 (新增 3 秒驻留防抖 CPU 模型版)
 // =========================================================================
 import QtQuick
 import "IslandLogger.js" as Logger
@@ -32,13 +32,62 @@ QtObject {
     readonly property bool netEnabled: (config && config.showNetSpeed !== false)
     readonly property int netWidth: netEnabled ? 56 : 0
 
-    // 🚀【核心合体】：录制微囊，如果包含 OBS 则宽 42px，否则纯红点宽 24px
     readonly property bool recActive: (bridge && bridge.isRecordingActive !== undefined) ? Boolean(bridge.isRecordingActive) : false
     readonly property bool hasObsIcon: (bridge && bridge.recordingIcon !== undefined && bridge.recordingIcon !== "")
-    readonly property int recWidth: recActive ? (hasObsIcon ? 54 : 28) : 0
+    readonly property int recWidth: recActive ? (hasObsIcon ? 58 : 28) : 0
 
     readonly property bool imeActive: (bridge && bridge.isImeActive)
-    readonly property int imeWidth: imeActive ? 26 : 0
+    readonly property int imeWidth: imeActive ? 28 : 0
+
+    // =========================================================================
+    // 🚀【CPU 控制流：3秒冷却防抖 (Cooldown Debounce)】
+    // =========================================================================
+    readonly property bool cpuBubbleEnabled: (config && config.showCpuBubble !== false)
+    readonly property int cpuThreshold: (config && config.cpuThreshold !== undefined) ? config.cpuThreshold : 75
+    readonly property int currentCpu: (bridge && bridge.cpuPercent !== undefined) ? bridge.cpuPercent : 0
+
+    // 内部迟滞状态：为 true 时保持显示
+    property bool _cpuActiveHeld: false
+
+    onCurrentCpuChanged: {
+        if (!cpuBubbleEnabled) {
+            _cpuActiveHeld = false;
+            cpuHideTimer.stop();
+            return;
+        }
+
+        // 常驻显示模式
+        if (cpuThreshold === 0) {
+            _cpuActiveHeld = true;
+            cpuHideTimer.stop();
+            return;
+        }
+
+        // 核心防抖逻辑
+        if (currentCpu >= cpuThreshold) {
+            _cpuActiveHeld = true;    // 立刻显示
+            cpuHideTimer.stop();      // 打断正在倒计时的隐藏定时器
+        } else {
+            // 当 CPU 回落，且当前仍在显示时，开启 3 秒冷却倒计时
+            if (_cpuActiveHeld && !cpuHideTimer.running) {
+                cpuHideTimer.start();
+            }
+        }
+    }
+
+    property Timer cpuHideTimer: Timer {
+        interval: 3000 // 3 秒无高压后，平滑收缩隐藏
+        repeat: false
+        onTriggered: {
+            pipeline._cpuActiveHeld = false;
+        }
+    }
+
+    // 将最终渲染是否激活，绑定到迟滞持有的状态变量上
+    readonly property bool cpuActive: cpuBubbleEnabled && (cpuThreshold === 0 || _cpuActiveHeld)
+    readonly property int cpuWidth: cpuActive ? 58 : 0
+
+    // =========================================================================
 
     readonly property int unreadCount: (relay && relay.unreadCount > 0) ? relay.unreadCount : 0
     readonly property int noticeWidth: unreadCount > 0 ? (unreadCount >= 10 ? 40 : 34) : 0
@@ -46,10 +95,10 @@ QtObject {
     readonly property bool musicPlaying: (relay && relay.visualPlaying)
     readonly property int musicWidth: musicPlaying ? 40 : 0
 
-    // 声明式槽位排序表 (现在只有唯一的 recording 槽位)
     readonly property var registeredSlots: [
         { id: "recording", name: "录制与OBS",   priority: 95, width: pipeline.recWidth, active: pipeline.recActive, gap: 4 },
         { id: "ime",       name: "输入法",       priority: 85, width: pipeline.imeWidth, active: pipeline.imeActive, gap: 4 },
+        { id: "cpu",       name: "CPU负载告警",  priority: 82, width: pipeline.cpuWidth, active: pipeline.cpuActive, gap: 4 },
         { id: "countdown", name: "倒计时",       priority: 80, width: pipeline.cdWidth,  active: pipeline.cdActive,  gap: 4 },
         { id: "stopwatch", name: "秒表",         priority: 79, width: pipeline.swWidth,  active: pipeline.swActive,  gap: 4 },
         { id: "notice",    name: "通知角标",     priority: 75, width: pipeline.noticeWidth, active: pipeline.unreadCount > 0, gap: 4 },

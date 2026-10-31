@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/config.py
-# 🌟 生产级配置中心 (消除幽灵配置键 · 400ms 原子防抖落盘)
+# 🌟 生产级配置中心 (接入 CPU 告警调控)
 # ==========================================
 import os
 import json
@@ -37,8 +37,11 @@ CONFIG_SCHEMA = {
     "showWorkspaceName": {"default": True, "val": lambda v: bool(v)},
     "savedClocks": {"default": DEFAULT_SAVED_CLOCKS, "val": lambda v: list(v) if isinstance(v, list) else DEFAULT_SAVED_CLOCKS},
     "musicVisualizerBars": {"default": 5, "val": lambda v: max(3, min(8, int(v)))},
-    "showMemoryBubble": {"default": True, "val": lambda v: bool(v)},
-    "memoryThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
+    
+    # 🚀 替换为 CPU
+    "showCpuBubble": {"default": True, "val": lambda v: bool(v)},
+    "cpuThreshold": {"default": 75, "val": lambda v: max(0, min(95, int(v)))},
+    
     "sedentaryReminderEnabled": {"default": True, "val": lambda v: bool(v)},
     "sedentaryIntervalMinutes": {"default": 45, "val": lambda v: max(5, min(180, int(v)))},
     "sedentarySnoozeMinutes": {"default": 5, "val": lambda v: max(1, min(30, int(v)))},
@@ -46,7 +49,7 @@ CONFIG_SCHEMA = {
     "animStyle": {"default": "precision", "val": lambda v: str(v) if v in ("precision", "jelly") else "precision"},
     "hoverDwellTime": {"default": 240, "val": lambda v: max(50, min(2000, int(v)))},
     "hoverExpandEnabled": {"default": True, "val": lambda v: bool(v)},
-    "stealthTuckEnabled": {"default": False, "val": lambda v: bool(v)},  # 🚀 完全隐形深潜配置项
+    "stealthTuckEnabled": {"default": False, "val": lambda v: bool(v)},
     "autoHideDurationSeconds": {"default": 5, "val": lambda v: max(1, min(60, int(v)))},
     "tabOrder": {"default": DEFAULT_TAB_ORDER, "val": lambda v: list(v)},
     "showWorkspaceTab": {"default": True, "val": lambda v: bool(v)},
@@ -75,8 +78,11 @@ class ConfigManager(QObject):
     showWorkspaceNameChanged = Signal(bool)
     savedClocksChanged = Signal(list)
     musicVisualizerBarsChanged = Signal(int)
-    showMemoryBubbleChanged = Signal(bool)
-    memoryThresholdChanged = Signal(int)
+    
+    # 🚀 CPU 信号
+    showCpuBubbleChanged = Signal(bool)
+    cpuThresholdChanged = Signal(int)
+    
     sedentaryReminderEnabledChanged = Signal(bool)
     sedentaryIntervalMinutesChanged = Signal(int)
     sedentarySnoozeMinutesChanged = Signal(int)
@@ -84,7 +90,7 @@ class ConfigManager(QObject):
     animStyleChanged = Signal(str)
     hoverDwellTimeChanged = Signal(int)
     hoverExpandEnabledChanged = Signal(bool)
-    stealthTuckEnabledChanged = Signal(bool)  # 🚀 信号
+    stealthTuckEnabledChanged = Signal(bool)
     autoHideDurationSecondsChanged = Signal(int)
     tabOrderChanged = Signal(list)
     showWorkspaceTabChanged = Signal(bool)
@@ -244,7 +250,6 @@ class ConfigManager(QObject):
                         cleaned.append(name)
                 self._system_fonts = cleaned
             except Exception as e:
-                app_logger.warning(f"[Config] 加载系统字体库失败: {e}")
                 self._system_fonts = ["系统默认 (Default)"]
         return self._system_fonts
 
@@ -253,15 +258,16 @@ class ConfigManager(QObject):
     @musicVisualizerBars.setter
     def musicVisualizerBars(self, val): self._set_value("musicVisualizerBars", val, self.musicVisualizerBarsChanged)
 
-    @Property(bool, notify=showMemoryBubbleChanged)
-    def showMemoryBubble(self): return self._showMemoryBubble
-    @showMemoryBubble.setter
-    def showMemoryBubble(self, val): self._set_value("showMemoryBubble", val, self.showMemoryBubbleChanged)
+    # 🚀 CPU
+    @Property(bool, notify=showCpuBubbleChanged)
+    def showCpuBubble(self): return self._showCpuBubble
+    @showCpuBubble.setter
+    def showCpuBubble(self, val): self._set_value("showCpuBubble", val, self.showCpuBubbleChanged)
 
-    @Property(int, notify=memoryThresholdChanged)
-    def memoryThreshold(self): return self._memoryThreshold
-    @memoryThreshold.setter
-    def memoryThreshold(self, val): self._set_value("memoryThreshold", val, self.memoryThresholdChanged)
+    @Property(int, notify=cpuThresholdChanged)
+    def cpuThreshold(self): return self._cpuThreshold
+    @cpuThreshold.setter
+    def cpuThreshold(self, val): self._set_value("cpuThreshold", val, self.cpuThresholdChanged)
 
     @Property(bool, notify=sedentaryReminderEnabledChanged)
     def sedentaryReminderEnabled(self): return self._sedentaryReminderEnabled
@@ -298,7 +304,6 @@ class ConfigManager(QObject):
     @hoverExpandEnabled.setter
     def hoverExpandEnabled(self, val): self._set_value("hoverExpandEnabled", val, self.hoverExpandEnabledChanged)
 
-    # 🚀【新增】：深潜完全隐形开关属性
     @Property(bool, notify=stealthTuckEnabledChanged)
     def stealthTuckEnabled(self): return self._stealthTuckEnabled
     @stealthTuckEnabled.setter

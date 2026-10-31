@@ -1,7 +1,8 @@
 # ==========================================
 # 📄 File: backend/core/sni_base.py
-# 🌟 通用 FreeDesktop SNI 与 Canonical DBusMenu 协议网关 (消除幽灵驻留修复版)
+# 🌟 通用 FreeDesktop SNI 与 Canonical DBusMenu 协议网关 (双名追踪·死活强校验版)
 # ==========================================
+import os
 import time
 from typing import Optional, List, Dict, Any, Callable
 
@@ -18,16 +19,60 @@ class BaseSniClient:
     def __init__(self, bus: Optional[MessageBus], service_keywords: List[str], fallback_dest: str = ""):
         self.bus = bus
         self.keywords = [k.lower() for k in service_keywords]
+        
+        # 🚀【架构关键 4】：同时跟踪通用服务名 (Well-Known)、唯一连接名 (Unique Owner) 和物理 PID
         self.sni_dest: Optional[str] = fallback_dest or None
+        self.sni_unique_owner: Optional[str] = None
+        self.sni_pid: Optional[int] = None
+
         self.sni_path: str = "/StatusNotifierItem"
         self.menu_path: str = "/MenuBar"
         self.is_registered: bool = False
         self._is_probing: bool = False
 
-    def reset(self):
-        """物理重置所有绑定状态"""
+    def reset(self, reason: str = "Unspecified"):
+        """彻底清理状态并打印排查日志"""
+        if self.is_registered or self.sni_dest:
+            app_logger.info(f"🔌 [SNI::RESET] 触发物理注销 (原因: {reason}) | 原目标: {self.sni_dest} (Owner: {self.sni_unique_owner}, PID: {self.sni_pid})")
         self.sni_dest = None
+        self.sni_unique_owner = None
+        self.sni_pid = None
         self.is_registered = False
+
+    async def verify_liveness(self) -> bool:
+        """🚀【架构关键 5】：主动向 D-Bus 和内核发起存活性双重鉴权"""
+        if not self.is_registered or not self.sni_dest or not self.bus:
+            return False
+
+        # 1. 物理 PID 校验
+        if self.sni_pid is not None:
+            try:
+                os.kill(self.sni_pid, 0)
+            except OSError:
+                self.reset(f"PID {self.sni_pid} 在系统进程表中已彻底消亡")
+                return False
+
+        # 2. D-Bus 总线归属权校验
+        try:
+            r = await self.bus.call(
+                Message(
+                    destination="org.freedesktop.DBus",
+                    path="/org/freedesktop/DBus",
+                    interface="org.freedesktop.DBus",
+                    member="NameHasOwner",
+                    signature="s",
+                    body=[self.sni_unique_owner or self.sni_dest]
+                )
+            )
+            if r.message_type != MessageType.ERROR and r.body:
+                if not bool(r.body[0]):
+                    self.reset("D-Bus 报告目标服务已失去连接持有人 (NameHasOwner == False)")
+                    return False
+        except Exception as e:
+            self.reset(f"D-Bus 存活鉴权调用异常: {e}")
+            return False
+
+        return True
 
     async def discover(self) -> bool:
         if not self.bus or self._is_probing:
@@ -56,14 +101,14 @@ class BaseSniClient:
                     dest = parts[0]
                     obj_path = "/" + parts[1] if len(parts) > 1 else "/StatusNotifierItem"
 
-                    # 1. 快速比对服务名
+                    # 匹配服务名称
                     dest_lower = dest.lower()
                     if any(k in dest_lower for k in self.keywords):
                         found_dest = dest
                         found_path = obj_path
                         break
 
-                    # 2. 深度读取 Id 校验
+                    # 深度匹配 Id 属性
                     try:
                         id_rep = await self.bus.call(
                             Message(destination=dest, path=obj_path,
@@ -79,8 +124,8 @@ class BaseSniClient:
                                 break
                     except Exception:
                         pass
-        except Exception:
-            pass
+        except Exception as e:
+            app_logger.debug(f"[BaseSniClient::discover] 探测异常: {e}")
         finally:
             self._is_probing = False
 
@@ -88,14 +133,38 @@ class BaseSniClient:
             await self._bind_sni(found_dest, found_path)
             return True
         else:
-            # 🚀【核心修复 1】：一旦在 RegisteredStatusNotifierItems 中找不到，必须将句柄彻底清空！
-            self.reset()
+            if self.is_registered:
+                self.reset("在 RegisteredStatusNotifierItems 扫描中未发现目标，判定已离线")
             return False
 
     async def _bind_sni(self, dest: str, obj_path: str):
         self.sni_dest = dest
         self.sni_path = obj_path
         self.is_registered = True
+
+        # 解析它的 Unique Owner 和 Unix PID
+        try:
+            owner_reply = await self.bus.call(
+                Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                        interface="org.freedesktop.DBus", member="GetNameOwner",
+                        signature="s", body=[dest])
+            )
+            if owner_reply.body:
+                self.sni_unique_owner = str(owner_reply.body[0])
+
+            pid_reply = await self.bus.call(
+                Message(destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+                        interface="org.freedesktop.DBus", member="GetConnectionUnixProcessID",
+                        signature="s", body=[self.sni_unique_owner or dest])
+            )
+            if pid_reply.body:
+                self.sni_pid = int(pid_reply.body[0])
+        except Exception:
+            pass
+
+        app_logger.info(f"🔗 [SNI::BIND] 成功挂载目标 -> Dest: {dest} (Owner: {self.sni_unique_owner}, PID: {self.sni_pid})")
+
+        # 解析菜单对象路径
         try:
             menu_rep = await self.bus.call(
                 Message(destination=dest, path=obj_path,
