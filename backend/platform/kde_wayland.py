@@ -82,6 +82,10 @@ class KdePlasmaWaylandAdapter(PlatformAdapter):
             ("acceptfocusrule", "2"),
             ("fsplevel", "0"),
             ("fsplevelrule", "2"),
+            ("fsp", "4"),       # 防焦点窃取：极限
+            ("fsprule", "2"),
+            ("fpp", "4"),       # 焦点保护：强制
+            ("fpprule", "2"),
         ]
 
         try:

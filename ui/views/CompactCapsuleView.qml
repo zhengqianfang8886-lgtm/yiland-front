@@ -1,6 +1,6 @@
 // ==========================================
 // 📄 File: ui/views/CompactCapsuleView.qml
-// 🌟 槽位自动化排版视图 (彻底修复 FluidSlotPod 新 API 属性报错版)
+// 🌟 槽位自动化排版视图 (彻底清除瞬杀显隐 · 释放全行程退场动效版)
 // ==========================================
 import QtQuick
 import "../core"
@@ -24,26 +24,27 @@ Item {
     readonly property string currentKey: fsm ? String(fsm.activeTransientKey) : ""
     readonly property var currentPayload: (fsm && fsm.activePayload) ? fsm.activePayload : ({})
 
+    readonly property real actualContentWidth: contentStream.implicitWidth
+
     IslandSlotPipeline {
         id: pipeline
         bridge: (typeof Bridge !== "undefined" && Bridge !== null) ? Bridge : null
         relay: compactRoot.relay
         config: (typeof Config !== "undefined" && Config !== null) ? Config : null
-        clockWidth: clockView.implicitWidth
+        clockWidth: Math.ceil(clockView.implicitWidth / 2) * 2
     }
 
     readonly property bool isMusicPlaying: (compactRoot.relay && compactRoot.relay.visualPlaying !== undefined) ? Boolean(compactRoot.relay.visualPlaying) : false
     readonly property int unreadNoticeCount: (compactRoot.relay && compactRoot.relay.unreadCount !== undefined) ? Number(compactRoot.relay.unreadCount) : 0
     readonly property bool isImeActive: (typeof Bridge !== "undefined" && Bridge.isImeActive !== undefined) ? Boolean(Bridge.isImeActive) : false
 
-    // 🚀 统一暴露出所有内置了 D-Bus 级联菜单的组件状态
     readonly property bool isAnyMenuOpen: (imeSlot && imeSlot.isMenuOpen) || 
                                           (recSlot && recSlot.isMenuOpen) || 
                                           (cpuSlot && cpuSlot.isMenuOpen)
     
-    // 兼容外层引用的别名
     readonly property bool isImeMenuOpen: isAnyMenuOpen
 
+    // 独立暂态视图所需的自然宽度
     readonly property int naturalWidth: {
         if (hasActiveTransient) {
             switch (compactRoot.currentKey) {
@@ -68,22 +69,20 @@ Item {
         anchors.fill: parent
         visible: opacity > 0.001
         opacity: !compactRoot.hasActiveTransient ? 1.0 : 0.0
-        Behavior on opacity { NumberAnimation { duration: compactRoot.hasActiveTransient ? 60 : 150; easing.type: Easing.OutQuad } }
+        Behavior on opacity { NumberAnimation { duration: compactRoot.hasActiveTransient ? 80 : 180; easing.type: Easing.OutQuad } }
 
         Row {
             id: contentStream
             anchors.centerIn: parent
-            spacing: 5
+            spacing: 6
 
             // [左侧]: 工作区
             FluidSlotPod {
                 id: wsSlot
                 slotId: "workspace"
                 slotName: "工作区标识"
-                targetWidth: pipeline.wsWidth
-                gapSpacing: 5
-                
-                // 🚀 使用新的 API
+                targetWidth: Math.ceil(pipeline.wsWidth / 2) * 2
+                gapSpacing: 4
                 themeColor: "#ffffff"
                 showBackground: true
                 interactive: false
@@ -111,7 +110,7 @@ Item {
                 displayPeriod: (compactRoot.timeService && compactRoot.timeService.displayPeriod !== undefined) ? String(compactRoot.timeService.displayPeriod) : ""
             }
 
-            // [右侧]: 零间距流体插槽
+            // [右侧]: 零间距流体插槽组 (已彻底拔除全部 visible: targetWidth > 0)
             Row {
                 id: rightSlotGroup
                 anchors.verticalCenter: parent.verticalCenter
@@ -121,11 +120,9 @@ Item {
                 FluidSlotPod {
                     id: cdSlot
                     slotId: "countdown"
-                    targetWidth: pipeline.cdWidth
+                    targetWidth: Math.ceil(pipeline.cdWidth / 2) * 2
                     gapSpacing: 4
                     readonly property bool isOvertime: (typeof Bridge !== "undefined" && Bridge.cdIsOvertime !== undefined) ? Boolean(Bridge.cdIsOvertime) : false
-                    
-                    // 🚀 使用新的 API
                     themeColor: isOvertime ? "#FF453A" : ((typeof Bridge !== "undefined" && Bridge.cdMode === "break") ? "#30D158" : "#FF9F0A")
                     showBackground: true
 
@@ -152,10 +149,8 @@ Item {
                 FluidSlotPod {
                     id: swSlot
                     slotId: "stopwatch"
-                    targetWidth: pipeline.swWidth
+                    targetWidth: Math.ceil(pipeline.swWidth / 2) * 2
                     gapSpacing: 4
-                    
-                    // 🚀 使用新的 API
                     themeColor: "#38BDF8"
                     showBackground: true
 
@@ -173,7 +168,7 @@ Item {
                         pixelSize: 14
                         textColor: "#38BDF8"
                         isOvertime: false
-                        totalSeconds: (typeof Bridge !== "undefined" && Bridge.swElapsedSec !== undefined) ? Number(Bridge.swElapsedSec) : 0
+                        totalSeconds: (typeof Bridge !== "undefined") ? (cdSlot.isOvertime ? Number(Bridge.swElapsedSec) : Number(Bridge.swElapsedSec)) : 0
                         isPaused: (typeof Bridge !== "undefined" && Bridge.swIsPaused !== undefined) ? Boolean(Bridge.swIsPaused) : false
                     }
                 }
@@ -182,10 +177,10 @@ Item {
                 FluidSlotPod {
                     id: netSlot
                     slotId: "netspeed"
-                    targetWidth: pipeline.netWidth
+                    targetWidth: Math.ceil(pipeline.netWidth / 2) * 2
                     gapSpacing: 4
                     interactive: false
-                    showBackground: false // 🚀 无背景色
+                    showBackground: false
 
                     CompactNetSpeedView {
                         anchors.centerIn: parent
@@ -197,13 +192,12 @@ Item {
                     }
                 }
 
-                // 🚀 CPU 高负载告警微囊
+                // CPU 高负载告警
                 FluidSlotPod {
                     id: cpuSlot
                     slotId: "cpu"
-                    targetWidth: pipeline.cpuWidth
+                    targetWidth: Math.ceil(pipeline.cpuWidth / 2) * 2
                     gapSpacing: 4
-                    
                     themeColor: innerCpu.riskColor
                     showBackground: true
                     
@@ -221,13 +215,12 @@ Item {
                     }
                 }
 
-                // 🚀 录制与 OBS 槽位
+                // 录制与 OBS
                 FluidSlotPod {
                     id: recSlot
                     slotId: "recording"
-                    targetWidth: pipeline.recWidth
+                    targetWidth: Math.ceil(pipeline.recWidth / 2) * 2
                     gapSpacing: 4
-                    
                     themeColor: "#FF453A"
                     showBackground: true
                     
@@ -243,13 +236,12 @@ Item {
                     CompactRecordPill { id: recPill }
                 }
 
-                // 🚀 输入法槽位
+                // 🚀 输入法：彻底铲除 visible: targetWidth > 0，由底层 320ms 平滑收缩定生死！
                 FluidSlotPod {
                     id: imeSlot
                     slotId: "ime"
-                    targetWidth: pipeline.imeWidth
+                    targetWidth: Math.ceil(pipeline.imeWidth / 2) * 2
                     gapSpacing: 4
-                    
                     themeColor: "#ffffff"
                     showBackground: true
                     
@@ -268,9 +260,8 @@ Item {
                 FluidSlotPod {
                     id: noticeSlot
                     slotId: "notification"
-                    targetWidth: pipeline.noticeWidth
+                    targetWidth: Math.ceil(pipeline.noticeWidth / 2) * 2
                     gapSpacing: 4
-                    
                     themeColor: "#818CF8"
                     showBackground: true
 
@@ -300,9 +291,8 @@ Item {
                 FluidSlotPod {
                     id: musicSlot
                     slotId: "music"
-                    targetWidth: pipeline.musicWidth
+                    targetWidth: Math.ceil(pipeline.musicWidth / 2) * 2
                     gapSpacing: 4
-                    
                     readonly property color internalThemeColor: (compactRoot.relay && compactRoot.relay.dominantColor !== undefined) ? compactRoot.relay.dominantColor : "#22c55e"
                     themeColor: internalThemeColor
                     showBackground: true

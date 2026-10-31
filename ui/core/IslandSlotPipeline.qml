@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandSlotPipeline.qml
-// 🌟 声明式槽位注册与仲裁管线引擎 (新增 3 秒驻留防抖 CPU 模型版)
+// 🌟 声明式槽位注册与仲裁管线引擎 (网速 58px 偶数扩充版)
 // =========================================================================
 import QtQuick
 import "IslandLogger.js" as Logger
@@ -29,24 +29,30 @@ QtObject {
     readonly property bool swActive: (bridge && bridge.swActive)
     readonly property int swWidth: swActive ? (bridge.swElapsedSec >= 3600 ? 102 : 76) : 0
 
+    // 🚀【同步扩充至 58px】：容纳大号粗体网速文字
     readonly property bool netEnabled: (config && config.showNetSpeed !== false)
-    readonly property int netWidth: netEnabled ? 56 : 0
+    readonly property int netWidth: netEnabled ? 58 : 0
 
     readonly property bool recActive: (bridge && bridge.isRecordingActive !== undefined) ? Boolean(bridge.isRecordingActive) : false
-    readonly property bool hasObsIcon: (bridge && bridge.recordingIcon !== undefined && bridge.recordingIcon !== "")
-    readonly property int recWidth: recActive ? (hasObsIcon ? 58 : 28) : 0
+    readonly property bool isObsPresent: {
+        if (!recActive) return false;
+        if (bridge && bridge.recordingIcon !== undefined && bridge.recordingIcon !== "") return true;
+        if (bridge && bridge.recordingItems) {
+            for (var i = 0; i < bridge.recordingItems.length; i++) {
+                if (bridge.recordingItems[i] && bridge.recordingItems[i].is_obs) return true;
+            }
+        }
+        return false;
+    }
+    readonly property int recWidth: recActive ? (isObsPresent ? 58 : 28) : 0
 
     readonly property bool imeActive: (bridge && bridge.isImeActive)
     readonly property int imeWidth: imeActive ? 28 : 0
 
-    // =========================================================================
-    // 🚀【CPU 控制流：3秒冷却防抖 (Cooldown Debounce)】
-    // =========================================================================
     readonly property bool cpuBubbleEnabled: (config && config.showCpuBubble !== false)
     readonly property int cpuThreshold: (config && config.cpuThreshold !== undefined) ? config.cpuThreshold : 75
     readonly property int currentCpu: (bridge && bridge.cpuPercent !== undefined) ? bridge.cpuPercent : 0
 
-    // 内部迟滞状态：为 true 时保持显示
     property bool _cpuActiveHeld: false
 
     onCurrentCpuChanged: {
@@ -55,20 +61,15 @@ QtObject {
             cpuHideTimer.stop();
             return;
         }
-
-        // 常驻显示模式
         if (cpuThreshold === 0) {
             _cpuActiveHeld = true;
             cpuHideTimer.stop();
             return;
         }
-
-        // 核心防抖逻辑
         if (currentCpu >= cpuThreshold) {
-            _cpuActiveHeld = true;    // 立刻显示
-            cpuHideTimer.stop();      // 打断正在倒计时的隐藏定时器
+            _cpuActiveHeld = true;
+            cpuHideTimer.stop();
         } else {
-            // 当 CPU 回落，且当前仍在显示时，开启 3 秒冷却倒计时
             if (_cpuActiveHeld && !cpuHideTimer.running) {
                 cpuHideTimer.start();
             }
@@ -76,18 +77,13 @@ QtObject {
     }
 
     property Timer cpuHideTimer: Timer {
-        interval: 3000 // 3 秒无高压后，平滑收缩隐藏
+        interval: 3000
         repeat: false
-        onTriggered: {
-            pipeline._cpuActiveHeld = false;
-        }
+        onTriggered: pipeline._cpuActiveHeld = false
     }
 
-    // 将最终渲染是否激活，绑定到迟滞持有的状态变量上
     readonly property bool cpuActive: cpuBubbleEnabled && (cpuThreshold === 0 || _cpuActiveHeld)
     readonly property int cpuWidth: cpuActive ? 58 : 0
-
-    // =========================================================================
 
     readonly property int unreadCount: (relay && relay.unreadCount > 0) ? relay.unreadCount : 0
     readonly property int noticeWidth: unreadCount > 0 ? (unreadCount >= 10 ? 40 : 34) : 0
@@ -119,7 +115,7 @@ QtObject {
 
     readonly property int naturalCapsuleWidth: {
         var baseTotal = 24 + clockWidth;
-        if (wsWidth > 0) baseTotal += (wsWidth + 5);
+        if (wsWidth > 0) baseTotal += (wsWidth + 4);
         if (calculatedRightWidth > 0) baseTotal += (calculatedRightWidth + 4);
         return Math.ceil(baseTotal / 4.0) * 4;
     }

@@ -76,7 +76,8 @@ class TimerModule(BaseModule):
                             self.cd_remaining_sec = 0
                             self.cd_overtime = True
                             self.cd_overtime_sec = 0
-                            self.trigger_overlay(
+                            # 🚀【修复】：通过 state 设置遮罩并发送广播，绝不崩溃
+                            self.state.set_overlay(
                                 key="ALERT",
                                 title="休息结束" if self.cd_mode == "break" else "专注时间到",
                                 subtitle="已自动开启超时追溯，可随时完成",
@@ -84,6 +85,7 @@ class TimerModule(BaseModule):
                                 duration_ms=4500,
                                 priority=45
                             )
+                            self.notify("OVERLAY_CHANGED")
 
                 self._sync_to_state()
                 self.notify("TIMER_UPDATE")

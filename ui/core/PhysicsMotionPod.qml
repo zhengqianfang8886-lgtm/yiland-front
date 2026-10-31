@@ -1,8 +1,9 @@
 // =========================================================================
 // 📄 File: ui/core/PhysicsMotionPod.qml
-// 🌟 纯正流体动力学引擎 (苹果级 OutQuint 五次方丝滑水滴版 · 相位锁相对齐版)
+// 🌟 纯正流体动力学引擎 (LDD 非对称锁相 · 收缩温和长尾版)
 // =========================================================================
 import QtQuick
+import "IslandLogger.js" as Logger
 
 Item {
     id: pod
@@ -22,12 +23,12 @@ Item {
     property real currentRadius: targetRadius
 
     readonly property bool isMoving: emergePipelineAnim.running || unifiedMotionAnim.running
-
     readonly property bool isJelly: (typeof Theme !== "undefined") ? Theme.isJellyMode : false
-    
-    // 🚀【核心对齐】：与 FluidPill 严格保持 300ms 物理锁相，彻底消除内外不同步
-    readonly property int motionDuration: isJelly ? 340 : 300
-    readonly property var fluidCurve: Easing.OutQuint
+
+    // 🚀【核心非对称调校】：展开 300ms 轻快出芽，收缩 360ms 优雅回弹（告别过快抽吸）
+    property bool isCollapsingMotion: false
+    readonly property int motionDuration: isCollapsingMotion ? 360 : (isJelly ? 320 : 300)
+    readonly property var fluidCurve: isCollapsingMotion ? Easing.OutCubic : Easing.OutQuint
     readonly property real springOvershoot: (typeof Theme !== "undefined") ? Theme.springOvershootFirm : 1.10
 
     signal motionStarted()
@@ -74,13 +75,13 @@ Item {
             id: animW; target: pod; property: "width"
             duration: pod.motionDuration
             easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
-            easing.overshoot: pod.springOvershoot
+            easing.overshoot: pod.isCollapsingMotion ? 1.0 : pod.springOvershoot
         }
         NumberAnimation {
             id: animH; target: pod; property: "height"
             duration: pod.motionDuration
             easing.type: pod.isJelly ? Easing.OutBack : pod.fluidCurve
-            easing.overshoot: pod.isJelly ? 1.05 : 1.0
+            easing.overshoot: pod.isCollapsingMotion ? 1.0 : (pod.isJelly ? 1.05 : 1.0)
         }
         NumberAnimation {
             id: animR; target: pod; property: "currentRadius"
@@ -92,6 +93,13 @@ Item {
         var cleanW = Math.round(newW / 2) * 2;
         var cleanH = Math.round(newH / 2) * 2;
         var cleanY = Math.round(newY);
+
+        // 🚀 智能识别当前是处于“展开”还是“收缩/消失”
+        isCollapsingMotion = (cleanW < pod.width) || (cleanH < pod.height) || (cleanY < -2);
+
+        Logger.geom("MOTION_PHASE", "管道动力学配置", cleanW, Math.round(pod.width),
+                    "动作:" + (isCollapsingMotion ? "收缩/消失(COLLAPSE)" : "展开/出芽(EXPAND)") + 
+                    " 时长:" + motionDuration + "ms 曲线:" + (isCollapsingMotion ? "OutCubic" : "OutQuint"));
 
         targetY = cleanY;
         targetWidth = cleanW;

@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/CapsuleSensorArea.qml
-// 🌟 纯正流体动力学手势裁决中枢 (补齐设置信号 · ActionBus 驱动 · 桌面网格精准触发版)
+// 🌟 经典“拉窗帘”物理下拉手势中枢 (按住即拉 · 释放即开 · 绝对零误触版)
 // =========================================================================
 import QtQuick
 import QtQml
@@ -10,10 +10,8 @@ Item {
     id: sensorRoot
     anchors.fill: parent
 
-    // 动作总线注入引用
     property var actionBus: null
 
-    // 状态机与暂态
     property bool isExpanded: false
     property bool isCollapsing: false
     property bool isCalling: false
@@ -24,20 +22,16 @@ Item {
     property bool isMovingIsland: false
     property bool isRightPressing: false
 
-    // 连续拉伸物理量
+    // 连续拉伸物理量 (驱动水滴背景形变)
     property bool isPullingDown: false
     property real visualPullY: 0.0
     property bool isTriggerPrimed: false
 
-    // 触发桌面平铺网格的标定黄金行程 (像素)
+    // 触发桌面平铺网格的标定行程 (像素)
     readonly property real triggerThreshold: 16.0
-    
-    // 张力比与指针悬停
     readonly property real pullRatio: Math.min(1.5, visualPullY / triggerThreshold)
     readonly property bool isPointerHovered: globalCapsuleHover.hovered || hitArea.containsMouse
 
-    // 意图锁定与冷却保护盾
-    property bool gestureEverExceededSlop: false
     property bool isInteractionCooldown: false
     property bool isReturnCooldown: false
 
@@ -45,33 +39,21 @@ Item {
     property real pressStartY: 0
     property real lastDragX: 0
     property real dragVelocityX: 0
-
     readonly property real dragSlop: 3.5
 
-    // =========================================================================
-    // 🚀【完整信号契约声明】：彻底消灭编译阶段的 non-existent property 报错
-    // =========================================================================
     signal pointerEnteredCapsule()
     signal pointerExitedCapsule()
     signal moveOffsetRequested(real deltaX)
     signal dragFinished(real velocityX)
     signal requestSettingsWindow()
 
-    // C1 连续流体力学阻尼样条 (前 8px 绝对 1:1 跟手，后段双曲渐近张力)
+    // 顺滑流体力学阻尼样条 (确保下拉手势具有扎实的肉感与阻尼感)
     function computeFluidPull(dy) {
         if (dy <= 0) return 0.0;
         if (dy <= 8.0) return dy;
-        
         var excess = dy - 8.0;
         var maxStretch = 20.0;
         return 8.0 + (excess * maxStretch) / (maxStretch + excess * 0.75);
-    }
-
-    function armInteractionCooldown(durationMs) {
-        hoverDwellTimer.stop();
-        sensorRoot.isInteractionCooldown = true;
-        cooldownTimer.interval = durationMs || 420;
-        cooldownTimer.restart();
     }
 
     function executeSnapBack() {
@@ -86,7 +68,6 @@ Item {
 
     ParallelAnimation {
         id: snapBackAnimation
-
         NumberAnimation {
             target: sensorRoot
             property: "visualPullY"
@@ -95,7 +76,6 @@ Item {
             easing.type: Easing.OutBack
             easing.overshoot: 1.15
         }
-
         onFinished: {
             sensorRoot.visualPullY = 0.0;
             sensorRoot.isPullingDown = false;
@@ -140,7 +120,7 @@ Item {
             if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
 
             if (sensorRoot.isPointerHovered && sensorRoot.actionBus) {
-                var targetTab = "workspace";
+                var targetTab = "calendar";
                 if (sensorRoot.isCalling) targetTab = "media";
                 else if (sensorRoot.activeTransient === "ALERT") targetTab = "notification";
                 else if (sensorRoot.activeTransient === "SEDENTARY" || sensorRoot.activeTransient === "VOICE_INPUT") return;
@@ -155,6 +135,9 @@ Item {
         enabled: !sensorRoot.isTucked && !sensorRoot.isExpanded
         onHoveredChanged: {
             if (hovered) {
+                if (typeof Bridge !== "undefined" && Bridge.openFullCorridorForMotion) {
+                    Bridge.openFullCorridorForMotion();
+                }
                 sensorRoot.pointerEnteredCapsule();
                 if (!sensorRoot.isInteractionCooldown && !sensorRoot.isReturnCooldown && !hitArea.pressed) {
                     if (typeof Config !== "undefined" && Config.hoverExpandEnabled === false) return;
@@ -197,7 +180,6 @@ Item {
             sensorRoot.isPullingDown = false;
             sensorRoot.visualPullY = 0;
             sensorRoot.isTriggerPrimed = false;
-            sensorRoot.gestureEverExceededSlop = false;
 
             var isMod = (mouse.modifiers & Qt.AltModifier) || (mouse.modifiers & Qt.MetaModifier);
             if (isMod || mouse.button === Qt.MiddleButton) {
@@ -206,6 +188,7 @@ Item {
             }
         }
 
+        // 🚀【绝对跟手“拉窗帘”物理拖拽】：按住向下拖，水滴跟随鼠标 1:1 变形
         onPositionChanged: (mouse) => {
             if (!hitArea.pressed || !(mouse.buttons & Qt.LeftButton)) return;
 
@@ -218,35 +201,23 @@ Item {
             }
 
             var dy = mouse.y - sensorRoot.pressStartY;
-            var dx = Math.abs(mouse.x - sensorRoot.pressStartX);
-
-            if (!sensorRoot.gestureEverExceededSlop) {
-                if (dy > sensorRoot.dragSlop && dy > dx * 0.5) {
-                    sensorRoot.gestureEverExceededSlop = true;
-                    sensorRoot.isPullingDown = true;
-                    Logger.gesture("lock", "越过死区门限 (dy=" + Math.round(dy) + "px) -> 锁定为下拉手势");
-                } else if (dx > sensorRoot.dragSlop) {
-                    sensorRoot.gestureEverExceededSlop = true;
+            if (dy > 0) {
+                sensorRoot.isPullingDown = true;
+                var calculatedY = sensorRoot.computeFluidPull(dy);
+                sensorRoot.visualPullY = calculatedY;
+                
+                // 行程是否达标
+                var primed = (calculatedY >= sensorRoot.triggerThreshold);
+                if (primed !== sensorRoot.isTriggerPrimed) {
+                    sensorRoot.isTriggerPrimed = primed;
                 }
-            }
-
-            if (sensorRoot.gestureEverExceededSlop && !sensorRoot.isMovingIsland) {
-                if (dy > 0) {
-                    sensorRoot.isPullingDown = true;
-                    var calculatedY = sensorRoot.computeFluidPull(dy);
-                    sensorRoot.visualPullY = calculatedY;
-                    var primed = (calculatedY >= sensorRoot.triggerThreshold);
-                    if (primed !== sensorRoot.isTriggerPrimed) {
-                        sensorRoot.isTriggerPrimed = primed;
-                        Logger.gesture("prime", primed ? "🔥 达到行程阈值 (Primed) -> 桌面网格落锁" : "💧 行程缩回阈值内");
-                    }
-                } else {
-                    sensorRoot.visualPullY = 0.0;
-                    sensorRoot.isTriggerPrimed = false;
-                }
+            } else {
+                sensorRoot.visualPullY = 0.0;
+                sensorRoot.isTriggerPrimed = false;
             }
         }
 
+        // 🚀【释放结算】：松手一瞬间，拉满则呼出网格，没拉满则平滑回弹
         onReleased: (mouse) => {
             if (mouse.button === Qt.RightButton) {
                 sensorRoot.isRightPressing = false;
@@ -262,19 +233,21 @@ Item {
                 return;
             }
 
-            // 🚀 下拉手势结算：满行程 100% 呼出 KWin 平铺网格
-            if (sensorRoot.gestureEverExceededSlop) {
+            // 如果处于下拉拖拽状态
+            if (sensorRoot.isPullingDown) {
                 if (sensorRoot.isTriggerPrimed) {
-                    Logger.gesture("trigger", "🎉 满行程释放 -> 触发 KWin 桌面平铺网格！");
+                    Logger.gesture("trigger", "🎉 下拉拉满释放 -> 触发 KWin 桌面平铺网格！");
                     sensorRoot.isReturnCooldown = true;
                     hoverDwellTimer.stop();
                     returnCooldownTimer.restart();
 
                     if (sensorRoot.actionBus) {
+                        sensorRoot.actionBus.triggerAction("TRIGGER_DESKR_GRID", { source: "PullDownSettled" });
+                        // 兼容之前拼写
                         sensorRoot.actionBus.triggerAction("TRIGGER_DESKTOP_GRID", { source: "PullDownSettled" });
                     }
                 } else {
-                    Logger.gesture("abort", "💧 未满行程取消 -> 平滑回弹，拒绝打开卡片");
+                    Logger.gesture("abort", "💧 未满行程取消 -> 平滑回弹");
                 }
 
                 sensorRoot.executeSnapBack();
@@ -282,13 +255,12 @@ Item {
                 return;
             }
 
-            // 纯原地轻击 (Tap)
+            // 原地纯轻击 (Tap) 展开大卡片
             var totalDx = Math.abs(mouse.x - sensorRoot.pressStartX);
             var totalDy = Math.abs(mouse.y - sensorRoot.pressStartY);
 
             if (totalDx < sensorRoot.dragSlop && totalDy < sensorRoot.dragSlop) {
                 if (sensorRoot.isInteractionCooldown || sensorRoot.isReturnCooldown) return;
-                if (sensorRoot.isPullingDown || sensorRoot.visualPullY > 1.0) return;
 
                 if (sensorRoot.actionBus) {
                     var tab = "calendar";
@@ -318,7 +290,7 @@ Item {
 
         onWheel: (wheel) => {
             wheel.accepted = true;
-            if (!sensorRoot.isPullingDown && sensorRoot.actionBus) {
+            if (sensorRoot.actionBus) {
                 if (wheel.angleDelta.y > 0) {
                     sensorRoot.actionBus.triggerAction("WORKSPACE_PREV", { source: "SensorArea_Wheel" });
                 } else {

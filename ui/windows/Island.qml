@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/windows/Island.qml
-// 🌟 顶级窗口视图 (280ms 迟滞防抖 · 全域防失焦感知 · 780x520大走廊版)
+// 🌟 顶级窗口视图 (全局遮罩离开守卫 · 彻底消灭下方点击穿透失败版)
 // =========================================================================
 import QtQuick
 import QtQml
@@ -115,7 +115,7 @@ Item {
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
     }
 
-    // 🚀【核心设计：全域综合悬停判定】：过道 + 胶囊根级实体 + 任意菜单处于展开状态
+    // 全域综合悬停判定
     readonly property bool isUserHovering: corridorArea.containsMouse || 
                                           corridorHover.hovered || 
                                           (capsule && capsule.isHovered)
@@ -129,10 +129,13 @@ Item {
             if (fsm.currentState !== IslandFsm.State.Expanded) {
                 userLeaveDebounce.restart();
             }
+            // 🚀【终极补丁】：只要鼠标离开整个岛屿，无条件强制下发精细遮罩，把下方控制权还给屏幕！
+            if (capsule && !capsule.isCurrentExpanded && !capsule.isAnyMenuOpen) {
+                capsule.executeActualMaskCommit();
+            }
         }
     }
 
-    // 静态过道感应区：负责顶部触碰唤醒
     MouseArea {
         id: corridorArea
         anchors.horizontalCenter: parent.horizontalCenter
@@ -142,7 +145,6 @@ Item {
 
         readonly property bool isExpanded: fsm ? (fsm.currentState === IslandFsm.State.Expanded) : false
         enabled: !isExpanded && !root.isGridActive && !(capsule && capsule.isActivelyPulling)
-        // 深潜模式下探测高度放宽至 18px，触发极其跟手自然
         height: isExpanded ? 0 : ((fsm && fsm.currentState === IslandFsm.State.Hidden) ? 18 : 52)
 
         z: 5
@@ -154,13 +156,11 @@ Item {
             enabled: !root.isGridActive
         }
 
-        // 🚀【核心设计：280ms 科学迟滞时间】：从 70ms 提升到 280ms，彻底消除瞬间误缩回！
         Timer {
             id: userLeaveDebounce
             interval: 280
             repeat: false
             onTriggered: {
-                // 只有当鼠标真真切切离开胶囊、离开过道、且没有任何菜单打开时，才执行深潜隐藏
                 if (fsm.currentState !== IslandFsm.State.Expanded && !root.isUserHovering) {
                     fsm.handleIntent("USER_IDLE", { source: "Hysteresis_Guard_Timeout" });
                 }

@@ -1,9 +1,10 @@
 // =========================================================================
 // 📄 File: ui/components/capsule/FluidSlotPod.qml
-// 🌟 终极通用流体微囊底座 (内置 Apple-Tier 质感与级联菜单版)
+// 🌟 通用流体微囊底座 (消除内容瞬灭 · 320ms 全程等比缩放与淡出版)
 // =========================================================================
 import QtQuick
-import "../tray" // 引入级联菜单组件
+import "../tray"
+import "../../core/IslandLogger.js" as Logger
 
 Item {
     id: podRoot
@@ -15,11 +16,9 @@ Item {
     property real podRadius: podHeight / 2
     property int gapSpacing: 4
 
-    // 🚀 核心抽象：通过一个 themeColor 控制全局背景与悬停色
     property color themeColor: "#ffffff"
     property bool showBackground: true
     
-    // 交互与菜单配置
     property bool interactive: true
     property int acceptedButtons: Qt.LeftButton | Qt.RightButton
     property int cursorShape: Qt.PointingHandCursor
@@ -36,33 +35,43 @@ Item {
     default property alias contentData: contentSlot.data
 
     readonly property bool isAlive: targetWidth > 0
-    readonly property real effectiveTargetFootprint: isAlive ? (targetWidth + gapSpacing) : 0.0
+    readonly property real effectiveTargetFootprint: isAlive ? (Math.ceil((targetWidth + gapSpacing) / 2) * 2) : 0.0
+
+    // 记住最后的有效宽度，供退场全程对账
+    property real lastActiveTargetWidth: 32.0
+    onTargetWidthChanged: {
+        if (targetWidth > 0) {
+            lastActiveTargetWidth = targetWidth;
+        }
+    }
 
     width: 0.0
     height: podHeight
     anchors.verticalCenter: parent ? parent.verticalCenter : undefined
     clip: true
-    visible: width > 0.2
+
+    // 🚀【定海神针】：只有当实体宽度真正收敛到 0.5px 以内，才彻底卸载渲染，动画中全程可见！
+    visible: width > 0.5
 
     Behavior on width {
+        id: widthAnimBehavior
         NumberAnimation {
-            duration: 300
-            easing.type: Easing.OutQuint
+            duration: 320
+            easing.type: Easing.OutCubic
+            onRunningChanged: {
+                if (running) {
+                    Logger.slot(podRoot.slotId, "START", "插槽起跑 -> 目标: " + podRoot.effectiveTargetFootprint + "px");
+                } else {
+                    podRoot.width = podRoot.effectiveTargetFootprint;
+                    Logger.slot(podRoot.slotId, "SETTLE", "插槽定格 -> 实体: " + Math.round(podRoot.width) + "px");
+                }
+            }
         }
     }
 
     onEffectiveTargetFootprintChanged: {
+        Logger.geom("SLOT_TARGET", "[" + slotId + "] 收到目标占位变更", effectiveTargetFootprint, Math.round(width));
         podRoot.width = effectiveTargetFootprint;
-    }
-
-    readonly property real expansionRatio: {
-        if (!isAlive || targetWidth <= 0) return 0.0;
-        return Math.min(1.0, Math.max(0.0, (width - gapSpacing) / targetWidth));
-    }
-
-    function smoothStep(e0, e1, x) {
-        var t = Math.max(0.0, Math.min(1.0, (x - e0) / Math.max(0.0001, e1 - e0)));
-        return t * t * (3.0 - 2.0 * t);
     }
 
     function closeAllMenus() {
@@ -78,7 +87,6 @@ Item {
         radius: podRoot.podRadius
         antialiasing: true
 
-        // 🚀 完美的 Apple-Tier 玻璃态自动渲染
         color: podRoot.showBackground ? 
                (mouseArea.containsMouse ? Qt.rgba(podRoot.themeColor.r, podRoot.themeColor.g, podRoot.themeColor.b, 0.25) : 
                                           Qt.rgba(podRoot.themeColor.r, podRoot.themeColor.g, podRoot.themeColor.b, 0.15)) : 
@@ -91,13 +99,19 @@ Item {
         Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 150 } }
 
+        // 🚀【终极修复核心】：让内容槽直接根据气泡当前宽度线性衰减（Progress 0.0 ~ 1.0）
+        // 彻底消灭原先的硬切断，不管伸展还是收缩，内部图标全程陪伴气泡呼吸！
         Item {
             id: contentSlot
             anchors.centerIn: parent
-            width: podRoot.targetWidth > 0 ? podRoot.targetWidth : parent.width
+            width: Math.max(0.0, podRoot.width - podRoot.gapSpacing)
             height: parent.height
-            opacity: podRoot.smoothStep(0.12, 0.55, podRoot.expansionRatio)
-            scale: 0.75 + 0.25 * podRoot.smoothStep(0.08, 0.85, podRoot.expansionRatio)
+
+            readonly property real animProgress: Math.max(0.0, Math.min(1.0, (podRoot.width - podRoot.gapSpacing) / Math.max(1.0, podRoot.lastActiveTargetWidth)))
+
+            // 二次方平滑衰减曲线：退场时由 1.0 极其柔和地滑向 0.0，消除断崖感
+            opacity: animProgress * animProgress
+            scale: 0.55 + 0.45 * animProgress
         }
 
         MouseArea {

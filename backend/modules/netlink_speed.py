@@ -1,190 +1,184 @@
 # =========================================================================
 # 📄 File: backend/modules/netlink_speed.py
-# 🌟 基于 Linux 原生 Netlink 的高精度测速器 (带 ifi_index 严密校验与防抖)
+# 🌟 工业级自适应网络速率采样引擎 (路由感知防翻倍 · 时间补偿EMA · 宽动态范围版)
 # =========================================================================
-import socket
-import struct
+import os
+import math
 import time
-import collections
-from typing import Optional, Tuple, Dict
-
-# Linux Netlink 内核常量
-RTM_GETLINK = 18
-RTM_NEWLINK = 16
-NLM_F_REQUEST = 1
-NLM_F_DUMP = 0x300
-IFLA_STATS64 = 23
+from typing import Tuple, Dict, Optional
 
 
 def format_speed_structured(bytes_per_sec: float) -> Dict[str, str]:
+    """工业级结构化格式化：纯整数、平滑过渡、绝不粗暴吞噬低速流量"""
+    # 🚀【合理底噪滤波】：仅过滤低于 256 B/s 的局域网杂乱心跳，保留真实的微弱流量
     if bytes_per_sec < 256:
         return {"full": "0 B/s", "val": "0", "unit": "B/s", "compact": "0B"}
     elif bytes_per_sec < 1024:
-        val_str = str(int(bytes_per_sec))
+        # 显示真实字节
+        val_str = str(int(round(bytes_per_sec)))
         return {"full": f"{val_str} B/s", "val": val_str, "unit": "B/s", "compact": f"{val_str}B"}
     elif bytes_per_sec < 1048576:
-        kb = bytes_per_sec / 1024.0
-        val_str = f"{int(kb)}" if kb >= 100 else f"{kb:.1f}"
-        return {"full": f"{kb:.1f} KB/s", "val": val_str, "unit": "K/s", "compact": f"{val_str}K"}
+        # KB/s (1024 ~ 1MB)
+        kb = int(round(bytes_per_sec / 1024.0))
+        val_str = str(kb)
+        return {"full": f"{val_str} KB/s", "val": val_str, "unit": "K/s", "compact": f"{val_str}K"}
     elif bytes_per_sec < 1073741824:
-        mb = bytes_per_sec / 1048576.0
-        val_str = f"{mb:.1f}"
-        return {"full": f"{mb:.1f} MB/s", "val": val_str, "unit": "M/s", "compact": f"{val_str}M"}
+        # MB/s (1MB ~ 1GB)
+        mb = int(round(bytes_per_sec / 1048576.0))
+        val_str = str(mb)
+        return {"full": f"{val_str} MB/s", "val": val_str, "unit": "M/s", "compact": f"{val_str}M"}
     else:
-        gb = bytes_per_sec / 1073741824.0
-        val_str = f"{gb:.1f}"
-        return {"full": f"{gb:.2f} GB/s", "val": val_str, "unit": "G/s", "compact": f"{val_str}G"}
+        # GB/s
+        gb = int(round(bytes_per_sec / 1073741824.0))
+        val_str = str(gb)
+        return {"full": f"{val_str} GB/s", "val": val_str, "unit": "G/s", "compact": f"{val_str}G"}
 
 
 class NetlinkSpeedSampler:
-    """Linux 原生 Netlink 流量采样器 (严格校验 ifi_index 与 Sequence)"""
+    """
+    工业级 Linux 网络流量采样引擎
+    核心特性：
+      1. 动态默认网关路由感知：杜绝 VPN/TUN 代理模式导致的 200% 流量双重统计
+      2. 时间补偿型自适应 EMA：消除线程休眠抖动带来的计算失真
+      3. /sys/class/net 极速统计读取，避免解析整个 /proc 产生的冗余开销
+    """
 
     def __init__(self, window_span_sec: float = 1.0, socket_timeout: float = 0.08):
-        self.window_span = window_span_sec
-        self.socket_timeout = socket_timeout
-        self.samples = collections.deque()
-        self.last_iface = ""
-        self.ifindex = 0
-        self.seq = 1000
-        self.sock: Optional[socket.socket] = None
-        self._init_socket()
+        self._last_time: float = 0.0
+        self._last_rx_bytes: int = 0
+        self._last_tx_bytes: int = 0
+        self._initialized: bool = False
 
-    def _init_socket(self):
-        try:
-            self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
-            self.sock.settimeout(self.socket_timeout)
-        except OSError:
-            self.sock = None
+        # EMA 滤波状态
+        self._ema_rx: float = 0.0
+        self._ema_tx: float = 0.0
+
+        # 当前锁定的主网络接口 (如 eth0, wlan0)
+        self._primary_iface: Optional[str] = None
+        self._last_route_check_time: float = 0.0
+
+        # 滤波时间常数 tau (秒)，越小响应越灵敏，越大越平滑；1.0s 为视觉黄金平衡
+        self._time_constant: float = 1.0
 
     def close(self):
-        if self.sock:
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-            self.sock = None
+        pass
 
-    @staticmethod
-    def get_default_interface() -> str:
-        """从内核路由表获取默认出口物理网卡名"""
+    def _get_default_gateway_interface(self) -> Optional[str]:
+        """从 /proc/net/route 中嗅探当前承担全局默认网关出口的主网卡"""
         try:
             with open("/proc/net/route", "r", encoding="ascii") as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) >= 2 and parts[1] == "00000000":
-                        return parts[0]
-        except OSError:
+                lines = f.readlines()[1:]
+                for line in lines:
+                    fields = line.strip().split()
+                    if len(fields) >= 2:
+                        iface = fields[0]
+                        dest = fields[1]
+                        # 00000000 表示默认网关 0.0.0.0
+                        if dest == "00000000":
+                            return iface
+        except Exception:
             pass
-        return ""
-
-    def _query_stats64(self, target_ifindex: int) -> Optional[Tuple[int, int]]:
-        """向内核下发 RTM_GETLINK 并严格匹配 target_ifindex 提取 rx/tx 字节数"""
-        if not self.sock or target_ifindex <= 0:
-            return None
-
-        # 清除缓冲区可能积压的历史数据
-        try:
-            while True:
-                self.sock.recv(4096, socket.MSG_DONTWAIT)
-        except (BlockingIOError, OSError):
-            pass
-
-        self.seq += 1
-        current_seq = self.seq
-
-        # nlmsghdr (16B) + ifinfomsg (16B)
-        nlmsg_len = 32
-        req = struct.pack(
-            "=IHHII B B H i I I",
-            nlmsg_len, RTM_GETLINK, NLM_F_REQUEST, current_seq, 0,
-            0, 0, 0, target_ifindex, 0, 0
-        )
-        try:
-            self.sock.send(req)
-            data = self.sock.recv(8192)
-        except OSError:
-            return None
-
-        offset = 0
-        data_len = len(data)
-
-        # 遍历可能返回的 Netlink 多段消息
-        while offset + 16 <= data_len:
-            msg_len, msg_type, flags, msg_seq, pid = struct.unpack_from("=IHHII", data, offset)
-            if msg_len < 16 or offset + msg_len > data_len:
-                break
-
-            # 校验 sequence 确保是当前请求的应答
-            if msg_seq == current_seq and msg_type == RTM_NEWLINK and msg_len >= 32:
-                # 🚀【核心修复】：读取 struct ifinfomsg 中的 ifi_index
-                # ifinfomsg 偏移: offset + 16, 结构为: B(family), B(pad), H(type), i(ifi_index), I(flags), I(change)
-                _, _, _, packet_ifindex, _, _ = struct.unpack_from("=BBHiII", data, offset + 16)
-
-                # 必须与目标物理网卡严格匹配！绝不把其他接口（如 lo 的大流量）误当成本网卡！
-                if packet_ifindex == target_ifindex:
-                    rta_offset = offset + 32
-                    payload_len = msg_len - 32
-                    while payload_len >= 4:
-                        rta_len, rta_type = struct.unpack_from("=HH", data, rta_offset)
-                        if rta_len < 4 or rta_len > payload_len:
-                            break
-
-                        if rta_type == IFLA_STATS64 and rta_len >= 4 + 32:
-                            # rtnl_link_stats64: 偏移 16 为 rx_bytes(8B), 偏移 24 为 tx_bytes(8B)
-                            rx_bytes, tx_bytes = struct.unpack_from("=QQ", data, rta_offset + 4 + 16)
-                            return rx_bytes, tx_bytes
-
-                        aligned_len = (rta_len + 3) & ~3
-                        rta_offset += aligned_len
-                        payload_len -= aligned_len
-
-            aligned_msg_len = (msg_len + 3) & ~3
-            offset += aligned_msg_len
-
         return None
 
-    def tick(self) -> Tuple[float, float]:
-        """获取瞬时平滑速率 (rx_rate, tx_rate)，单位：字节/秒"""
-        cur_iface = self.get_default_interface()
-        if not cur_iface:
-            self.samples.clear()
-            return 0.0, 0.0
+    def _read_interface_counters(self, iface: str) -> Tuple[int, int]:
+        """直接从 sysfs 高速通道读取单网卡的 64 位精准计数器，速度比解析整个 /proc 快数倍"""
+        base_path = f"/sys/class/net/{iface}/statistics"
+        try:
+            with open(f"{base_path}/rx_bytes", "r", encoding="ascii") as f_rx:
+                rx = int(f_rx.read().strip())
+            with open(f"{base_path}/tx_bytes", "r", encoding="ascii") as f_tx:
+                tx = int(f_tx.read().strip())
+            return rx, tx
+        except (OSError, ValueError):
+            return 0, 0
 
-        if cur_iface != self.last_iface:
-            try:
-                self.ifindex = socket.if_nametoindex(cur_iface)
-                self.last_iface = cur_iface
-            except OSError:
-                self.ifindex = 0
-            self.samples.clear()
+    def _read_total_transfer_fallback(self) -> Tuple[int, int]:
+        """兜底方案：遍历 /proc/net/dev，仅排除明确的虚拟环回接口"""
+        total_rx = 0
+        total_tx = 0
+        ignored = ("lo", "docker", "veth", "virbr", "br-", "vmnet")
+        try:
+            with open("/proc/net/dev", "r", encoding="ascii", errors="ignore") as f:
+                lines = f.readlines()[2:]
+                for line in lines:
+                    colon_idx = line.find(":")
+                    if colon_idx == -1:
+                        continue
+                    iface = line[:colon_idx].strip()
+                    if any(iface.startswith(prefix) for prefix in ignored):
+                        continue
+                    parts = line[colon_idx + 1:].split()
+                    if len(parts) >= 9:
+                        total_rx += int(parts[0])
+                        total_tx += int(parts[8])
+        except Exception:
+            pass
+        return total_rx, total_tx
 
-        stats = self._query_stats64(self.ifindex)
-        if not stats:
-            return 0.0, 0.0
-
-        rx, tx = stats
+    def _get_current_bytes(self) -> Tuple[int, int]:
         now = time.monotonic()
-        self.samples.append((now, rx, tx))
+        # 每 5 秒对账一次主路由网卡，以防 WiFi 切换或网线拔插
+        if now - self._last_route_check_time > 5.0 or not self._primary_iface:
+            self._primary_iface = self._get_default_gateway_interface()
+            self._last_route_check_time = now
 
-        while len(self.samples) > 2:
-            if now - self.samples[0][0] > self.window_span:
-                self.samples.popleft()
-            else:
-                break
+        if self._primary_iface:
+            rx, tx = self._read_interface_counters(self._primary_iface)
+            if rx > 0 or tx > 0:
+                return rx, tx
 
-        if len(self.samples) >= 2:
-            oldest = self.samples[0]
-            newest = self.samples[-1]
-            dt = newest[0] - oldest[0]
-            if dt > 0.1 and newest[1] >= oldest[1] and newest[2] >= oldest[2]:
-                rx_rate = (newest[1] - oldest[1]) / dt
-                tx_rate = (newest[2] - oldest[2]) / dt
+        # 无默认路由时（如内网多网卡并发），降级到多网卡汇总
+        return self._read_total_transfer_fallback()
 
-                # 🚀【防溢出卫语句】：物理网卡单机吞吐保护门限 (例如过滤大于 500MB/s 的单秒突变跳跃)
-                if rx_rate > 500 * 1024 * 1024 or tx_rate > 500 * 1024 * 1024:
-                    self.samples.clear()
-                    return 0.0, 0.0
+    def tick(self) -> Tuple[float, float]:
+        now = time.monotonic()
+        cur_rx, cur_tx = self._get_current_bytes()
 
-                return rx_rate, tx_rate
+        if not self._initialized:
+            self._last_time = now
+            self._last_rx_bytes = cur_rx
+            self._last_tx_bytes = cur_tx
+            self._initialized = True
+            return 0.0, 0.0
 
-        return 0.0, 0.0
+        dt = now - self._last_time
+        # 防止过频调用引发除以零错误
+        if dt < 0.2:
+            return self._ema_rx, self._ema_tx
+
+        delta_rx = cur_rx - self._last_rx_bytes
+        delta_tx = cur_tx - self._last_tx_bytes
+
+        # 网卡重连重置或计数器回绕保护
+        if delta_rx < 0 or delta_tx < 0:
+            self._last_rx_bytes = cur_rx
+            self._last_tx_bytes = cur_tx
+            self._last_time = now
+            return 0.0, 0.0
+
+        raw_rx_rate = delta_rx / dt
+        raw_tx_rate = delta_tx / dt
+
+        self._last_rx_bytes = cur_rx
+        self._last_tx_bytes = cur_tx
+        self._last_time = now
+
+        # 🚀【核心算法改进：时间补偿型自适应 EMA】
+        # 无论线程是 0.9s 还是 1.2s 唤醒一次，物理平滑效果保持严格一致
+        alpha = 1.0 - math.exp(-dt / self._time_constant)
+
+        # 动态跟手加速：当瞬时速度远超当前平均值时（如下载突发），加大 alpha 极速响应
+        alpha_rx = min(1.0, alpha * (1.8 if raw_rx_rate > self._ema_rx * 2 else 1.0))
+        alpha_tx = min(1.0, alpha * (1.8 if raw_tx_rate > self._ema_tx * 2 else 1.0))
+
+        # 更新 EMA
+        self._ema_rx = alpha_rx * raw_rx_rate + (1.0 - alpha_rx) * self._ema_rx
+        self._ema_tx = alpha_tx * raw_tx_rate + (1.0 - alpha_tx) * self._ema_tx
+
+        # 自然归零：若瞬时无流量，平滑衰减到 128 B/s 以下时迅速置零，杜绝久久不灭
+        if raw_rx_rate < 128 and self._ema_rx < 256:
+            self._ema_rx = 0.0
+        if raw_tx_rate < 128 and self._ema_tx < 256:
+            self._ema_tx = 0.0
+
+        return self._ema_rx, self._ema_tx

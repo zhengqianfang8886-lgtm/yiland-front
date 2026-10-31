@@ -1,6 +1,6 @@
 // =========================================================================
 // 📄 File: ui/core/IslandLogger.js
-// 🌟 统一日志驱动遥测引擎 (结构化时标 · 模块徽章 · 级别过滤)
+// 🌟 统一日志驱动遥测引擎 (LDD 专职毫秒高精度探针版)
 // =========================================================================
 .pragma library
 
@@ -40,5 +40,16 @@ function slot(slotName, state, message) {
 }
 
 function action(actionName, message) {
-    console.log("[" + _timestamp() + "] ⚡ [ACTION_BUS] 触发业务动作 -> " + actionName + " | " + message);
+    console.log("[" + _timestamp() + "] ⚡ [ACTION_BUS] " + actionName + " | " + message);
+}
+
+// 🚀【LDD 专属几何探针】：高亮打印引发重排的尺寸跳变
+function geom(tag, source, targetW, actualW, extra) {
+    var ext = extra ? (" | " + extra) : "";
+    console.log("\x1b[36m[" + _timestamp() + "] 📐 [GEOM::" + tag + "]\x1b[0m " + source + " -> 目标宽: " + targetW + "px, 实体宽: " + actualW + "px" + ext);
+}
+
+// 🚀【LDD 专属跳变警报】：捕获二次重排
+function jitter(tag, reason, beforeVal, afterVal) {
+    console.log("\x1b[31;1m[" + _timestamp() + "] ⚠️ [JITTER-ALERT::" + tag + "]\x1b[0m " + reason + " (前值: " + beforeVal + " -> 现值: " + afterVal + ")");
 }

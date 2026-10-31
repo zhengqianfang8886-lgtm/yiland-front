@@ -1,6 +1,6 @@
 # ==========================================
 # 📄 File: backend/modules/recording/module.py
-# 🌟 原生录制与 OBS 驱动中枢 (多轨仲裁·结构化生命周期追踪版)
+# 🌟 原生录制与 OBS 驱动中枢 (多轨仲裁·原子状态下发版)
 # ==========================================
 import asyncio
 from typing import Optional, List, Dict, Any
@@ -86,12 +86,10 @@ class RecordingModule(BaseModule):
                 pass
 
         def on_dbus_signal(msg: Message):
-            # 1. 托盘注销或注册
             if msg.member in ("StatusNotifierItemRegistered", "StatusNotifierItemUnregistered"):
                 async def _on_reg_change():
                     if msg.member == "StatusNotifierItemUnregistered" and msg.body:
                         unreg_str = str(msg.body[0])
-                        # 如果注销项匹配当前绑定的通用名或唯一名
                         if (self.sni_client.sni_dest and self.sni_client.sni_dest in unreg_str) or \
                            (self.sni_client.sni_unique_owner and self.sni_client.sni_unique_owner in unreg_str):
                             self.sni_client.reset(f"收到 StatusNotifierItemUnregistered 信号 ({unreg_str})")
@@ -101,17 +99,14 @@ class RecordingModule(BaseModule):
 
                 self._loop.create_task(_on_reg_change())
 
-            # 2. 状态/图标更新
             elif msg.member in ("NewIcon", "NewStatus"):
                 self._schedule_debounced("DBus_SNI_Icon_Or_Status")
 
-            # 3. 🚀【架构关键 6】：D-Bus 进程死亡双向鉴权
             elif msg.member == "NameOwnerChanged" and msg.body:
                 name = str(msg.body[0])
                 old_owner = str(msg.body[1])
                 new_owner = str(msg.body[2])
 
-                # 只要是绑定的通用名、唯一所有者名，或者名字带有 OBS 的进程消亡
                 is_bound_dest = (self.sni_client.sni_dest and name == self.sni_client.sni_dest)
                 is_bound_owner = (self.sni_client.sni_unique_owner and name == self.sni_client.sni_unique_owner)
                 is_named_obs = any(k in name.lower() for k in ("obs", "obsproject"))
@@ -124,7 +119,7 @@ class RecordingModule(BaseModule):
         self.bus.add_message_handler(on_dbus_signal)
 
     async def _sync_state_internal(self, trigger_source: str = "Debounced"):
-        # 1. 物理主动核验 SNI 存活状态 (双重鉴权)
+        # 1. 物理主动核验 SNI 存活状态
         await self.sni_client.verify_liveness()
 
         # 2. 梳理音频流
@@ -154,6 +149,7 @@ class RecordingModule(BaseModule):
         is_active = len(parsed_items) > 0
         obs_icon_url = ""
 
+        # 🚀【原子状态同步】：只要 OBS 确认在线立即下发图标路径，若不在线立即置空，杜绝残留
         if obs_is_present:
             provider = getattr(self.backend, "tray_image_provider", None)
             pixmaps = await self.sni_client.fetch_pixmaps()
@@ -161,9 +157,9 @@ class RecordingModule(BaseModule):
                 if provider.update_from_sni_pixmaps("obs", pixmaps) or not self.state.recording_icon_url:
                     self._icon_rev += 1
             obs_icon_url = f"image://tray/obs?r={self._icon_rev}"
+        else:
+            obs_icon_url = ""
 
-        # 4. 🚀【架构关键 7：结构化状态对账追踪日志】
-        # 仅在状态真正发生变化时打印，确保日志清晰，零刷屏
         sig = f"active:{is_active}|stream_obs:{obs_in_streams}|sni_reg:{self.sni_client.is_registered}|items:{len(parsed_items)}"
         if sig != self._last_arbitration_sig:
             self._last_arbitration_sig = sig
@@ -174,7 +170,7 @@ class RecordingModule(BaseModule):
                 f"SNI托盘判活: {self.sni_client.is_registered} (Dest: {self.sni_client.sni_dest}, PID: {self.sni_client.sni_pid})"
             )
 
-        # 5. 原子落盘
+        # 4. 原子落盘广播
         self.state.batch_update(
             recording_active=is_active,
             recording_items=parsed_items,
